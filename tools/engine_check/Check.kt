@@ -74,6 +74,11 @@ fun main(args: Array<String>) {
     Lexicon.fuzzyRules = emptySet()
     // 关掉模糊音后 lihao 不应再出你好
     if (Lexicon.candidates("lihao").take(5).any { it.w == "你好" }) fail++
+    // 记忆：全拼打过的“夏星月”，之后简拼 xxy 排第一
+    Lexicon.learnPhrase("夏星月", listOf("xia", "xing", "yue"))
+    val mem = Lexicon.candidates("xxy")
+    println("记忆 xxy → " + mem.take(5).joinToString(" ") { it.w })
+    if (mem.firstOrNull()?.w != "夏星月") fail++
     println(if (fail == 0) "ALL OK" else "$fail FAILED")
     check(fail == 0) { "$fail checks failed" }
 }

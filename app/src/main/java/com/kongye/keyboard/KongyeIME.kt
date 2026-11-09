@@ -101,6 +101,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var clipExpanded: Clip? = null
     private var clipPicking: Clip? = null
     private var tokens: List<String> = emptyList()
+    private var tokensFromBar = false
     private var emojiTab = 0
     private var symCat = 0
     /** 拼音条上的编辑光标：seq 里的下标，-1 表示在最后 */
@@ -130,6 +131,10 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var clipboard: ClipboardManager? = null
     private var ignoreClipUntil = 0L
     private var lastImageUri = ""
+    /** 刚复制的文字：在候选栏弹出快捷粘贴/分词/关闭条 */
+    private var pendingClipText: String? = null
+    private var pendingClipAt = 0L
+    private var dismissedClipText = ""
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { captureClip() }
 
     override fun onCreate() {
@@ -168,6 +173,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             val h = if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED && MeasureSpec.getSize(heightMeasureSpec) > 0)
                 MeasureSpec.getSize(heightMeasureSpec) else resources.displayMetrics.heightPixels
             super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
+            // 液态玻璃：窗口只要键盘（和正在显示的拼音条）那么高，系统模糊只作用在键盘后面
+            if (blurOn() && ::col.isInitialized) {
+                val extra = if (::tab.isInitialized && tab.visibility == View.VISIBLE) tab.measuredHeight else 0
+                setMeasuredDimension(measuredWidth, col.measuredHeight + extra)
+            }
         }
     }
 
@@ -219,9 +229,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             visibility = View.GONE
             heightOf = { keyboard.desiredHeight() }
         }
-        bottomStrip = BottomStrip(this, onKeyboard = {
-            getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
-        }, onClip = { if (panel == Panel.CLIP) closePanel() else openPanel(Panel.CLIP) })
+        // 左下角：收起键盘
+        bottomStrip = BottomStrip(this, onKeyboard = { requestHideSelf(0) }, onClip = { if (panel == Panel.CLIP) closePanel() else openPanel(Panel.CLIP) })
         val area = FrameLayout(this)
         area.addView(keyboard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         area.addView(panelHost, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
@@ -235,6 +244,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         r.addView(col, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
         tab = PinyinTab(this) { onTabCaret(it) }.apply { visibility = View.GONE }
         r.addView(tab, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.START))
+        // 拼音条出现、消失时，液态玻璃下的窗口高度要跟着变
+        tab.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom -> if (blurOn() && (bottom - top) != (oldBottom - oldTop)) r.requestLayout() }
         col.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionTab() }
         tab.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionTab() }
         r.setOnApplyWindowInsetsListener { _, insets ->
@@ -302,8 +313,26 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         shift = 0
         if (panel != Panel.NONE) closePanel(render = false)
+        checkPrimaryClipForSuggestion()
         applySkin()
         updateAutoCaps()
+    }
+
+    /** 打开键盘时检查系统剪贴板是否有新复制的文字（即使复制发生在键盘收起期间也能识别） */
+    private fun checkPrimaryClipForSuggestion() {
+        val cm = clipboard ?: return
+        val clip = runCatching { cm.primaryClip }.getOrNull() ?: return
+        val ts = clip.description?.timestamp ?: 0L
+        val recentCopy = ts > 0L && (System.currentTimeMillis() - ts) in 0..120_000L
+        val item = clip.getItemAt(0) ?: return
+        if (item.uri != null) return
+        val text = runCatching { item.coerceToText(this)?.toString() }.getOrNull()?.trim().orEmpty()
+        if (text.isEmpty()) return
+        ClipStore.add(text)
+        if ((recentCopy || pendingClipText == text) && text != dismissedClipText) {
+            pendingClipText = text
+            pendingClipAt = SystemClock.uptimeMillis()
+        }
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -337,7 +366,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     override fun onSharedPreferenceChanged(p: SharedPreferences?, key: String?) {
         if (key == Prefs.FUZZY) { Lexicon.fuzzyRules = Prefs.fuzzy(this); if (seq.isNotEmpty()) refreshComposing(); return }
         if (root == null || key in setOf(Prefs.ZH, Prefs.RECENT_EMOJI, Prefs.RECENT_SYM, Prefs.COUNT_TODAY, Prefs.COUNT_DATE, Prefs.FLOAT_X, Prefs.FLOAT_Y,
-                Prefs.TRANS_TO, Prefs.VOICE_LANG, Prefs.UPDATE_CHECKED)) return
+                Prefs.TRANS_TO, Prefs.VOICE_LANG, Prefs.VOICE_OFFLINE, Prefs.UPDATE_CHECKED)) return
         if (key == Prefs.FLOAT) { floating = prefs.getBoolean(Prefs.FLOAT, false); applyFloat(); return }
         // 调节键盘时改震动、按键音不用重建面板
         if (panel == Panel.ADJUST && key in setOf(Prefs.VIB_STRENGTH, Prefs.SOUND)) return
@@ -368,8 +397,23 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         keyboard.enterIcon = enterIcon(currentInputEditorInfo)
         applyFloatBackground(r)
         applyPads()
+        applyBlur()
         render()
         if (panel != Panel.NONE && rebuildPanel) buildPanel()
+    }
+
+    /** 系统支持跨窗口模糊（Android 12+）且开了液态玻璃、不是悬浮键盘 */
+    private fun blurOn(): Boolean = skin.glass && !floating && Build.VERSION.SDK_INT >= 31 &&
+        getSystemService(android.view.WindowManager::class.java)?.isCrossWindowBlurEnabled == true
+
+    /** 液态玻璃：让系统把键盘后面的内容模糊后透出来 */
+    private fun applyBlur() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val w = window?.window ?: return
+        val on = blurOn()
+        if (on) w.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
+        w.setBackgroundBlurRadius(if (on) (26 * resources.displayMetrics.density).toInt() else 0)
+        root?.requestLayout()
     }
 
     /** 键盘左右收进和底部留白（悬浮时不用） */
@@ -489,6 +533,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             sink == Sink.TRANSLATE -> bar.showMessage(transStatus.ifEmpty { "译文直接显示在输入框里，点“完成”确认；点左边的语言可以换" })
             panel in listOf(Panel.HAND, Panel.HAND_CANDS) && handCands.isNotEmpty() -> bar.showCandidates(handCands.map { w -> CandItem(w, if (w.any { it in '一'..'鿿' }) Lexicon.pinyinOf(w) else null) }, panel == Panel.HAND_CANDS)
             assoc.isNotEmpty() && (panel == Panel.NONE || panel == Panel.HAND) -> bar.showAssoc(assoc)
+            pendingClipText != null && panel == Panel.NONE && sink == Sink.NONE -> bar.showClipSuggestion(pendingClipText!!)
             else -> bar.showTools(listOf("more") + Prefs.tools(this), activeTool())
         }
     }
@@ -662,6 +707,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         pyCaret = -1
         cands = emptyList()
         if (::sinkStrip.isInitialized) sinkStrip.composing = ""
+        if (::tab.isInitialized) tab.reset()
     }
 
     private fun refreshComposing() {
@@ -698,10 +744,28 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (letterCount() == 0) { seq.clear(); finishPicks() } else refreshComposing()
     }
 
+    /** 一个字一个字连着打（中间没有别的输入）时，把它们合起来记成一个词，比如分三次打出的“夏星月” */
+    private val chainW = StringBuilder()
+    private val chainSyl = ArrayList<String>()
+    private var chainAt = 0L
+
+    private fun breakChain() { chainW.setLength(0); chainSyl.clear() }
+
+    private fun extendChain(text: String, syl: List<String>) {
+        val now = SystemClock.uptimeMillis()
+        if (now - chainAt > 6000 || text.length != 1 || syl.size != 1 || chainW.length >= 4) breakChain()
+        chainAt = now
+        if (text.length != 1 || syl.size != 1 || text[0] !in '一'..'鿿') return
+        chainW.append(text)
+        chainSyl.addAll(syl)
+        if (chainW.length >= 2) Lexicon.learnPhrase(chainW.toString(), chainSyl.toList())
+    }
+
     private fun finishPicks() {
         val text = pendingText()
         commitOut(text)
         if (learnOn() && picks.size >= 2 && picks.none { it.isRaw }) Lexicon.learnPhrase(text, picks.flatMap { it.syl })
+        if (learnOn() && picks.none { it.isRaw }) extendChain(text, picks.flatMap { it.syl }) else breakChain()
         picks.clear()
         cands = emptyList()
         assoc = if (zh && sink == Sink.NONE && flag(Prefs.ASSOC)) Lexicon.assoc(text) else emptyList()
@@ -794,6 +858,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
     }
 
+    /** 长按工具栏的编辑工具后左右滑 */
+    override fun onToolCursor(dir: Int) { onCursorMove(dir, 0) }
+
+    override fun onCursorModeChange(active: Boolean) {
+        if (::bar.isInitialized) bar.cursorMode = active
+        if (::bottomStrip.isInitialized) bottomStrip.cursorMode = active
+    }
+
     override fun onCursorMove(dx: Int, dy: Int) {
         if (seq.isNotEmpty() || sink != Sink.NONE) return
         when {
@@ -823,6 +895,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     private fun typeLetter(k: Key) {
+        pendingClipText?.let { dismissedClipText = it; pendingClipText = null }
         val ch = k.letters.take(1)
         if (!zh || layer != Layer.LETTERS || shift > 0) {
             if (seq.isNotEmpty()) finalizeComposing()
@@ -846,6 +919,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     private fun typeChar(s: String, paired: Boolean = false) {
+        breakChain()
+        pendingClipText?.let { dismissedClipText = it; pendingClipText = null }
         if (seq.isNotEmpty()) finalizeComposing()
         assoc = emptyList()
         commitOut(s)
@@ -890,6 +965,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             return
         }
         assoc = emptyList()
+        breakChain()
         if (sink != Sink.NONE) {
             if (sinkBuf.isNotEmpty()) sinkBuf.setLength(Character.offsetByCodePoints(sinkBuf, sinkBuf.length, -1))
             sinkStrip.value = sinkBuf.toString()
@@ -992,6 +1068,28 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         renderBar()
     }
 
+    override fun onClipPaste() {
+        val t = pendingClipText ?: return
+        dismissedClipText = t
+        pendingClipText = null
+        typeChar(t)
+    }
+
+    override fun onClipSplit() {
+        val t = pendingClipText ?: return
+        dismissedClipText = t
+        pendingClipText = null
+        tokens = Lexicon.segment(t)
+        tokensFromBar = true
+        openPanel(Panel.TOKENS)
+    }
+
+    override fun onClipDismiss() {
+        pendingClipText?.let { dismissedClipText = it }
+        pendingClipText = null
+        renderBar()
+    }
+
     override fun onTool(id: String) {
         // 再点一下正打开的那个工具：收起面板回到键盘
         if (panel != Panel.NONE && id == activeTool()) { closePanel(); return }
@@ -1079,9 +1177,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             sinkStrip.composing = voicePartial
             sinkStrip.micOn = listening
             sinkStrip.refresh()
+            if (sink == Sink.TRANSLATE) {
+                transStatus = if (listening) "● $voiceStatus" else voiceStatus
+                renderBar()
+                if (voicePartial.isNotEmpty()) onSinkChanged()
+            }
             return
         }
-        voiceBoard?.update(voiceText.toString() + voicePartial, voiceStatus, listening)
+        voiceBoard?.update(voiceText.toString(), voicePartial, voiceStatus, listening)
     }
 
     /** 四川话：系统识别服务没有四川话模型时，退回普通话 */
@@ -1122,21 +1225,38 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     main.postDelayed({ toggleListening() }, 200)
                     return
                 }
+                // 部分系统在流式识别结束后可能回调 ERROR_NO_MATCH，先保留已识别出的 partial 文字
+                val leftover = voicePartial.trim()
+                voicePartial = ""
+                if (leftover.isNotEmpty()) {
+                    if (voiceToSink) {
+                        sinkBuf.append(leftover)
+                        sinkStrip.value = sinkBuf.toString()
+                        onSinkChanged()
+                    } else {
+                        voiceText.append(leftover)
+                    }
+                }
                 voiceStatus = when (error) {
-                    SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没听到声音，点麦克风继续说"
+                    SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> if (leftover.isNotEmpty()) "语音已转文字" else "没听到声音，点麦克风继续说"
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "需要麦克风权限"
                     SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "语音识别需要联网，网络不通"
                     else -> "语音识别出错（$error），点麦克风再试"
                 }
-                voicePartial = ""
                 updateVoice()
             }
             override fun onResults(results: Bundle?) {
                 listening = false
-                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                val recognized = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                val text = recognized.ifEmpty { voicePartial }
                 voicePartial = ""
                 if (voiceToSink) {
-                    if (text.isNotEmpty()) { sinkBuf.append(text); sinkStrip.value = sinkBuf.toString(); onSinkChanged() }
+                    if (text.isNotEmpty()) {
+                        sinkBuf.append(text)
+                        sinkStrip.value = sinkBuf.toString()
+                        onSinkChanged()
+                    }
+                    voiceStatus = if (text.isNotEmpty()) "语音识别完成，正在翻译…" else "点麦克风继续说话"
                     updateVoice()
                     return
                 }
@@ -1158,15 +1278,68 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            // 装好了离线语音包就优先离线识别（断网也能用）
+            if (prefs.getBoolean(Prefs.VOICE_OFFLINE, false)) putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         })
         listening = true
         voiceStatus = "请说话…"
         updateVoice()
     }
 
+    /**
+     * 离线语音包：问系统的语音识别服务（谷歌语音服务）这个方言有没有离线模型，有就让它下载。
+     * 需要 Android 13+ 和支持设备端识别的语音服务；四川话目前没有系统离线包。
+     */
+    private fun voicePack() {
+        val dialect = prefs.getInt(Prefs.VOICE_LANG, 0)
+        fun say(s: String) { voiceStatus = s; updateVoice() }
+        if (Build.VERSION.SDK_INT < 33) { say("系统版本低于 Android 13，不能下载离线语音包"); return }
+        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) { say("这台手机的语音识别服务不支持离线识别"); return }
+        val tags = if (dialect == 1) listOf("zh-CN-sichuan", "cmn-Hans-CN-sichuan") else listOf("cmn-Hans-CN", "zh-CN")
+        val name = if (dialect == 1) "四川话" else "普通话"
+        val sr = runCatching { SpeechRecognizer.createOnDeviceSpeechRecognizer(this) }.getOrNull() ?: run { say("打不开设备端语音识别"); return }
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE, tags[0])
+        say("正在查询${name}离线包…")
+        sr.checkRecognitionSupport(intent, mainExecutor, object : android.speech.RecognitionSupportCallback {
+            override fun onSupportResult(s: android.speech.RecognitionSupport) {
+                fun has(list: List<String>) = list.any { l -> tags.any { t -> l.equals(t, true) } || (dialect == 0 && (l.startsWith("zh-CN", true) || l.startsWith("cmn-Hans", true))) }
+                when {
+                    has(s.installedOnDeviceLanguages) -> {
+                        prefs.edit().putBoolean(Prefs.VOICE_OFFLINE, true).apply()
+                        say("${name}离线包已经装好，断网也能识别")
+                    }
+                    has(s.pendingOnDeviceLanguages) -> say("${name}离线包正在下载，可以在通知栏看进度")
+                    has(s.supportedOnDeviceLanguages) -> {
+                        sr.triggerModelDownload(intent)
+                        prefs.edit().putBoolean(Prefs.VOICE_OFFLINE, true).apply()
+                        say("开始下载${name}离线包，可以在通知栏看进度")
+                    }
+                    else -> say("系统语音服务没有${name}离线包" + if (dialect == 1) "（四川话目前只能联网识别，按普通话模型）" else "")
+                }
+                sr.destroy()
+            }
+
+            override fun onError(error: Int) {
+                say("查询离线包失败（错误 $error）")
+                sr.destroy()
+            }
+        })
+    }
+
     private fun stopListening() {
         if (listening) runCatching { speech?.stopListening() }
         listening = false
+        val leftover = voicePartial.trim()
+        if (leftover.isNotEmpty()) {
+            voicePartial = ""
+            if (voiceToSink) {
+                sinkBuf.append(leftover)
+                sinkStrip.value = sinkBuf.toString()
+                onSinkChanged()
+            } else {
+                voiceText.append(leftover)
+            }
+        }
     }
 
     // —————————— 剪贴板 ——————————
@@ -1193,8 +1366,12 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             val text = runCatching { item.coerceToText(this)?.toString() }.getOrNull()
             if (text.isNullOrBlank()) return
             ClipStore.add(text)
+            val trimmed = text.trim()
+            pendingClipText = trimmed
+            pendingClipAt = SystemClock.uptimeMillis()
+            if (trimmed == dismissedClipText) dismissedClipText = ""
         }
-        if (panel == Panel.CLIP) buildPanel()
+        if (panel == Panel.CLIP) buildPanel() else renderBar()
     }
 
     private fun pasteClip(c: Clip) {
@@ -1225,7 +1402,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 message("已复制")
             }
             id == "edit" -> { startSink(Sink.EDIT, c.text, c); return }
-            id == "split" -> { tokens = Lexicon.segment(c.text); openPanel(Panel.TOKENS); return }
+            id == "split" -> { tokens = Lexicon.segment(c.text); tokensFromBar = false; openPanel(Panel.TOKENS); return }
             id == "cat" -> clipPicking = if (clipPicking === c) null else c
             id.startsWith("cat:") -> {
                 val cat = id.removePrefix("cat:")
@@ -1250,14 +1427,15 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         transResult = ""
         transStatus = ""
         sinkStrip.chip = if (mode == Sink.TRANSLATE) Translator.name(prefs.getString(Prefs.TRANS_TO, "auto") ?: "auto") else null
+        sinkStrip.translatedPreview = ""
         sinkStrip.micOn = false
         sinkStrip.onChip = { langPicking = !langPicking; renderBar() }
         sinkStrip.onMic = { voiceIntoSink() }
         sinkStrip.onClear = {
-            sinkBuf.setLength(0); sinkStrip.value = ""; sinkStrip.composing = ""; sinkStrip.refresh()
+            sinkBuf.setLength(0); sinkStrip.value = ""; sinkStrip.composing = ""; sinkStrip.translatedPreview = ""; sinkStrip.refresh()
             resetComposing(); onSinkChanged(); renderBar()
         }
-        sinkStrip.multiline = mode == Sink.EDIT || mode == Sink.TRANSLATE
+        sinkStrip.multiline = mode == Sink.EDIT
         sinkStrip.icon = when (mode) { Sink.EDIT -> R.drawable.ic_edit; Sink.TRANSLATE -> R.drawable.ic_translate; Sink.NEWCAT -> R.drawable.ic_clip; else -> R.drawable.ic_search }
         sinkStrip.hint = when (mode) { Sink.EDIT -> "修改内容"; Sink.TRANSLATE -> "输入要翻译的中文或外文"; Sink.NEWCAT -> "新分类的名字"; else -> "搜索剪贴板" }
         sinkStrip.value = initial
@@ -1305,28 +1483,36 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         clipSearch.visibility = View.VISIBLE
     }
 
-    /** 翻译：实时把译文作为组字文字放进编辑框，点“完成”才确定 */
+    /** 翻译：实时把译文作为组字文字放进编辑框，并在翻译条内同步预览，点“完成”才确定 */
     private fun runLiveTranslation() {
         if (sink != Sink.TRANSLATE) return
-        val text = sinkBuf.toString()
+        val text = (sinkBuf.toString() + sinkStrip.composing).trim()
         if (text.isBlank()) {
             Translator.cancel()
             transResult = ""
             transStatus = ""
+            sinkStrip.translatedPreview = ""
+            sinkStrip.refresh()
             ic()?.setComposingText("", 1)
             renderBar()
             return
         }
         val target = prefs.getString(Prefs.TRANS_TO, "auto") ?: "auto"
         Translator.run(applicationContext, text, false, target) { ok, result, status ->
-            if (sink != Sink.TRANSLATE || sinkBuf.toString() != text) return@run
-            if (ok) { transResult = result; ic()?.setComposingText(result, 1) }
+            if (sink != Sink.TRANSLATE || (sinkBuf.toString() + sinkStrip.composing).trim() != text) return@run
+            if (ok) {
+                transResult = result
+                sinkStrip.translatedPreview = result
+                sinkStrip.refresh()
+                ic()?.setComposingText(result, 1)
+            }
             transStatus = status
             renderBar()
         }
     }
 
     private fun voiceIntoSink() {
+        if (seq.isNotEmpty()) finalizeComposing()
         if (listening) { stopListening(); updateVoice(); return }
         voiceToSink = true
         voicePartial = ""
@@ -1413,7 +1599,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         val added = if (e in f) { f.remove(e); false } else { f.add(0, e); true }
         prefs.edit().putString(Prefs.FAV_EMOJI, f.joinToString("\u0001")).apply()
         message(if (added) "已收藏 $e" else "已取消收藏")
-        if (emojiTab == 2) buildPanel()
+        (panelHost.getChildAt(0) as? EmojiPanel)?.updateFavs(f)
     }
 
     private fun scroll(v: View) = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(v) }
@@ -1439,7 +1625,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         val v: View = when (panel) {
             Panel.NONE -> return
             Panel.EMOJI -> EmojiPanel(this, skin, recentEmoji(), favEmoji(), emojiTab, ::useEmoji, ::toggleFav,
-                onTab = { emojiTab = it; buildPanel() }) { onKey(Key(Kind.DEL)) }
+                onTab = { emojiTab = it }) { onKey(Key(Kind.DEL)) }
             Panel.CLIP -> ClipboardPanel(
                 this, skin, if (clipTab in ClipStore.tabs()) clipTab else "全部", clipQuery, clipExpanded, clipPicking,
                 onTab = { clipTab = it; clipExpanded = null; buildPanel() },
@@ -1452,10 +1638,13 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 onExpand = { clipExpanded = it; clipPicking = null; buildPanel() },
                 onAction = ::clipAction,
             )
-            Panel.TOKENS -> TokensPanel(this, skin, tokens, onInsert = { typeChar(it) }, onCopy = {
+            Panel.TOKENS -> TokensPanel(this, skin, tokens, onInsert = {
+                typeChar(it)
+                if (tokensFromBar) closePanel()
+            }, onCopy = {
                 ignoreClipUntil = SystemClock.uptimeMillis() + 1500
                 clipboard?.setPrimaryClip(ClipData.newPlainText("空叶键盘", it)); message("已复制")
-            }, onClose = { openPanel(Panel.CLIP) })
+            }, onClose = { if (tokensFromBar) closePanel() else openPanel(Panel.CLIP) })
             Panel.EDIT -> EditPanelView(this, skin, selecting) { editAction(it) }.also { editView = it }
             Panel.SKIN -> SkinPanel(
                 this, skin, Themes.all(this), Prefs.theme(this).id, p.getInt(Prefs.MODE, 0),
@@ -1484,8 +1673,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     },
                 )
             }
-            Panel.SYMBOL -> SymbolBoard(this, skin, symCats(), symCat, if (zh) "中文" else "英文",
-                onCat = { symCat = it; buildPanel() },
+            Panel.SYMBOL -> SymbolBoard(this, skin, ::symCats, symCat,
+                onCat = { symCat = it },
                 onSym = { s -> useSym(s) },
                 onBack = { closePanel(render = false); layer = Layer.LETTERS; render(); updateAutoCaps() },
                 onNum = { closePanel(render = false); layer = Layer.NUM; render() },
@@ -1522,6 +1711,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     if (t.isNotEmpty()) commitOut(t)
                 },
                 onPermission = { openSettings("grant_mic") },
+                onPack = { voicePack() },
             ).also { voiceBoard = it; it.update(voiceText.toString() + voicePartial, voiceStatus, listening) }
             Panel.CANDS -> scroll(CandFlowView(this, skin, cands.take(120).map { it.w }) { i -> cands.getOrNull(i)?.let { pick(it) } })
             Panel.HAND_CANDS -> scroll(CandFlowView(this, skin, handCands) { onCandidate(it) })

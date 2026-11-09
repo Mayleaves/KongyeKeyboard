@@ -181,10 +181,20 @@ class CandFlowView(context: Context, private val skin: Skin, private val items: 
     override fun onDraw(c: Canvas) {
         val fm = text.fontMetrics
         for ((i, r) in boxes.withIndex()) {
-            fill.color = if (i == pressed) skin.keyDown else skin.keyBg
+            val kongyeFirst = i == 0 && skin.style == SkinStyle.KONGYE
+            fill.color = when {
+                kongyeFirst && i == pressed -> darken(Color.rgb(240, 73, 44), 0.88f)
+                kongyeFirst -> Color.rgb(240, 73, 44)
+                i == pressed -> skin.keyDown
+                else -> skin.keyBg
+            }
             c.drawRoundRect(r, 10 * d, 10 * d, fill)
-            text.color = if (i == 0) skin.candHi else skin.keyFg
-            text.typeface = if (i == 0) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            text.color = when {
+                kongyeFirst -> Color.WHITE
+                i == 0 -> skin.candHi
+                else -> skin.keyFg
+            }
+            text.typeface = Typeface.DEFAULT
             c.drawText(items[i], r.centerX(), r.centerY() - (fm.ascent + fm.descent) / 2, text)
         }
     }
@@ -632,8 +642,11 @@ fun optionList(context: Context, skin: Skin, opts: List<Opt>): ScrollView {
 class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private val onClip: () -> Unit) : View(context) {
     private val d = resources.displayMetrics.density
     private val icons = Icons(context)
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     var skin: Skin = Skins.KONGYE
         set(v) { field = v; invalidate() }
+    var cursorMode: Boolean = false
+        set(v) { if (field != v) { field = v; invalidate() } }
     /** 系统手势区或导航栏的高度：图标画在它上面 */
     var inset = 0
         set(v) { field = v; requestLayout() }
@@ -647,7 +660,17 @@ class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private 
 
     override fun onDraw(c: Canvas) {
         val cy = (height - inset - extra) / 2f + (if (inset < 30 * d) inset / 4f else 0f)
-        icons.draw(c, R.drawable.ic_kbd, 30 * d, cy, 22f, skin.barFg)
+        if (cursorMode) {
+            // 光标模式底栏（照图2）：左地球图标，右深色圆角方块图标
+            icons.draw(c, R.drawable.ic_globe, 34 * d, cy, 24f, skin.keyFg)
+            val box = 36 * d
+            val rx = width - 36 * d
+            fill.color = if (skin.dark) Color.parseColor("#F2F2F2") else Color.parseColor("#111111")
+            c.drawRoundRect(RectF(rx - box / 2, cy - box / 2, rx + box / 2, cy + box / 2), 9 * d, 9 * d, fill)
+            icons.draw(c, R.drawable.ic_select_all, rx, cy, 20f, if (skin.dark) Color.parseColor("#111111") else Color.WHITE)
+            return
+        }
+        icons.draw(c, R.drawable.ic_kbd_hide, 30 * d, cy, 22f, skin.barFg)
         icons.draw(c, R.drawable.ic_clip_stack, width - 30 * d, cy, 22f, skin.barFg)
     }
 

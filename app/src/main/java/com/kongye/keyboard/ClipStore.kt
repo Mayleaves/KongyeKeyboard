@@ -14,7 +14,7 @@ class Clip(var text: String, var pinned: Boolean, var time: Long, val image: Str
  */
 object ClipStore {
     const val MAX = 500
-    val FIXED_TABS = listOf("全部", "置顶", "文本", "图片", "链接", "号码")
+    val FIXED_TABS = listOf("全部", "置顶", "文本", "图片")
 
     val items = ArrayList<Clip>()
     private var file: File? = null
@@ -106,8 +106,6 @@ object ClipStore {
 
     fun kind(c: Clip): String = when {
         c.image != null -> "图片"
-        LINK.containsMatchIn(c.text) -> "链接"
-        NUMBER.matches(c.text.trim()) || (c.text.length <= 40 && CODE.containsMatchIn(c.text)) -> "号码"
         else -> "文本"
     }
 
@@ -118,7 +116,7 @@ object ClipStore {
             (q.isEmpty() || (c.image == null && c.text.contains(q, ignoreCase = true))) && when (tab) {
                 "全部" -> true
                 "置顶" -> c.pinned
-                "文本", "图片", "链接", "号码" -> kind(c) == tab
+                "文本", "图片" -> kind(c) == tab
                 else -> c.cat == tab
             }
         }.sortedWith(compareByDescending<Clip> { it.pinned }.thenByDescending { it.time })

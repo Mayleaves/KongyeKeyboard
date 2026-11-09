@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 深邃暖曜渐变底色 -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="16"
+                android:startY="12"
+                android:endX="92"
+                android:endY="96"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF23252F" />
+                <item android:offset="0.55" android:color="#FF17181F" />
+                <item android:offset="1" android:color="#FF101116" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- 右上角暖红氛围柔光 -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="74"
+                android:centerY="30"
+                android:gradientRadius="52"
+                android:type="radial">
+                <item android:offset="0" android:color="#48F0492C" />
+                <item android:offset="1" android:color="#00F0492C" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

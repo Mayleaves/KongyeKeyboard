@@ -1,14 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 启动图标：一颗黑色键帽，上面落一片空叶的红叶 -->
+<!-- 空叶键盘新图标：立体机械键帽 + 键盘矩阵微雕 + 灵动朱红叶 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp"
-    android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#FF1B1B1B"
-        android:pathData="M40,33h28a11,11 0 0,1 11,11v22a11,11 0 0,1 -11,11h-28a11,11 0 0,1 -11,-11v-22a11,11 0 0,1 11,-11z" />
-    <path android:fillColor="#FFFAF8F5" android:pathData="M43,64h22a2,2 0 0,1 0,4h-22a2,2 0 0,1 0,-4z" />
-    <group android:translateX="39.6" android:translateY="31.6" android:scaleX="1.2" android:scaleY="1.2">
-        <path android:fillColor="#FFF0492C" android:pathData="M4.5,19.5C3.6,10.4 9.2,4.5 19.8,4.2c0.2,10.4 -5.4,16 -15.3,15.3z" />
-        <path android:fillColor="#00000000" android:strokeColor="#B3FFFFFF" android:strokeWidth="1.3"
-            android:strokeLineCap="round" android:pathData="M5,19c3.2,-4.8 6.6,-8.4 10.3,-11.2" />
-    </group>
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 键帽底层阴影与立体底座 -->
+    <path
+        android:fillColor="#40000000"
+        android:pathData="M36,31h36a14,14 0 0,1 14,14v32a14,14 0 0,1 -14,14h-36a14,14 0 0,1 -14,-14v-32a14,14 0 0,1 14,-14z" />
+    <path
+        android:fillColor="#FFD8DAE2"
+        android:pathData="M36,28h36a13,13 0 0,1 13,13v30a13,13 0 0,1 -13,13h-36a13,13 0 0,1 -13,-13v-30a13,13 0 0,1 13,-13z" />
+
+    <!-- 键帽顶面（象牙白微渐变） -->
+    <path android:pathData="M37,26h34a12,12 0 0,1 12,12v27a12,12 0 0,1 -12,12h-34a12,12 0 0,1 -12,-12v-27a12,12 0 0,1 12,-12z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30"
+                android:startY="26"
+                android:endX="78"
+                android:endY="77"
+                android:type="linear">
+                <item android:offset="0" android:color="#FFFFFFFF" />
+                <item android:offset="1" android:color="#FFF1F3F8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 键帽底部迷你键盘阵列（三颗小圆点键 + 空格长条） -->
+    <path
+        android:fillColor="#FFD0D4E0"
+        android:pathData="M36,59a2.2,2.2 0 1,0 4.4,0a2.2,2.2 0 1,0 -4.4,0zM45.8,59a2.2,2.2 0 1,0 4.4,0a2.2,2.2 0 1,0 -4.4,0zM55.6,59a2.2,2.2 0 1,0 4.4,0a2.2,2.2 0 1,0 -4.4,0z" />
+    <path
+        android:fillColor="#FFF0492C"
+        android:pathData="M66,56.8h6a2.2,2.2 0 0,1 0,4.4h-6a2.2,2.2 0 0,1 0,-4.4z" />
+    <path
+        android:fillColor="#FF23252F"
+        android:pathData="M39,66.5h30a2.5,2.5 0 0,1 0,5h-30a2.5,2.5 0 0,1 0,-5z" />
+
+    <!-- 核心视觉：舒展的空叶朱红叶片（带高光渐变与叶脉） -->
+    <path android:pathData="M39,52C37.2,36.8 47.4,26.8 67.5,26.2C68.2,44.4 58.2,53.2 39,52z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="67"
+                android:startY="26"
+                android:endX="39"
+                android:endY="52"
+                android:type="linear">
+                <item android:offset="0" android:color="#FFFF6B4A" />
+                <item android:offset="0.55" android:color="#FFF0492C" />
+                <item android:offset="1" android:color="#FFD6361B" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- 叶脉与叶柄 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#D9FFFFFF"
+        android:strokeWidth="2.0"
+        android:strokeLineCap="round"
+        android:pathData="M36.5,53.8C43.5,45.5 51.2,38.8 60.5,33.2" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#99FFFFFF"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:pathData="M48,43.5L46.5,37.8M54,38.2L53,33.5" />
 </vector>

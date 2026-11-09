@@ -115,8 +115,8 @@ object Layouts {
             Row(listOf(Key(Kind.CHAR, "4", w = 1.5f), Key(Kind.CHAR, "5", w = 1.5f), Key(Kind.CHAR, "6", w = 1.5f), c(custom[0]))),
             Row(listOf(Key(Kind.CHAR, "7", w = 1.5f), Key(Kind.CHAR, "8", w = 1.5f), Key(Kind.CHAR, "9", w = 1.5f), c(custom[1]))),
             Row(listOf(
-                Key(Kind.SYM, look = Look.MOD, icon = R.drawable.ic_symbol),
-                Key(Kind.ABC, w = 1.5f, look = Look.MOD, icon = R.drawable.ic_back),
+                Key(Kind.ABC, look = Look.MOD, icon = R.drawable.ic_back),
+                Key(Kind.SYM, w = 1.5f, look = Look.MOD, icon = R.drawable.ic_symbol),
                 Key(Kind.CHAR, "0", w = 1.5f),
                 c(custom[2], 1.5f),
                 Key(Kind.ENTER, look = Look.MOD),

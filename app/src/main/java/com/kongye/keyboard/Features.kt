@@ -175,11 +175,6 @@ class HandwriteView(context: Context, private val skin: Skin, private val onReco
         fill.color = withAlpha(skin.keyFg, 18)
         c.drawRect(pr.centerX() - d / 2, pr.top + 10 * d, pr.centerX() + d / 2, pr.bottom - 10 * d, fill)
         c.drawRect(pr.left + 10 * d, pr.centerY() - d / 2, pr.right - 10 * d, pr.centerY() + d / 2, fill)
-        if (strokes.isEmpty()) {
-            text.textSize = 15 * d
-            text.color = skin.barFg
-            c.drawText("在这里写字，停笔自动识别", pr.centerX(), pr.centerY() + 30 * d, text)
-        }
         if (status.isNotEmpty()) {
             text.textSize = 11.5f * d
             text.color = skin.barFg
@@ -194,6 +189,8 @@ class HandwriteView(context: Context, private val skin: Skin, private val onReco
             c.drawRoundRect(r, skin.radius * d, skin.radius * d, fill)
             when (s.first) {
                 "del" -> icons.draw(c, R.drawable.ic_del, r.centerX(), r.centerY(), 22f, skin.modFg)
+                "rewrite" -> icons.draw(c, R.drawable.ic_eraser, r.centerX(), r.centerY(), 22f, skin.modFg)
+                "space" -> icons.draw(c, R.drawable.ic_space, r.centerX(), r.centerY(), 24f, skin.modFg)
                 "enter" -> icons.draw(c, R.drawable.ic_enter, r.centerX(), r.centerY(), 22f, skin.modFg)
                 else -> {
                     text.textSize = 15 * d

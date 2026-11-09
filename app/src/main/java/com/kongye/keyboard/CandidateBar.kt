@@ -33,13 +33,21 @@ class CandidateBar(context: Context) : View(context) {
         fun onExpand()
         /** 联想栏右端的 ×：收起联想，回到工具栏 */
         fun onDismissAssoc()
+        /** 候选栏剪贴板快捷条：点击粘贴、分词、关闭 */
+        fun onClipPaste() {}
+        fun onClipSplit() {}
+        fun onClipDismiss() {}
+        /** 长按工具栏的“编辑”后左右滑：每一步移动一格光标 */
+        fun onToolCursor(dir: Int) {}
     }
 
-    enum class Mode { TOOLS, CANDS, ASSOC, MESSAGE }
+    enum class Mode { TOOLS, CANDS, ASSOC, MESSAGE, CLIP_SUGGEST }
 
     var listener: Listener? = null
     var skin: Skin = Skins.KONGYE
         set(v) { field = v; invalidate() }
+    var cursorMode: Boolean = false
+        set(v) { if (field != v) { field = v; invalidate() } }
 
     private var mode = Mode.TOOLS
     private var items: List<CandItem> = emptyList()
@@ -48,6 +56,8 @@ class CandidateBar(context: Context) : View(context) {
     private var tools: List<String> = emptyList()
     private var activeTool: String? = null
     private var message = ""
+    private var clipSuggest = ""
+    private var clipPressedZone = 0 // 1: 粘贴胶囊, 2: 分词, 3: 关闭
     private var expanded = false
     private var contentW = 0f
     private var scrollPos = 0f
@@ -61,6 +71,18 @@ class CandidateBar(context: Context) : View(context) {
     private var startScroll = 0f
     private var dragging = false
     private var pressed = -1
+    /** 长按“编辑”工具后进入的左右滑动移光标状态 */
+    private var toolDrag = false
+    private var toolDragAcc = 0f
+    private var toolDragLast = 0f
+    private val toolLong = Runnable {
+        toolDrag = true
+        toolDragAcc = 0f
+        toolDragLast = downX
+        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        parent?.requestDisallowInterceptTouchEvent(true)
+        invalidate()
+    }
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.LEFT }
@@ -87,6 +109,10 @@ class CandidateBar(context: Context) : View(context) {
 
     fun showMessage(msg: String) {
         mode = Mode.MESSAGE; message = msg; invalidate()
+    }
+
+    fun showClipSuggestion(text: String) {
+        mode = Mode.CLIP_SUGGEST; clipSuggest = text; clipPressedZone = 0; invalidate()
     }
 
     private fun resetScroll() {
@@ -118,9 +144,18 @@ class CandidateBar(context: Context) : View(context) {
     }
 
     override fun onDraw(c: Canvas) {
+        if (cursorMode) {
+            // 光标模式（照图2）：顶栏不画图标，只留一条极淡的胶囊横槽
+            fill.color = withAlpha(skin.keyBg, if (skin.dark) 65 else 120)
+            rect.set(12 * d, 8 * d, width - 12 * d, height - 8 * d)
+            c.drawRoundRect(rect, 14 * d, 14 * d, fill)
+            return
+        }
+        if (toolDrag) { drawToolDrag(c); return }
         when (mode) {
             Mode.TOOLS -> drawTools(c)
             Mode.CANDS, Mode.ASSOC -> drawItems(c)
+            Mode.CLIP_SUGGEST -> drawClipSuggest(c)
             Mode.MESSAGE -> {
                 text.textSize = 13 * d
                 text.color = skin.barFg
@@ -129,6 +164,52 @@ class CandidateBar(context: Context) : View(context) {
                 c.drawText(message, 16 * d, height / 2f - (fm.ascent + fm.descent) / 2, text)
             }
         }
+    }
+
+    private fun clipCloseX() = width - 40 * d
+    private fun clipSplitLeft() = clipCloseX() - 44 * d
+
+    /** 复制快捷条：左边一条浅色胶囊（剪贴板图标 + 一行内容，点一下粘贴），右边分词图标按钮和关闭 */
+    private fun drawClipSuggest(c: Canvas) {
+        val h = height.toFloat()
+        val cy = h / 2f
+        val pillLeft = 8 * d
+        val pillRight = clipSplitLeft() - 6 * d
+        fill.color = if (clipPressedZone == 1) skin.keyDown else skin.keyBg
+        rect.set(pillLeft, 7 * d, pillRight, h - 7 * d)
+        c.drawRoundRect(rect, 15 * d, 15 * d, fill)
+        icons.draw(c, R.drawable.ic_clip, pillLeft + 18 * d, cy, 17f, skin.barFg)
+        text.textSize = 14.5f * d
+        text.typeface = Typeface.DEFAULT
+        text.color = skin.candFg
+        val clean = clipSuggest.replace('\n', ' ').replace('\r', ' ').trim()
+        val left = pillLeft + 34 * d
+        val availW = max(10f, pillRight - left - 12 * d)
+        val shown = android.text.TextUtils.ellipsize(clean, android.text.TextPaint(text), availW, android.text.TextUtils.TruncateAt.END).toString()
+        val fm = text.fontMetrics
+        c.drawText(shown, left, cy - (fm.ascent + fm.descent) / 2, text)
+        // 分词：圆形图标按钮
+        val sx = clipSplitLeft() + 22 * d
+        fill.color = if (clipPressedZone == 2) skin.keyDown else skin.modBg
+        c.drawCircle(sx, cy, 15 * d, fill)
+        icons.draw(c, R.drawable.ic_split, sx, cy, 17f, skin.modFg)
+        if (clipPressedZone == 3) {
+            fill.color = skin.keyDown
+            c.drawCircle(width - 20 * d, cy, 14 * d, fill)
+        }
+        icons.draw(c, R.drawable.ic_close, width - 20 * d, cy, 17f, skin.barFg)
+    }
+
+    /** 长按编辑工具后：整条变成一个提示，左右滑移动光标 */
+    private fun drawToolDrag(c: Canvas) {
+        val h = height.toFloat()
+        fill.color = if (skin.toolHiBg != 0) skin.toolHiBg else skin.modBg
+        rect.set(10 * d, 7 * d, width - 10 * d, h - 7 * d)
+        c.drawRoundRect(rect, 15 * d, 15 * d, fill)
+        val fg = if (skin.toolHiFg != 0) skin.toolHiFg else skin.candFg
+        icons.draw(c, R.drawable.ic_chevron_left, 30 * d, h / 2, 20f, fg)
+        icons.draw(c, R.drawable.ic_chevron_right, width - 30 * d, h / 2, 20f, fg)
+        icons.draw(c, R.drawable.ic_cursor, width / 2f, h / 2, 21f, fg)
     }
 
     private fun drawTools(c: Canvas) {
@@ -164,13 +245,17 @@ class CandidateBar(context: Context) : View(context) {
             if (x + w < scrollPos || x > scrollPos + viewW) continue
             val it = items[i]
             val hi = mode == Mode.CANDS && i == 0
-            if (i == pressed || hi) {
-                // 第一个候选：主题色打底（和工具栏高亮同一种颜色），字不变色
+            val kongyeHi = hi && skin.style == SkinStyle.KONGYE
+            rect.set(x + 3 * d, 7 * d, x + w - 3 * d, h - 7 * d)
+            // 只有第一个候选有底色（空叶是朱红底白字，其他配色是主题浅色底）；按下的候选给一点按下色
+            if (kongyeHi) {
+                fill.color = if (i == pressed) darken(Color.rgb(240, 73, 44), 0.88f) else Color.rgb(240, 73, 44)
+                c.drawRoundRect(rect, 11 * d, 11 * d, fill)
+            } else if (hi || i == pressed) {
                 fill.color = if (i == pressed) skin.keyDown else if (skin.toolHiBg != 0) skin.toolHiBg else skin.modBg
-                rect.set(x + 3 * d, 6 * d, x + w - 3 * d, h - 6 * d)
-                c.drawRoundRect(rect, 10 * d, 10 * d, fill)
+                c.drawRoundRect(rect, 11 * d, 11 * d, fill)
             }
-            text.color = skin.candFg
+            text.color = if (kongyeHi) Color.WHITE else skin.candFg
             text.typeface = Typeface.DEFAULT
             text.textSize = 17 * d
             c.drawText(it.w, x + pad, base, text)
@@ -179,7 +264,13 @@ class CandidateBar(context: Context) : View(context) {
             var px = x + pad + text.measureText(it.w) + 4 * d
             small.textSize = 11.5f * d
             for ((j, ch) in py.withIndex()) {
-                small.color = if (it.mask?.getOrNull(j) == true) red else skin.barFg
+                val err = it.mask?.getOrNull(j) == true
+                small.color = when {
+                    kongyeHi && err -> Color.parseColor("#FFE066")
+                    kongyeHi -> withAlpha(Color.WHITE, 200)
+                    err -> red
+                    else -> withAlpha(skin.barFg, 200)
+                }
                 val s = ch.toString()
                 c.drawText(s, px, base, small)
                 px += small.measureText(s)
@@ -220,10 +311,34 @@ class CandidateBar(context: Context) : View(context) {
                 vt?.recycle()
                 vt = VelocityTracker.obtain().also { it.addMovement(e) }
                 pressed = if (scrollable && e.x < width - expandW) indexAt(e.x + scrollPos) else -1
+                toolDrag = false
+                removeCallbacks(toolLong)
+                if (mode == Mode.TOOLS && !cursorMode && tools.isNotEmpty()) {
+                    val p = 6 * d
+                    val i = ((e.x - p) / ((width - 2 * p) / tools.size)).toInt().coerceIn(0, tools.size - 1)
+                    if (tools[i] == "edit") postDelayed(toolLong, 380)
+                }
+                clipPressedZone = if (mode == Mode.CLIP_SUGGEST) when {
+                    e.x >= clipCloseX() -> 3
+                    e.x >= clipSplitLeft() -> 2
+                    else -> 1
+                } else 0
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
                 vt?.addMovement(e)
+                if (toolDrag) {
+                    toolDragAcc += e.x - toolDragLast
+                    toolDragLast = e.x
+                    val step = 9 * d
+                    while (abs(toolDragAcc) >= step) {
+                        val dir = if (toolDragAcc > 0) 1 else -1
+                        listener?.onToolCursor(dir)
+                        toolDragAcc -= dir * step
+                    }
+                    return true
+                }
+                if (abs(e.x - downX) > slop) removeCallbacks(toolLong)
                 val dx = e.x - downX
                 if (!dragging && scrollable && abs(dx) > slop) {
                     dragging = true
@@ -237,6 +352,14 @@ class CandidateBar(context: Context) : View(context) {
             }
             MotionEvent.ACTION_UP -> {
                 vt?.addMovement(e)
+                removeCallbacks(toolLong)
+                if (toolDrag) {
+                    toolDrag = false
+                    vt?.recycle()
+                    vt = null
+                    invalidate()
+                    return true
+                }
                 if (dragging) {
                     vt?.computeCurrentVelocity(1000)
                     val v = -(vt?.xVelocity ?: 0f)
@@ -244,12 +367,16 @@ class CandidateBar(context: Context) : View(context) {
                     postInvalidateOnAnimation()
                 } else tap(e.x)
                 pressed = -1
+                clipPressedZone = 0
                 vt?.recycle()
                 vt = null
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
+                removeCallbacks(toolLong)
+                toolDrag = false
                 pressed = -1
+                clipPressedZone = 0
                 dragging = false
                 vt?.recycle()
                 vt = null
@@ -274,6 +401,11 @@ class CandidateBar(context: Context) : View(context) {
             Mode.ASSOC -> {
                 if (x >= width - expandW) listener?.onDismissAssoc()
                 else indexAt(x + scrollPos).takeIf { it >= 0 }?.let { listener?.onAssoc(it) }
+            }
+            Mode.CLIP_SUGGEST -> when {
+                x >= clipCloseX() -> listener?.onClipDismiss()
+                x >= clipSplitLeft() -> listener?.onClipSplit()
+                else -> listener?.onClipPaste()
             }
             Mode.MESSAGE -> Unit
         }

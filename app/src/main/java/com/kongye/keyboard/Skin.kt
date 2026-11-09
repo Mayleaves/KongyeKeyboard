@@ -101,21 +101,21 @@ fun toHsl(color: Int): FloatArray {
 object Skins {
     val KONGYE = Skin(
         "kongye", "空叶", SkinStyle.KONGYE, dark = false,
-        kbBg = c("#EEEEF0"), barFg = c("#8E8E93"), candFg = c("#1F1F1F"), candHi = c("#F0492C"),
-        keyBg = c("#FFFFFF"), keyFg = c("#1F1F1F"), keyDown = c("#E2E2E5"), keyShadow = c("#D3D3D8"),
-        modBg = c("#E2E2E5"), modFg = c("#1F1F1F"), accBg = c("#F0492C"), accFg = c("#FFFFFF"),
-        hintFg = c("#A3A3A8"), popBg = c("#FFFFFF"), popFg = c("#1F1F1F"), spaceFg = c("#8E8E93"),
-        toolHiBg = c("#FCE1DB"), toolHiFg = c("#C2381F"), leaf = c("#F0492C"),
+        kbBg = c("#ECEDF1"), barFg = c("#686A72"), candFg = c("#18191C"), candHi = c("#F0492C"),
+        keyBg = c("#FFFFFF"), keyFg = c("#18191C"), keyDown = c("#DFE1E7"), keyShadow = c("#CFD2DC"),
+        modBg = c("#DEDFE5"), modFg = c("#18191C"), accBg = c("#F0492C"), accFg = c("#FFFFFF"),
+        hintFg = c("#8E919B"), popBg = c("#FFFFFF"), popFg = c("#18191C"), spaceFg = c("#7C7F88"),
+        toolHiBg = c("#FFE6E0"), toolHiFg = c("#D9381E"), leaf = c("#F0492C"),
         radius = 12f, leafCorners = true, keyH = 44f, rowGap = 9f, keyGap = 5f, padH = 5f, letterSize = 21f,
     )
 
     val KONGYE_NIGHT = Skin(
         "kongye_night", "空叶", SkinStyle.KONGYE, dark = true,
-        kbBg = c("#161617"), barFg = c("#8E8E93"), candFg = c("#F2F2F2"), candHi = c("#FF5A3C"),
-        keyBg = c("#2A2A2C"), keyFg = c("#F2F2F2"), keyDown = c("#3A3A3C"), keyShadow = c("#000000"),
-        modBg = c("#3A3A3C"), modFg = c("#F2F2F2"), accBg = c("#FF5A3C"), accFg = c("#140806"),
-        hintFg = c("#6E6E73"), popBg = c("#3A3A3C"), popFg = c("#F2F2F2"), spaceFg = c("#8E8E93"),
-        toolHiBg = c("#3B2420"), toolHiFg = c("#FF8A70"), leaf = c("#FF5A3C"),
+        kbBg = c("#17181B"), barFg = c("#9E9FA8"), candFg = c("#F5F6F8"), candHi = c("#F0492C"),
+        keyBg = c("#2C2E33"), keyFg = c("#F5F6F8"), keyDown = c("#3D4047"), keyShadow = c("#0B0C0E"),
+        modBg = c("#383B42"), modFg = c("#F5F6F8"), accBg = c("#F0492C"), accFg = c("#FFFFFF"),
+        hintFg = c("#858892"), popBg = c("#383B42"), popFg = c("#FFFFFF"), spaceFg = c("#9E9FA8"),
+        toolHiBg = c("#4A2620"), toolHiFg = c("#FF9E8A"), leaf = c("#F0492C"),
         radius = 12f, leafCorners = true, keyH = 44f, rowGap = 9f, keyGap = 5f, padH = 5f, letterSize = 21f,
     )
 
@@ -176,25 +176,47 @@ fun Skin.styled(opacity: Float, glass: Boolean): Skin {
     if (opacity >= 0.999f && !glass) return this
     fun a(c: Int, f: Float) = withAlpha(c, (Color.alpha(c) * f).toInt().coerceIn(0, 255))
     if (!glass) {
-        // 透明度主要作用在键盘底色上；按键少透一点，免得看不清
-        val keyF = 0.55f + 0.45f * opacity
+        // 透明度作用在整块键盘上（底色和按键一起），越透明越能看到键盘下面的内容；字不透明
+        val keyF = opacity
         return copy(
             kbBg = a(kbBg, opacity), bg2 = if (bg2 != 0) a(bg2, opacity) else 0,
             keyBg = a(keyBg, keyF), modBg = a(modBg, keyF), keyDown = a(keyDown, keyF), keyShadow = 0,
         )
     }
-    // 液态玻璃：底色是带主题色的磨砂半透明，按键是更亮的薄玻璃
-    val baseA = 0.5f + 0.32f * opacity
+    // iOS 液态玻璃：通透磨砂底 + 悬浮高折射率玻璃键帽
+    // 键盘背后有系统模糊（见 KongyeIME.applyBlur），底色可以更通透
+    val baseA = (0.2f + 0.42f * opacity).coerceIn(0.2f, 0.7f)
+    val glassRadius = max(radius, 11f)
     return if (dark) copy(
-        kbBg = withAlpha(mix(kbBg, Color.BLACK, 0.25f), (255 * baseA).toInt()),
-        bg2 = withAlpha(mix(if (bg2 != 0) bg2 else kbBg, accBg, 0.18f), (255 * baseA).toInt()),
-        keyBg = withAlpha(Color.WHITE, 34), modBg = withAlpha(Color.WHITE, 20), keyDown = withAlpha(Color.WHITE, 60),
-        keyShadow = 0, glass = true,
+        kbBg = withAlpha(mix(kbBg, Color.parseColor("#182030"), 0.32f), (255 * baseA).toInt()),
+        bg2 = withAlpha(mix(if (bg2 != 0) bg2 else kbBg, accBg, 0.22f), (255 * (baseA + 0.06f).coerceAtMost(0.9f)).toInt()),
+        keyBg = withAlpha(Color.WHITE, 38),
+        modBg = withAlpha(Color.WHITE, 22),
+        keyDown = withAlpha(Color.WHITE, 80),
+        keyFg = Color.parseColor("#F8FAFC"),
+        modFg = Color.parseColor("#E8EEF5"),
+        candFg = Color.parseColor("#F8FAFC"),
+        barFg = Color.parseColor("#C6D0DEC0".let { "#CBD5E1" }),
+        hintFg = withAlpha(Color.WHITE, 165),
+        toolHiBg = withAlpha(Color.WHITE, 52),
+        keyShadow = withAlpha(Color.BLACK, 68),
+        radius = glassRadius,
+        glass = true,
     ) else copy(
-        kbBg = withAlpha(mix(kbBg, Color.WHITE, 0.35f), (255 * baseA).toInt()),
-        bg2 = withAlpha(mix(if (bg2 != 0) bg2 else kbBg, accBg, 0.14f), (255 * baseA).toInt()),
-        keyBg = withAlpha(Color.WHITE, 150), modBg = withAlpha(Color.WHITE, 85), keyDown = withAlpha(Color.WHITE, 215),
-        keyShadow = 0, glass = true,
+        kbBg = withAlpha(mix(kbBg, Color.parseColor("#EBF3FF"), 0.45f), (255 * baseA).toInt()),
+        bg2 = withAlpha(mix(if (bg2 != 0) bg2 else kbBg, accBg, 0.16f), (255 * (baseA + 0.06f).coerceAtMost(0.9f)).toInt()),
+        keyBg = withAlpha(Color.WHITE, 120),
+        modBg = withAlpha(Color.WHITE, 78),
+        keyDown = withAlpha(Color.WHITE, 210),
+        keyFg = Color.parseColor("#141820"),
+        modFg = Color.parseColor("#1E2430"),
+        candFg = Color.parseColor("#141820"),
+        barFg = Color.parseColor("#4A5568"),
+        hintFg = Color.parseColor("#5A6578"),
+        toolHiBg = withAlpha(Color.WHITE, 195),
+        keyShadow = withAlpha(Color.parseColor("#0F172A"), 24),
+        radius = glassRadius,
+        glass = true,
     )
 }
 

@@ -55,6 +55,8 @@ object Prefs {
     const val UPDATE_CHECKED = "update_checked"
     /** 空格长按：0 光标模式，1 连续输入空格，2 开关语音 */
     const val SPACE_LONG = "space_long"
+    /** 已经装好系统的离线语音包：识别时优先离线 */
+    const val VOICE_OFFLINE = "voice_offline"
 
     val DEFAULT_NUM_SIDE = listOf("·", "/", "+", "-", "=", "%", "*", "#", ",", ":", "(", ")", "~", "_")
     val DEFAULT_NUM_KEYS = listOf("@", ".", " ")

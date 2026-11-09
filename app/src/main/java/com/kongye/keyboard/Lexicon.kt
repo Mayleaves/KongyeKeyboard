@@ -281,7 +281,8 @@ object Lexicon {
                 i++
             }
             if (abbr && marks.isEmpty() && n in 2..8) initials[s]?.let { list ->
-                for (e in list.take(60)) a.add(Cand(e.w, n, e, e.sc + boost(e) - 6f, abbr = true))
+                // 自己打过的词（自造词）简拼时排前面：打过 xiaxingyue 的“夏星月”，之后 xxy 就是它
+                for (e in list.take(60)) a.add(Cand(e.w, n, e, e.sc + boost(e) - 6f + (if (e.user) 24f else 0f), abbr = true))
             }
             for (k in n - 1 downTo 1) {
                 exact[s.substring(0, k)]?.let { list ->

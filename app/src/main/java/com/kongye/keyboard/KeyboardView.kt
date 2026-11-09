@@ -59,6 +59,8 @@ class KeyboardView(context: Context) : View(context) {
         fun onCursorMove(dx: Int, dy: Int)
         /** 删除键下滑清空（down=true），上滑撤回 */
         fun onSwipeDel(down: Boolean)
+        /** 光标模式开关状态变化 */
+        fun onCursorModeChange(active: Boolean) {}
     }
 
     var listener: Listener? = null
@@ -193,12 +195,15 @@ class KeyboardView(context: Context) : View(context) {
     // —————————— 绘制 ——————————
 
     override fun onDraw(c: Canvas) {
+        if (cursorMode) {
+            drawCursorMode(c)
+            return
+        }
         val pressMap = HashMap<Key, Press>()
         for (p in presses.values) pressMap[p.key] = p
         for (row in rows) for (k in row.keys) drawKey(c, k, pressMap[k])
         side?.let { drawSide(c, it) }
         for (p in presses.values) p.popup?.let { drawPopup(c, p, it) }
-        if (cursorMode) drawCursorMode(c)
     }
 
     /** 长按字母弹出的一排：小写、大写和角标符号；左右滑选，松手输入 */
@@ -286,14 +291,37 @@ class KeyboardView(context: Context) : View(context) {
                 drawHints(c, k, r, prog, dir, size)
                 if (k.longEmoji) icons.draw(c, R.drawable.ic_emoji, r.right - 9 * d, r.top + 9 * d, 11f, s.hintFg)
             }
-            Kind.SHIFT -> if (splitMode) drawText(c, "分词", cx, cy, 15f, fg) else icons.draw(
+            Kind.SHIFT -> if (splitMode) icons.draw(c, R.drawable.ic_split, cx, cy, 22f, fg) else icons.draw(
                 c, when (shiftState) { 1 -> R.drawable.ic_shift_on; 2 -> R.drawable.ic_shift_lock; else -> R.drawable.ic_shift },
                 cx, cy, 22f, fg,
             )
             Kind.DEL -> {
-                // 下滑：红色“清空”；上滑：蓝色“撤回”
-                if (p != null && dir != 0 && prog > 0.12f) drawText(c, if (dir > 0) "清空" else "撤回", cx, cy, 15f, if (dir > 0) RED else BLUE, bold = true)
-                else icons.draw(c, R.drawable.ic_del, cx, cy, 22f, fg)
+                // 下滑：红色“清空”；上滑：蓝色“撤回”——平滑过渡位移、缩放与透明度
+                val raw = if (p != null && dir != 0) prog else delReleaseProg
+                val activeDir = if (p != null && dir != 0) dir else delReleaseDir
+                if (raw > 0.01f && activeDir != 0) {
+                    val t = (raw * 1.15f).coerceIn(0f, 1f)
+                    val ease = t * t * (3f - 2f * t)
+                    val tintColor = if (activeDir > 0) RED else BLUE
+                    // 键帽变成明亮的实色（红：清空，蓝：撤回），字是白的
+                    fill.color = withAlpha(tintColor, (ease * 255).toInt())
+                    c.drawPath(path, fill)
+                    // 原删除图标随手势方向顺滑移出并淡出
+                    val iconAlpha = ((1f - ease * 1.45f).coerceIn(0f, 1f) * 255).toInt()
+                    if (iconAlpha > 8) {
+                        val iconY = cy + activeDir * ease * 10f * d
+                        icons.draw(c, R.drawable.ic_del, cx, iconY, 22f * (1f - 0.18f * ease), withAlpha(fg, iconAlpha))
+                    }
+                    // “清空 / 撤回”文字从反方向顺滑移入并放大
+                    val labelAlpha = ((ease - 0.05f).coerceIn(0f, 1f) / 0.95f * 255).toInt()
+                    if (labelAlpha > 8) {
+                        val textY = cy - activeDir * (1f - ease) * 11f * d
+                        val textSize = 11f + 4.5f * ease
+                        drawText(c, if (activeDir > 0) "清空" else "撤回", cx, textY, textSize, withAlpha(Color.WHITE, labelAlpha))
+                    }
+                } else {
+                    icons.draw(c, R.drawable.ic_del, cx, cy, 22f, fg)
+                }
             }
             Kind.ENTER -> icons.draw(c, enterIcon, cx, cy, 22f, fg)
             Kind.SPACE -> if (k.icon != 0) icons.draw(c, k.icon, cx, cy, 24f, withAlpha(fg, 170))
@@ -306,18 +334,54 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    /** 液态玻璃：上亮下暗的细描边，加上半部一层淡淡的高光 */
+    /** iOS 液态玻璃：多层折射光泽 + 对角高光玻璃描边 + 底部内折射亮边 */
     private fun drawGlass(c: Canvas, r: RectF) {
         val dark = skin.dark
-        glassFill.shader = LinearGradient(0f, r.top, 0f, r.top + r.height() * 0.55f,
-            withAlpha(Color.WHITE, if (dark) 40 else 110), withAlpha(Color.WHITE, 0), Shader.TileMode.CLAMP)
         c.save()
         c.clipPath(path)
-        c.drawRect(r.left, r.top, r.right, r.top + r.height() * 0.55f, glassFill)
+        // 1. 顶部弧面高光层（模拟 iOS 玻璃镜面反射）
+        glassFill.shader = LinearGradient(
+            0f, r.top, 0f, r.top + r.height() * 0.52f,
+            withAlpha(Color.WHITE, if (dark) 62 else 155),
+            withAlpha(Color.WHITE, 0),
+            Shader.TileMode.CLAMP,
+        )
+        c.drawRect(r.left, r.top, r.right, r.top + r.height() * 0.52f, glassFill)
+
+        // 2. 底部内侧微弱折射泛光（玻璃厚度感）
+        glassFill.shader = LinearGradient(
+            0f, r.bottom - r.height() * 0.25f, 0f, r.bottom,
+            withAlpha(Color.WHITE, 0),
+            withAlpha(Color.WHITE, if (dark) 26 else 75),
+            Shader.TileMode.CLAMP,
+        )
+        c.drawRect(r.left, r.bottom - r.height() * 0.25f, r.right, r.bottom, glassFill)
+        // 3. 左上镜面光斑
+        glassFill.shader = android.graphics.RadialGradient(
+            r.left + r.width() * 0.3f, r.top + r.height() * 0.18f, r.width() * 0.55f,
+            withAlpha(Color.WHITE, if (dark) 46 else 95), withAlpha(Color.WHITE, 0), Shader.TileMode.CLAMP,
+        )
+        c.drawRect(r, glassFill)
+        // 4. 右下内侧暗边（玻璃厚度和折射）
+        glassFill.shader = LinearGradient(
+            r.right, r.bottom, r.right - r.width() * 0.35f, r.bottom - r.height() * 0.35f,
+            withAlpha(Color.BLACK, if (dark) 60 else 22), withAlpha(Color.BLACK, 0), Shader.TileMode.CLAMP,
+        )
+        c.drawRect(r, glassFill)
         c.restore()
-        glassStroke.strokeWidth = d
-        glassStroke.shader = LinearGradient(0f, r.top, 0f, r.bottom,
-            withAlpha(Color.WHITE, if (dark) 120 else 235), withAlpha(Color.WHITE, if (dark) 18 else 60), Shader.TileMode.CLAMP)
+
+        // 3. iOS 对角高光玻璃边缘描边（左上极亮 → 中段通透 → 右下柔光）
+        glassStroke.strokeWidth = 1.15f * d
+        glassStroke.shader = LinearGradient(
+            r.left, r.top, r.right, r.bottom,
+            intArrayOf(
+                withAlpha(Color.WHITE, if (dark) 165 else 248),
+                withAlpha(Color.WHITE, if (dark) 38 else 110),
+                withAlpha(Color.WHITE, if (dark) 95 else 195),
+            ),
+            floatArrayOf(0f, 0.55f, 1f),
+            Shader.TileMode.CLAMP,
+        )
         c.drawPath(path, glassStroke)
     }
 
@@ -347,7 +411,7 @@ class KeyboardView(context: Context) : View(context) {
         val x = sx + (r.centerX() - sx) * prog
         val y = sy + (r.centerY() - sy) * prog
         val size = 10f + (bigSize - 10f) * prog
-        drawText(c, h, x, y, size, mix(skin.hintFg, skin.candHi, prog), bold = prog > 0.7f)
+        drawText(c, h, x, y, size, mix(skin.hintFg, skin.keyFg, prog))
     }
 
     private fun drawHint(c: Canvas, h: String, x: Float, top: Float, align: Paint.Align, sizeDp: Float, color: Int) {
@@ -407,10 +471,21 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun drawCursorMode(c: Canvas) {
-        fill.color = withAlpha(skin.kbBg, 215)
-        c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
-        drawText(c, "光标模式", width / 2f, height / 2f - 16 * d, 16f, skin.candFg, bold = true)
-        drawText(c, "手指在屏幕任意位置上下左右滑动，松手结束", width / 2f, height / 2f + 12 * d, 13f, skin.barFg)
+        // 光标模式（照图2）：所有按键画成纯净的无字空白键帽，不叠文字遮罩
+        val blankColor = if (skin.dark) withAlpha(skin.keyBg, 210) else withAlpha(skin.keyBg, 235)
+        for (row in rows) {
+            for (k in row.keys) {
+                buildShape(k.rect)
+                fill.color = blankColor
+                c.drawPath(path, fill)
+                if (skin.glass) drawGlass(c, k.rect)
+            }
+        }
+        side?.let {
+            val rad = skin.radius * d
+            fill.color = blankColor
+            c.drawRoundRect(sideRect, rad, rad, fill)
+        }
     }
 
     // —————————— 触摸 ——————————
@@ -438,14 +513,36 @@ class KeyboardView(context: Context) : View(context) {
     private val presses = LinkedHashMap<Int, Press>()
     private var longTask: Runnable? = null
     private var repeatTask: Runnable? = null
+    /** 删除键松手后的平滑回弹动画 */
+    private var delReleaseProg = 0f
+    private var delReleaseDir = 0
+    private val delReleaseAnim = object : Runnable {
+        override fun run() {
+            delReleaseProg *= 0.68f
+            if (delReleaseProg < 0.02f) {
+                delReleaseProg = 0f
+                delReleaseDir = 0
+                invalidate()
+            } else {
+                invalidate()
+                postOnAnimation(this)
+            }
+        }
+    }
 
     private fun cancelAll() {
         longTask?.let { handler.removeCallbacks(it) }
         repeatTask?.let { handler.removeCallbacks(it) }
+        removeCallbacks(delReleaseAnim)
+        delReleaseProg = 0f
+        delReleaseDir = 0
         longTask = null
         repeatTask = null
         presses.clear()
-        cursorMode = false
+        if (cursorMode) {
+            cursorMode = false
+            listener?.onCursorModeChange(false)
+        }
         sideTouch = false
         sidePressed = -1
     }
@@ -578,6 +675,7 @@ class KeyboardView(context: Context) : View(context) {
                     p.fired = true
                     p.dragging = true
                     cursorMode = true
+                    listener?.onCursorModeChange(true)
                     listener?.onLongKey(k)
                     invalidate()
                 }
@@ -636,18 +734,22 @@ class KeyboardView(context: Context) : View(context) {
         if (p.long && (k.kind == Kind.LETTER || k.kind == Kind.CHAR)) return
         val dx = x - p.x0
         val dy = y - p.y0
-        if (canSwipe(k) && abs(dy) > 6 * d && abs(dy) > abs(dx) * 1.2f) {
+        val minDy = (if (k.kind == Kind.DEL) 4f else 6f) * d
+        val ratio = if (k.kind == Kind.DEL) 0.75f else 1.2f
+        if (canSwipe(k) && abs(dy) > minDy && (p.swipe != 0 || abs(dy) > abs(dx) * ratio)) {
             val dir = if (dy > 0) 1 else -1
             if (p.swipe != dir) {
                 p.swipe = dir
                 longTask?.let { handler.removeCallbacks(it) }
                 repeatTask?.let { handler.removeCallbacks(it) }
             }
-            p.prog = ((abs(dy) - 6 * d) / (rowH() * 0.7f)).coerceIn(0f, 1f)
+            val span = rowH() * (if (k.kind == Kind.DEL) 0.58f else 0.7f)
+            val targetProg = ((abs(dy) - minDy) / span).coerceIn(0f, 1f)
+            p.prog = if (k.kind == Kind.DEL) p.prog + (targetProg - p.prog) * 0.65f else targetProg
             invalidate()
             return
         }
-        if (p.swipe != 0 && abs(dy) <= 6 * d) {
+        if (p.swipe != 0 && abs(dy) <= minDy) {
             p.swipe = 0
             p.prog = 0f
             invalidate()
@@ -671,7 +773,16 @@ class KeyboardView(context: Context) : View(context) {
             repeatTask?.let { handler.removeCallbacks(it) }
             repeatTask = null
         }
-        if (cursorMode && p.key.kind == Kind.SPACE) cursorMode = false
+        if (p.key.kind == Kind.DEL && p.swipe != 0 && p.prog > 0.02f) {
+            delReleaseProg = p.prog
+            delReleaseDir = p.swipe
+            removeCallbacks(delReleaseAnim)
+            postOnAnimation(delReleaseAnim)
+        }
+        if (cursorMode && p.key.kind == Kind.SPACE) {
+            cursorMode = false
+            listener?.onCursorModeChange(false)
+        }
         invalidate()
         if (!fire || p.fired) return
         val k = p.key
@@ -693,7 +804,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     companion object {
-        private val RED = Color.parseColor("#E5484D")
-        private val BLUE = Color.parseColor("#1A73E8")
+        private val RED = Color.parseColor("#FF5A5F")
+        private val BLUE = Color.parseColor("#3B8BFF")
     }
 }
