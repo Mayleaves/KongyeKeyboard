@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">空叶键盘</string>
+    <string name="ime_name">空叶键盘</string>
+    <string name="subtype_pinyin">空叶拼音</string>
+</resources>
