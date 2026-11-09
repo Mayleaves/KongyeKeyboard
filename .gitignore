@@ -18,3 +18,4 @@ captures/
 开发进度.md
 .env
 .env.*
+app/libs/*.aar

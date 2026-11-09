@@ -67,194 +67,87 @@ class EmojiPanel(
     private val onDel: () -> Unit,
 ) : LinearLayout(context) {
     private val d = resources.displayMetrics.density
-    private val grid = CellGridView(context)
-    private val gridScroller = ScrollView(context).apply { isVerticalScrollBarEnabled = false }
-    private val subTabs = ArrayList<TextView>()
+    private val pager = CategoryPager(context)
     private val subRow = LinearLayout(context)
-    private val topSeg: LinearLayout
-    private var curTab = startTab
-    private var curEmojiSub = if (recent.isEmpty()) 1 else 0
-    private var curKaoSub = 0
-
-    private val slop = ViewConfiguration.get(context).scaledTouchSlop
-    private var downX = 0f
-    private var downY = 0f
-    private var swipingHoriz = false
+    private val tabs = ArrayList<TextView>()
+    private var main = startTab
+    private var emoji = if (recent.isEmpty()) 1 else 0
+    private var kao = 0
 
     init {
         orientation = VERTICAL
-        val head = LinearLayout(context).apply {
-            orientation = HORIZONTAL
+        addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(context.dp(10f).toInt(), context.dp(4f).toInt(), context.dp(10f).toInt(), 0)
-        }
-        topSeg = segmented(context, skin, listOf("Emoji", "颜文字", "收藏"), curTab) { switchMainTab(it, 0) }
-        head.addView(topSeg, lp(WRAP, WRAP))
-        head.addView(View(context), lp(0, 1, 1f))
-        head.addView(TextView(context).apply {
-            text = "左右滑换分类 · 长按收藏"
-            textSize = 11.5f
-            setTextColor(skin.barFg)
-        }, lp(WRAP, WRAP))
-        addView(head, lp(MATCH, WRAP))
-
-        grid.fg = skin.candFg
-        grid.downBg = skin.keyDown
-        grid.onPick = { i -> grid.items.getOrNull(i)?.takeIf { it.isNotEmpty() }?.let(onEmoji) }
-        grid.onLong = { i -> grid.items.getOrNull(i)?.takeIf { it.isNotEmpty() }?.let(onFav) }
-        gridScroller.addView(grid)
-        addView(gridScroller, lp(MATCH, 0, 1f))
-
-        subRow.orientation = HORIZONTAL
-        subRow.gravity = Gravity.CENTER_VERTICAL
-        subRow.setPadding(context.dp(4f).toInt(), context.dp(2f).toInt(), context.dp(4f).toInt(), context.dp(4f).toInt())
+            setPadding((10*d).toInt(), (4*d).toInt(), (10*d).toInt(), 0)
+            addView(segmented(context, skin, listOf("Emoji", "颜文字", "收藏"), main) {
+                main = it; onTab(it); render(); NativeMotion.enter(pager)
+            }, lp(WRAP, WRAP))
+            addView(TextView(context).apply {
+                text = "左右滑换分类 · 长按收藏"; textSize = 11.5f
+                gravity = Gravity.END; setTextColor(skin.barFg)
+            }, lp(0, WRAP, 1f))
+        }, lp(MATCH, WRAP))
+        addView(pager, lp(MATCH, 0, 1f))
+        subRow.orientation = HORIZONTAL; subRow.gravity = Gravity.CENTER_VERTICAL
+        subRow.setPadding((4*d).toInt(), (2*d).toInt(), (4*d).toInt(), (4*d).toInt())
         addView(subRow, lp(MATCH, WRAP))
-
-        renderMainTab(curTab)
+        render()
     }
 
-    private fun markTopSeg(sel: Int) {
-        for (j in 0 until topSeg.childCount) (topSeg.getChildAt(j) as? TextView)?.apply {
-            setTextColor(if (j == sel) skin.keyFg else skin.barFg)
-            typeface = if (j == sel) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            background = if (j == sel) roundBg(skin.keyBg, context.dp(15f)) else null
+    fun updateFavs(newFavs: List<String>) { favs = newFavs; if (main == 2) render() }
+
+    private fun page(index: Int): View {
+        val isKao = main == 1 || main == 2 && favs.any { EmojiData.isKaomoji(it) }
+        val data = when (main) {
+            0 -> EmojiData.emojiTab(index, recent)
+            1 -> Kaomoji.CATS[index].second
+            else -> favs
+        }
+        val grid = CellGridView(context).apply {
+            columns = if (isKao) 3 else 8; textSize = if (isKao) 15f else 26f
+            cellH = if (isKao) 50f else 46f; fg = skin.candFg; downBg = skin.keyDown
+            items = data
+            onPick = { i -> data.getOrNull(i)?.let(onEmoji) }
+            onLong = { i -> data.getOrNull(i)?.let(onFav) }
+        }
+        return ScrollView(context).apply {
+            isVerticalScrollBarEnabled = false
+            if (data.isNotEmpty()) addView(grid) else addView(TextView(context).apply {
+                text = if (main == 2) "在 Emoji 或颜文字里长按收藏" else "暂无最近使用的表情"
+                gravity = Gravity.CENTER; textSize = 13f; setTextColor(skin.barFg)
+                setPadding(0, (30*d).toInt(), 0, 0)
+            })
         }
     }
 
-    fun updateFavs(newFavs: List<String>) {
-        favs = newFavs
-        if (curTab == 2) renderMainTab(2)
-    }
-
-    private fun switchMainTab(next: Int, dir: Int) {
-        val target = next.coerceIn(0, 2)
-        if (target == curTab) return
-        curTab = target
-        onTab(target)
-        markTopSeg(target)
-        renderMainTab(target)
-        if (dir != 0) {
-            grid.translationX = dir * 36 * d
-            grid.alpha = 0.35f
-            grid.animate().translationX(0f).alpha(1f).setDuration(150).start()
+    private fun mark(index: Int) {
+        tabs.forEachIndexed { i, tv -> tv.background = if (i == index) roundBg(skin.keyBg, 10*d) else null }
+        tabs.getOrNull(index)?.let { tv ->
+            (tv.parent?.parent as? HorizontalScrollView)?.smoothScrollTo((tv.left - 40*d).toInt().coerceAtLeast(0), 0)
         }
     }
 
-    private fun renderMainTab(tab: Int) {
-        subTabs.clear()
-        subRow.removeAllViews()
-        gridScroller.scrollTo(0, 0)
-        when (tab) {
-            0 -> {
-                EmojiData.EMOJI_TABS.forEachIndexed { i, label ->
-                    val tv = TextView(context).apply {
-                        text = label
-                        gravity = Gravity.CENTER
-                        textSize = if (label.length > 2) 12f else 17f
-                        setTextColor(skin.candFg)
-                        setOnClickListener { curEmojiSub = i; selectEmoji(i) }
-                    }
-                    subTabs.add(tv)
-                    subRow.addView(tv, lp(0, context.dp(36f).toInt(), 1f))
-                }
-                selectEmoji(curEmojiSub)
+    private fun render() {
+        tabs.clear(); subRow.removeAllViews()
+        val labels = when (main) { 0 -> EmojiData.EMOJI_TABS; 1 -> Kaomoji.CATS.map { it.first }; else -> listOf("收藏") }
+        val selected = when (main) { 0 -> emoji; 1 -> kao; else -> 0 }
+        val row = LinearLayout(context).apply { orientation = HORIZONTAL }
+        labels.forEachIndexed { i, label ->
+            val tv = TextView(context).apply {
+                text = label; textSize = if (main == 0 && i != 0) 18f else 13f
+                setTextColor(skin.candFg); gravity = Gravity.CENTER
+                setPadding((13*d).toInt(), 0, (13*d).toInt(), 0)
+                setOnClickListener { pager.select(i) }
             }
-            1 -> {
-                val row = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                Kaomoji.CATS.forEachIndexed { i, (name, _) ->
-                    val tv = TextView(context).apply {
-                        text = name
-                        gravity = Gravity.CENTER
-                        textSize = 13f
-                        setTextColor(skin.candFg)
-                        setPadding(context.dp(11f).toInt(), 0, context.dp(11f).toInt(), 0)
-                        setOnClickListener { curKaoSub = i; selectKao(i) }
-                    }
-                    subTabs.add(tv)
-                    row.addView(tv, lp(WRAP, context.dp(32f).toInt()))
-                }
-                subRow.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(row) }, lp(0, context.dp(36f).toInt(), 6f))
-                selectKao(curKaoSub)
-            }
-            else -> {
-                show(favs.ifEmpty { listOf("") }, kao = favs.any { EmojiData.isKaomoji(it) })
-                if (favs.isEmpty()) subRow.addView(TextView(context).apply {
-                    text = "还没有收藏：在 Emoji 或颜文字里长按一个"
-                    textSize = 12.5f
-                    setTextColor(skin.barFg)
-                    gravity = Gravity.CENTER_VERTICAL
-                }, lp(0, context.dp(36f).toInt(), 6f))
-                else subRow.addView(View(context), lp(0, 1, 6f))
-            }
+            tabs.add(tv); row.addView(tv, lp(WRAP, (36*d).toInt()))
         }
-        subRow.addView(IconButton(context, R.drawable.ic_del, skin.modFg, 22f) { onDel() }, lp(0, context.dp(36f).toInt(), 1.2f))
-    }
-
-    override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                downX = e.x; downY = e.y
-                swipingHoriz = false
-            }
-            MotionEvent.ACTION_MOVE -> {
-                // 在中间网格区域横滑：切换 Emoji / 颜文字 / 收藏
-                val inGrid = e.y > topSeg.bottom && e.y < subRow.top
-                val dx = e.x - downX
-                val dy = e.y - downY
-                if (inGrid && abs(dx) > slop * 1.3f && abs(dx) > abs(dy) * 1.3f) {
-                    swipingHoriz = true
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                    return true
-                }
-            }
+        subRow.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(row) }, lp(0, (36*d).toInt(), 1f))
+        subRow.addView(IconButton(context, R.drawable.ic_del, skin.modFg, 22f, onDel), lp((44*d).toInt(), (36*d).toInt()))
+        pager.pages(labels.size, selected, ::page) { index ->
+            if (main == 0) emoji = index else if (main == 1) kao = index
+            mark(index)
         }
-        return super.onInterceptTouchEvent(e)
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (swipingHoriz && (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL)) {
-            val dx = e.x - downX
-            swipingHoriz = false
-            if (abs(dx) > 28 * d) {
-                switchSub(if (dx < 0) 1 else -1)
-            }
-            return true
-        }
-        return super.onTouchEvent(e)
-    }
-
-    private fun show(list: List<String>, kao: Boolean) {
-        grid.columns = if (kao) 3 else 8
-        grid.textSize = if (kao) 15f else 26f
-        grid.cellH = if (kao) 50f else 46f
-        grid.items = list
-    }
-
-    /** 左右滑：Emoji 里换表情分类，颜文字里换心情分类 */
-    private fun switchSub(dir: Int) {
-        val changed = when (curTab) {
-            0 -> (curEmojiSub + dir).coerceIn(0, EmojiData.EMOJI_TABS.lastIndex).takeIf { it != curEmojiSub }?.also { curEmojiSub = it; selectEmoji(it) }
-            1 -> (curKaoSub + dir).coerceIn(0, Kaomoji.CATS.lastIndex).takeIf { it != curKaoSub }?.also { curKaoSub = it; selectKao(it) }
-            else -> null
-        }
-        if (changed != null) {
-            gridScroller.scrollTo(0, 0)
-            subTabs.getOrNull(changed)?.let { tv -> (tv.parent?.parent as? HorizontalScrollView)?.smoothScrollTo(maxOf(0, tv.left - (40 * d).toInt()), 0) }
-            grid.translationX = dir * 36 * d
-            grid.alpha = 0.35f
-            grid.animate().translationX(0f).alpha(1f).setDuration(150).start()
-        }
-    }
-
-    private fun selectKao(i: Int) {
-        show(Kaomoji.CATS[i].second, kao = true)
-        subTabs.forEachIndexed { j, tv -> tv.background = if (j == i) roundBg(skin.keyBg, context.dp(10f)) else null }
-    }
-
-    private fun selectEmoji(i: Int) {
-        show(EmojiData.emojiTab(i, recent).ifEmpty { listOf("") }, kao = false)
-        subTabs.forEachIndexed { j, tv -> tv.background = if (j == i) roundBg(skin.keyBg, context.dp(10f)) else null }
+        mark(selected)
     }
 }
 
@@ -264,7 +157,7 @@ class ClipboardPanel(
     private val skin: Skin,
     tab: String,
     query: String,
-    private val expanded: Clip?,
+    private var expanded: Clip?,
     private val picking: Clip?,
     onTab: (String) -> Unit,
     onTabLong: (String) -> Unit,
@@ -277,6 +170,26 @@ class ClipboardPanel(
     private val onAction: (Clip, String) -> Unit,
 ) : LinearLayout(context) {
     private val d = resources.displayMetrics.density
+    private val overlays = HashMap<Clip, View>()
+    private val previewLineHeight = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 13.5f * resources.displayMetrics.scaledDensity
+    }.fontMetricsInt.let { it.descent - it.ascent + 2 * d }
+    private val cardHeight = (10 * d + 3 * previewLineHeight + 78 * d).toInt()
+    private lateinit var recordsScroll: ScrollView
+    val scrollPosition get() = recordsScroll.scrollY
+    fun restoreScroll(y: Int) { recordsScroll.post { recordsScroll.scrollTo(0, y) } }
+
+    private fun expand(clip: Clip?) {
+        expanded = clip
+        overlays.forEach { (entry, view) ->
+            view.animate().cancel()
+            if (entry === clip) {
+                view.visibility = View.VISIBLE
+                view.animate().translationY(0f).alpha(1f).setDuration(200).start()
+            } else view.animate().translationY(32*d).alpha(0f).setDuration(160).withEndAction { view.visibility = View.INVISIBLE }.start()
+        }
+        onExpand(clip)
+    }
 
     init {
         orientation = VERTICAL
@@ -345,9 +258,9 @@ class ClipboardPanel(
             val second = list.getOrNull(i + 1)
             run {
                 val row = LinearLayout(context).apply { orientation = HORIZONTAL }
-                row.addView(card(first, fullWidth = false), lp(0, MATCH, 1f).apply { marginStart = (2 * d).toInt(); marginEnd = (4 * d).toInt() })
+                row.addView(card(first), lp(0, cardHeight, 1f).apply { marginStart = (2 * d).toInt(); marginEnd = (4 * d).toInt() })
                 if (second == null) row.addView(View(context), lp(0, 1, 1f).apply { marginStart = (4 * d).toInt(); marginEnd = (2 * d).toInt() })
-                else row.addView(card(second, fullWidth = false), lp(0, MATCH, 1f).apply { marginStart = (4 * d).toInt(); marginEnd = (2 * d).toInt() })
+                else row.addView(card(second), lp(0, cardHeight, 1f).apply { marginStart = (4 * d).toInt(); marginEnd = (2 * d).toInt() })
                 col.addView(row, lp(MATCH, WRAP).apply { topMargin = (7 * d).toInt() })
                 i += 2
             }
@@ -361,98 +274,83 @@ class ClipboardPanel(
                 setPadding(0, (10 * d).toInt(), 0, 0)
             }, lp(MATCH, WRAP))
         }
-        addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(col) }, lp(MATCH, 0, 1f))
+        recordsScroll = ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(col) }
+        addView(recordsScroll, lp(MATCH, 0, 1f))
     }
 
-    private fun card(clip: Clip, fullWidth: Boolean): View {
-        val isExp = expanded === clip
-        val cardBg = android.graphics.drawable.GradientDrawable().apply {
-            setColor(skin.keyBg)
-            cornerRadius = 14 * d
-            setStroke((1 * d).toInt(), if (isExp) skin.candHi else if (clip.pinned) withAlpha(skin.candHi, 95) else withAlpha(skin.candFg, if (skin.dark) 24 else 16))
+    private fun card(clip: Clip): View {
+        val card = android.widget.FrameLayout(context).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(skin.keyBg); cornerRadius = 14*d
+                setStroke(d.toInt().coerceAtLeast(1), withAlpha(skin.barFg, 35))
+            }
+            clipChildren = true; clipToOutline = true
+            minimumHeight = cardHeight
+            setOnClickListener { if (expanded === clip) expand(null) else onPaste(clip) }
+            setOnLongClickListener { expand(if (expanded === clip) null else clip); true }
         }
-        val card = LinearLayout(context).apply {
-            orientation = VERTICAL
-            background = cardBg
-            setPadding((11 * d).toInt(), (9 * d).toInt(), (11 * d).toInt(), (9 * d).toInt())
-            setOnClickListener { onPaste(clip) }
-            setOnLongClickListener { onExpand(if (isExp) null else clip); true }
-        }
-        val box = android.widget.FrameLayout(context)
         val img = ClipStore.imageFile(clip)
         if (img != null && img.exists()) {
-            val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-            BitmapFactory.decodeFile(img.path, opts)?.let { bmp ->
-                box.addView(ImageView(context).apply {
-                    setImageBitmap(bmp)
-                    scaleType = ImageView.ScaleType.CENTER_CROP
-                    clipToOutline = true
-                    background = roundBg(skin.modBg, 8 * d)
-                }, android.widget.FrameLayout.LayoutParams(MATCH, (74 * d).toInt()))
+            BitmapFactory.decodeFile(img.path, BitmapFactory.Options().apply { inSampleSize = 4 })?.let { bmp ->
+                card.addView(ImageView(context).apply { setImageBitmap(bmp); scaleType = ImageView.ScaleType.CENTER_CROP },
+                    android.widget.FrameLayout.LayoutParams(MATCH, cardHeight))
             }
+        } else card.addView(TextView(context).apply {
+            text = clip.text; textSize = 13.5f; maxLines = 6; ellipsize = TextUtils.TruncateAt.END
+            includeFontPadding = false
+            setLineSpacing(2*d, 1f); setTextColor(skin.keyFg)
+            setPadding((11*d).toInt(), (10*d).toInt(), (11*d).toInt(), (10*d).toInt())
+        }, android.widget.FrameLayout.LayoutParams(MATCH, cardHeight))
+        if (clip.pinned) card.addView(IconButton(context, R.drawable.ic_pin, skin.candHi, 14f) {}.apply {
+            contentDescription="已置顶"
+            isClickable=false; isFocusable=false
+        }, android.widget.FrameLayout.LayoutParams((22*d).toInt(),(22*d).toInt(),Gravity.TOP or Gravity.END).apply {
+            topMargin=(3*d).toInt(); rightMargin=(5*d).toInt()
+        })
+        if (clip.cat != null && clip.cat != "置顶") card.addView(TextView(context).apply {
+            text=clip.cat; textSize=10f; setTextColor(skin.barFg)
+            background=roundBg(skin.modBg,6*d)
+            setPadding((4*d).toInt(),0,(4*d).toInt(),0)
+        }, android.widget.FrameLayout.LayoutParams(WRAP,WRAP,Gravity.TOP or Gravity.END).apply {
+            topMargin=(3*d).toInt(); rightMargin=((if(clip.pinned) 30 else 5)*d).toInt()
+        })
+        val tools = LinearLayout(context).apply {
+            orientation = VERTICAL
+            // 工具盖住第三行之后的文字，卡片高度和网格位置保持不变。
+            background = roundBg(if (skin.dark) mix(skin.kbBg, Color.BLACK, .2f) or (0xFF shl 24) else mix(skin.kbBg, Color.WHITE, .6f) or (0xFF shl 24), 10*d)
+            setPadding((7*d).toInt(), (4*d).toInt(), (7*d).toInt(), (5*d).toInt())
+        }
+        if (picking === clip) {
+            val categories = listOf("无分类") + ClipStore.customTabs()
+            val cats = LinearLayout(context).apply { orientation = VERTICAL }
+            if (categories.size == 1) cats.addView(TextView(context).apply {
+                text = "先点顶部 + 分类"; textSize=11f; setTextColor(skin.barFg)
+            })
+            categories.forEach { cat -> cats.addView(actButton(cat, false) { onAction(clip, "cat:$cat") }, lp(MATCH, (30*d).toInt())) }
+            tools.addView(ScrollView(context).apply { addView(cats) }, lp(MATCH, (66*d).toInt()))
         } else {
-            box.addView(TextView(context).apply {
-                text = clip.text
-                minLines = 2
-                maxLines = if (isExp) 6 else 3
-                ellipsize = TextUtils.TruncateAt.END
-                textSize = 13.5f
-                setLineSpacing(2 * d, 1f)
-                setTextColor(skin.keyFg)
-                setPadding(0, 0, if (clip.pinned || clip.cat != null) (28 * d).toInt() else 0, 0)
-            }, android.widget.FrameLayout.LayoutParams(MATCH, WRAP))
-        }
-        val tags = listOfNotNull(if (clip.pinned) "置顶" else null, clip.cat)
-        if (tags.isNotEmpty()) box.addView(TextView(context).apply {
-            text = tags.joinToString(" · ")
-            textSize = 10f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(skin.candHi)
-            background = roundBg(withAlpha(skin.candHi, 26), 6 * d)
-            setPadding((6 * d).toInt(), (2 * d).toInt(), (6 * d).toInt(), (2 * d).toInt())
-        }, android.widget.FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.END))
-        card.addView(box, lp(MATCH, WRAP))
-        if (isExp) {
-            // 展开后的操作栏：整行宽敞排布，图标+文字清晰明了
-            val acts = listOfNotNull(
+            val acts = listOf(
                 Triple("pin", R.drawable.ic_pin, if (clip.pinned) "取消置顶" else "置顶"),
-                Triple("copy", R.drawable.ic_copy, "复制"),
-                if (clip.image == null) Triple("edit", R.drawable.ic_edit, "编辑") else null,
-                if (clip.image == null) Triple("split", R.drawable.ic_split, "分词") else null,
-                Triple("cat", R.drawable.ic_tag, "分类"),
-                Triple("delete", R.drawable.ic_trash, "删除"),
-            )
-            // 操作只用图标，卡片还是半宽，两行三个
+                Triple("copy", R.drawable.ic_copy, "复制"), Triple("edit", R.drawable.ic_edit, "编辑"),
+                Triple("split", R.drawable.ic_split, "分词"), Triple("cat", R.drawable.ic_tag, "分类"), Triple("delete", R.drawable.ic_trash, "删除"))
             acts.chunked(3).forEach { chunk ->
-                val r = LinearLayout(context).apply { orientation = HORIZONTAL; setPadding(0, (6 * d).toInt(), 0, 0) }
-                chunk.forEachIndexed { idx, (id, icon, _) ->
-                    val isDanger = id == "delete"
-                    val isHighlight = (id == "pin" && clip.pinned) || (id == "cat" && picking === clip)
-                    val tint = when {
-                        isDanger -> Color.parseColor("#E5484D")
-                        isHighlight -> skin.candHi
-                        else -> skin.modFg
+                tools.addView(LinearLayout(context).apply {
+                    orientation = HORIZONTAL
+                    chunk.forEach { (id, icon, label) ->
+                        addView(IconButton(context, icon, if (id == "pin" && clip.pinned) skin.candHi else skin.modFg, 18f) { onAction(clip, id) }.apply {
+                            contentDescription=label; background=roundBg(skin.modBg, 8*d)
+                            isEnabled = clip.image == null || id !in listOf("edit", "split")
+                            alpha = if (isEnabled) 1f else .3f
+                        }, lp(0, (30*d).toInt(), 1f).apply { setMargins((2*d).toInt(), (2*d).toInt(), (2*d).toInt(), (2*d).toInt()) })
                     }
-                    r.addView(IconButton(context, icon, tint, 18f) { onAction(clip, id) }.apply {
-                        background = roundBg(if (isHighlight) withAlpha(skin.candHi, 28) else skin.modBg, 10 * d)
-                    }, lp(0, (30 * d).toInt(), 1f).apply { if (idx < chunk.lastIndex) marginEnd = (5 * d).toInt() })
-                }
-                card.addView(r, lp(MATCH, WRAP))
-            }
-            if (picking === clip) {
-                val catRow = LinearLayout(context).apply { orientation = HORIZONTAL; setPadding(0, (6 * d).toInt(), 0, 0) }
-                (listOf("无分类") + ClipStore.customTabs()).forEach { cat ->
-                    catRow.addView(actButton(cat, false) { onAction(clip, "cat:$cat") }, lp(WRAP, WRAP).apply { marginEnd = (5 * d).toInt() })
-                }
-                card.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(catRow) }, lp(MATCH, WRAP))
-                if (ClipStore.customTabs().isEmpty()) card.addView(TextView(context).apply {
-                    text = "请先点顶部“+ 分类”创建自定义分类"
-                    textSize = 11.5f
-                    setTextColor(skin.barFg)
-                    setPadding(0, (4 * d).toInt(), 0, 0)
-                })
+                }, lp(MATCH, (34*d).toInt()))
             }
         }
+        card.addView(tools, android.widget.FrameLayout.LayoutParams(MATCH, (78*d).toInt(), Gravity.BOTTOM))
+        overlays[clip] = tools
+        tools.visibility = if (expanded === clip) View.VISIBLE else View.INVISIBLE
+        tools.alpha = if (expanded === clip) 1f else 0f
+        tools.translationY = if (expanded === clip) 0f else 32*d
         return card
     }
 
@@ -483,6 +381,7 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
     var icon = R.drawable.ic_search
     var hint = "搜索剪贴板"
     var multiline = false
+        set(value) { if(field!=value) { field=value;requestLayout() } }
     var value = ""
     var composing = ""
     /** 翻译模式：左边的语言按钮文字；null 表示普通输入条 */
@@ -512,7 +411,7 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         val snap = value + "\u0000" + composing
         val textChanged = snap != lastTextSnapshot
         lastTextSnapshot = snap
-        requestLayout()
+        if (multiline) requestLayout()
         if (textChanged && multiline) {
             post {
                 scrollOffsetY = maxScrollY
@@ -520,6 +419,29 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
             }
         }
         invalidate()
+    }
+
+    private var motion=0
+    /** 只对绘制做动画；输入法窗口在开始/结束时各布局一次，不逐帧变高度。 */
+    fun showAnimated(show:Boolean, animate:Boolean=true) {
+        val generation=++motion
+        animate().cancel()
+        isEnabled=show
+        if(!animate || !android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            visibility=if(show) View.VISIBLE else View.GONE
+            alpha=1f;translationY=0f;return
+        }
+        if(show) {
+            visibility=View.VISIBLE;alpha=0f;translationY=8*d
+            post {
+                if(generation==motion) animate().alpha(1f).translationY(0f).setDuration(200)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f)).withLayer().start()
+            }
+        } else if(visibility==View.VISIBLE) {
+            animate().alpha(0f).translationY(8*d).setDuration(160).withLayer().withEndAction {
+                if(generation==motion) { visibility=View.GONE;alpha=1f;translationY=0f }
+            }.start()
+        }
     }
 
     private fun textWidth(w: Int) = if (chip != null) max(1, (boxRight - boxLeft - 34 * d).toInt()) else max(1, (w - 44 * d - 92 * d).toInt())
@@ -541,12 +463,12 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        val lay = layoutFor(w)
-        val lines = if (multiline) min(5, max(2, lay.lineCount)) else 1
+        val lay = if(multiline) layoutFor(w) else null
+        val lines = if (lay != null) min(5, max(2, lay.lineCount)) else 1
         val lh = 21 * d
         val h = (lines * lh + 26 * d).toInt()
         val viewportH = h - 22 * d
-        maxScrollY = max(0f, lay.height - viewportH)
+        maxScrollY = max(0f, (lay?.height ?: 0) - viewportH)
         scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScrollY)
         setMeasuredDimension(w, h)
     }
@@ -680,12 +602,6 @@ class TokensPanel(context: Context, private val skin: Skin, private val tokens: 
 
     init {
         orientation = VERTICAL
-        addView(TextView(context).apply {
-            text = "点选要的词，手指按住滑过去可以一次选好几个"
-            textSize = 12.5f
-            setTextColor(skin.barFg)
-            setPadding((12 * d).toInt(), (6 * d).toInt(), 0, 0)
-        }, lp(MATCH, WRAP))
         addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(flow) }, lp(MATCH, 0, 1f))
         val acts = LinearLayout(context).apply { orientation = HORIZONTAL; setPadding((8 * d).toInt(), (4 * d).toInt(), (8 * d).toInt(), (6 * d).toInt()) }
         fun btn(icon: Int, f: () -> Unit) = acts.addView(IconButton(context, icon, skin.modFg, 21f) { f() }.apply {

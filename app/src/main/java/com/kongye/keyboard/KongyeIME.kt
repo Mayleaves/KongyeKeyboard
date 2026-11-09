@@ -108,6 +108,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var pyCaret = -1
     /** 键盘调节中的临时设置 */
     private var adj: Adjust? = null
+    private var adjustOverlay: View? = null
+    private var candidateFilter = 0
     /** 翻译：正在选目标语言 */
     private var langPicking = false
     private var handCands: List<String> = emptyList()
@@ -120,11 +122,16 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private val transTask = Runnable { runLiveTranslation() }
 
     private var speech: SpeechRecognizer? = null
+    private var offlineSpeech: OfflineVoice.Session? = null
+    private var offlineAfterStop: (() -> Unit)? = null
     private var listening = false
-    private var voiceStatus = "点麦克风开始说话"
+    private var voiceWantsListening = false
+    private var voiceStatus = "已暂停"
     private var voicePartial = ""
     /** 这次语音已经确定的文字（连续说多句会接起来） */
     private val voiceText = StringBuilder()
+    private var voiceDraft: VoiceDraft? = null
+    private var voiceBefore: Snap? = null
     /** 语音的去向：false 进语音面板，true 进翻译输入条 */
     private var voiceToSink = false
 
@@ -151,9 +158,13 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }.start()
         clipboard = getSystemService(ClipboardManager::class.java)
         clipboard?.addPrimaryClipChangedListener(clipListener)
+        OfflineVoice.prewarm(applicationContext,prefs.getInt(Prefs.VOICE_LANG,0))
     }
 
     override fun onDestroy() {
+        cancelVoiceDraft()
+        offlineSpeech?.cancel(); offlineSpeech = null
+        OfflineVoice.releaseCache()
         Translator.cancel()
         clipboard?.removePrimaryClipChangedListener(clipListener)
         prefs.unregisterOnSharedPreferenceChangeListener(this)
@@ -246,7 +257,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         r.addView(tab, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.START))
         // 拼音条出现、消失时，液态玻璃下的窗口高度要跟着变
         tab.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom -> if (blurOn() && (bottom - top) != (oldBottom - oldTop)) r.requestLayout() }
-        col.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionTab() }
+        col.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionTab(); positionAdjustment() }
         tab.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionTab() }
         r.setOnApplyWindowInsetsListener { _, insets ->
             // 全面屏手势且隐藏导航条时导航栏边距是 0，但底部仍有系统上滑手势区（tappableElement）
@@ -291,6 +302,12 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        if (restarting && panel == Panel.ADJUST && adj != null) {
+            applyFloat(); applySkin(rebuildPanel=false)
+            root?.post { adjustOverlay?.bringToFront(); positionAdjustment() }
+            return
+        }
+        OfflineVoice.prewarm(applicationContext, prefs.getInt(Prefs.VOICE_LANG, 0))
         resetComposing()
         assoc = emptyList()
         selecting = false
@@ -364,10 +381,17 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onSharedPreferenceChanged(p: SharedPreferences?, key: String?) {
+        if(key==Prefs.VOICE_LANG) { OfflineVoice.prewarm(applicationContext,prefs.getInt(Prefs.VOICE_LANG,0)); return }
         if (key == Prefs.FUZZY) { Lexicon.fuzzyRules = Prefs.fuzzy(this); if (seq.isNotEmpty()) refreshComposing(); return }
         if (root == null || key in setOf(Prefs.ZH, Prefs.RECENT_EMOJI, Prefs.RECENT_SYM, Prefs.COUNT_TODAY, Prefs.COUNT_DATE, Prefs.FLOAT_X, Prefs.FLOAT_Y,
                 Prefs.TRANS_TO, Prefs.VOICE_LANG, Prefs.VOICE_OFFLINE, Prefs.UPDATE_CHECKED)) return
-        if (key == Prefs.FLOAT) { floating = prefs.getBoolean(Prefs.FLOAT, false); applyFloat(); return }
+        if (key == Prefs.TOOLS || key == Prefs.MENU) {
+            renderBar()
+            // 排列视图自己持有最新顺序，保留当前实例和滚动位置。
+            if (panel == Panel.MORE) buildPanel()
+            return
+        }
+        if (key == Prefs.FLOAT || key == Prefs.FLOAT_WIDTH) { floating = prefs.getBoolean(Prefs.FLOAT, false); applyFloat(); return }
         // 调节键盘时改震动、按键音不用重建面板
         if (panel == Panel.ADJUST && key in setOf(Prefs.VIB_STRENGTH, Prefs.SOUND)) return
         applySkin()
@@ -402,9 +426,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (panel != Panel.NONE && rebuildPanel) buildPanel()
     }
 
-    /** 系统支持跨窗口模糊（Android 12+）且开了液态玻璃、不是悬浮键盘 */
-    private fun blurOn(): Boolean = skin.glass && !floating && Build.VERSION.SDK_INT >= 31 &&
-        getSystemService(android.view.WindowManager::class.java)?.isCrossWindowBlurEnabled == true
+    /** 输入法窗口包含伸出的拼音标签；系统矩形模糊会模糊标签旁的应用内容。 */
+    private fun blurOn(): Boolean = false
 
     /** 液态玻璃：让系统把键盘后面的内容模糊后透出来 */
     private fun applyBlur() {
@@ -444,13 +467,15 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         val r = root ?: return
         val dm = resources.displayMetrics
         val lpCol = col.layoutParams as FrameLayout.LayoutParams
+        val a = adj.takeIf { panel == Panel.ADJUST }
         if (floating) {
-            lpCol.width = (dm.widthPixels * 0.86f).toInt()
+            lpCol.width = (dm.widthPixels * (a?.floatWidth ?: prefs.getFloat(Prefs.FLOAT_WIDTH,.86f)).coerceIn(.55f,1f)).toInt()
             lpCol.gravity = Gravity.TOP or Gravity.START
             floatBar.visibility = View.VISIBLE
             bottomStrip.visibility = View.GONE
             col.layoutParams = lpCol
-            placeFloat(prefs.getFloat(Prefs.FLOAT_X, dm.widthPixels * 0.07f), prefs.getFloat(Prefs.FLOAT_Y, dm.heightPixels * 0.45f))
+            placeFloat(a?.floatX ?: prefs.getFloat(Prefs.FLOAT_X, dm.widthPixels * 0.07f), a?.floatY ?: prefs.getFloat(Prefs.FLOAT_Y, dm.heightPixels * 0.45f))
+            if (a != null) { a.floatX=col.translationX; a.floatY=col.translationY }
         } else {
             lpCol.width = MATCH_PARENT
             lpCol.gravity = Gravity.BOTTOM
@@ -466,7 +491,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun placeFloat(x: Float, y: Float) {
         val dm = resources.displayMetrics
-        val w = if (col.width > 0) col.width else (dm.widthPixels * 0.86f).toInt()
+        val w = col.layoutParams.width.takeIf { it > 0 } ?: col.width
         val h = if (col.height > 0) col.height else (dm.heightPixels * 0.4f).toInt()
         col.translationX = x.coerceIn(0f, (dm.widthPixels - w).toFloat().coerceAtLeast(0f))
         col.translationY = y.coerceIn(0f, (dm.heightPixels - h).toFloat().coerceAtLeast(0f))
@@ -498,12 +523,18 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         else -> null
     }
 
+    private var renderedKeys = ""
     private fun render() {
         if (root == null) return
+        val keys = "$layer/$zh/${Prefs.layout(this)}"
+        val changed = renderedKeys.isNotEmpty() && renderedKeys != keys
+        renderedKeys = keys
         keyboard.zh = zh
         keyboard.shiftState = shift
         keyboard.splitMode = splitMode()
+        keyboard.splitLayout = layer == Layer.LETTERS && (adj?.split ?: prefs.getBoolean(Prefs.SPLIT_LAYOUT, false))
         keyboard.setup(skin, rowsForLayer(), sideForLayer())
+        if (changed && keyboard.visibility == View.VISIBLE) NativeMotion.enter(keyboard)
         renderBar()
     }
 
@@ -534,7 +565,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             panel in listOf(Panel.HAND, Panel.HAND_CANDS) && handCands.isNotEmpty() -> bar.showCandidates(handCands.map { w -> CandItem(w, if (w.any { it in '一'..'鿿' }) Lexicon.pinyinOf(w) else null) }, panel == Panel.HAND_CANDS)
             assoc.isNotEmpty() && (panel == Panel.NONE || panel == Panel.HAND) -> bar.showAssoc(assoc)
             pendingClipText != null && panel == Panel.NONE && sink == Sink.NONE -> bar.showClipSuggestion(pendingClipText!!)
-            else -> bar.showTools(listOf("more") + Prefs.tools(this), activeTool())
+            else -> bar.showTools(listOf("more") + Prefs.tools(this), if (panel == Panel.ADJUST) null else activeTool())
         }
     }
 
@@ -851,7 +882,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         when {
             key.kind == Kind.SPACE && prefs.getInt(Prefs.SPACE_LONG, 0) == 2 -> {
                 // 空格长按开关语音
-                if (panel == Panel.VOICE) toggleListening() else { openVoice(); toggleListening() }
+                if (sink != Sink.NONE) voiceIntoSink()
+                else if (panel == Panel.VOICE) toggleListening() else { openVoice(); toggleListening() }
             }
             key.longEmoji -> openPanel(Panel.EMOJI)
             key.kind == Kind.SHIFT && !splitMode() -> { shift = 2; keyboard.shiftState = 2; keyboard.invalidate() }
@@ -1096,12 +1128,20 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         runFeature(id)
     }
 
+    private fun newAdjustment(): Adjust {
+        val dm = resources.displayMetrics
+        return Adjust(Prefs.heightScale(this), Prefs.opacity(this), prefs.getInt(Prefs.PAD_L, 0), prefs.getInt(Prefs.PAD_R, 0), prefs.getInt(Prefs.PAD_B, 0),
+            prefs.getBoolean(Prefs.SPLIT_LAYOUT, false), floating, prefs.getFloat(Prefs.FLOAT_WIDTH, .86f).coerceIn(.55f,1f),
+            prefs.getFloat(Prefs.FLOAT_X, dm.widthPixels*.07f), prefs.getFloat(Prefs.FLOAT_Y, dm.heightPixels*.45f))
+    }
+
     private fun runFeature(id: String) {
+        if (panel == Panel.VOICE && id != "voice") closePanel()
         when (id) {
             "more" -> openPanel(Panel.MORE)
             "settings" -> openSettings()
             "adjust" -> {
-                adj = Adjust(Prefs.heightScale(this), Prefs.opacity(this), prefs.getInt(Prefs.PAD_L, 0), prefs.getInt(Prefs.PAD_R, 0), prefs.getInt(Prefs.PAD_B, 0))
+                adj = newAdjustment()
                 openPanel(Panel.ADJUST)
             }
             "arrange" -> openPanel(Panel.ARRANGE)
@@ -1112,7 +1152,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             "skin" -> openPanel(Panel.SKIN)
             "undo" -> undo()
             "redo" -> redo()
-            "voice" -> { openVoice(); if (micGranted()) toggleListening() }
+            "voice" -> { if (sink != Sink.NONE) voiceIntoSink() else { openVoice(); if (micGranted()) toggleListening() } }
             "handwrite" -> { handCands = emptyList(); openPanel(Panel.HAND) }
             "translate" -> startSink(Sink.TRANSLATE, "", null)
             "float" -> setFloating(!floating)
@@ -1165,11 +1205,20 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun micGranted() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun openVoice() {
+        cancelVoiceDraft()
         voiceText.setLength(0)
         voicePartial = ""
         voiceToSink = false
-        voiceStatus = if (micGranted()) "点麦克风开始说话" else "需要麦克风权限：点中间的麦克风去授权"
+        voiceStatus = if (micGranted()) "已暂停" else "需要麦克风权限：点中间的麦克风去授权"
         openPanel(Panel.VOICE)
+        if (sink == Sink.NONE) {
+            voiceBefore = snap()
+            voiceDraft = ic()?.let { VoiceDraft(it) }
+        }
+    }
+
+    private fun cancelVoiceDraft() {
+        voiceDraft?.cancel(); voiceDraft = null; voiceBefore = null
     }
 
     private fun updateVoice() {
@@ -1184,6 +1233,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             }
             return
         }
+        voiceDraft?.preview(voiceText.toString() + voicePartial)
         voiceBoard?.update(voiceText.toString(), voicePartial, voiceStatus, listening)
     }
 
@@ -1197,8 +1247,19 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     private fun toggleListening() {
-        if (listening) { stopListening(); updateVoice(); return }
+        if (listening) {
+            voiceWantsListening = false
+            offlineSpeech?.let { it.stop(); voiceStatus = "正在识别..."; updateVoice(); return }
+            stopListening(); updateVoice(); return
+        }
         if (!micGranted()) { openSettings("grant_mic"); return }
+        voiceWantsListening = true
+        val dialect = if (!zh && !voiceToSink) 0 else prefs.getInt(Prefs.VOICE_LANG, 0)
+        if (OfflineVoice.ready(this, dialect)) { startOfflineVoice(dialect); return }
+        if (prefs.getBoolean(Prefs.VOICE_OFFLINE, false)) {
+            voicePack()
+            return
+        }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             voiceStatus = "这台手机没有可用的语音识别服务"
             updateVoice(); return
@@ -1208,7 +1269,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             override fun onReadyForSpeech(params: Bundle?) {
                 // 系统的谷歌语音服务没有四川话模型，会按普通话识别（不报错），这里如实说明
                 voiceStatus = if (!voiceToSink && zh && prefs.getInt(Prefs.VOICE_LANG, 0) == 1) "请说话（识别服务没有四川话模型，按普通话识别，口音重时可能不准）"
-                else "请说话，字会实时出来…"
+                else "正在聆听..."
                 updateVoice()
             }
             override fun onBeginningOfSpeech() = Unit
@@ -1264,7 +1325,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 voiceStatus = "说完点“确定”上屏，点“取消”丢掉"
                 updateVoice()
                 // 连续说：一句识别完接着听
-                if (panel == Panel.VOICE && text.isNotEmpty()) main.postDelayed({ if (panel == Panel.VOICE && !listening) toggleListening() }, 150)
+                if (voiceWantsListening && panel == Panel.VOICE && text.isNotEmpty()) main.postDelayed({ if (voiceWantsListening && panel == Panel.VOICE && !listening) toggleListening() }, 150)
             }
             override fun onPartialResults(partialResults: Bundle?) {
                 voicePartial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
@@ -1282,53 +1343,86 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             if (prefs.getBoolean(Prefs.VOICE_OFFLINE, false)) putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         })
         listening = true
-        voiceStatus = "请说话…"
+        voiceStatus = "正在聆听..."
         updateVoice()
     }
 
-    /**
-     * 离线语音包：问系统的语音识别服务（谷歌语音服务）这个方言有没有离线模型，有就让它下载。
-     * 需要 Android 13+ 和支持设备端识别的语音服务；四川话目前没有系统离线包。
-     */
+    /** 独立离线引擎：普通话小模型与川渝专用模型分别校验、安装。 */
     private fun voicePack() {
         val dialect = prefs.getInt(Prefs.VOICE_LANG, 0)
-        fun say(s: String) { voiceStatus = s; updateVoice() }
-        if (Build.VERSION.SDK_INT < 33) { say("系统版本低于 Android 13，不能下载离线语音包"); return }
-        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) { say("这台手机的语音识别服务不支持离线识别"); return }
-        val tags = if (dialect == 1) listOf("zh-CN-sichuan", "cmn-Hans-CN-sichuan") else listOf("cmn-Hans-CN", "zh-CN")
-        val name = if (dialect == 1) "四川话" else "普通话"
-        val sr = runCatching { SpeechRecognizer.createOnDeviceSpeechRecognizer(this) }.getOrNull() ?: run { say("打不开设备端语音识别"); return }
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE, tags[0])
-        say("正在查询${name}离线包…")
-        sr.checkRecognitionSupport(intent, mainExecutor, object : android.speech.RecognitionSupportCallback {
-            override fun onSupportResult(s: android.speech.RecognitionSupport) {
-                fun has(list: List<String>) = list.any { l -> tags.any { t -> l.equals(t, true) } || (dialect == 0 && (l.startsWith("zh-CN", true) || l.startsWith("cmn-Hans", true))) }
-                when {
-                    has(s.installedOnDeviceLanguages) -> {
-                        prefs.edit().putBoolean(Prefs.VOICE_OFFLINE, true).apply()
-                        say("${name}离线包已经装好，断网也能识别")
-                    }
-                    has(s.pendingOnDeviceLanguages) -> say("${name}离线包正在下载，可以在通知栏看进度")
-                    has(s.supportedOnDeviceLanguages) -> {
-                        sr.triggerModelDownload(intent)
-                        prefs.edit().putBoolean(Prefs.VOICE_OFFLINE, true).apply()
-                        say("开始下载${name}离线包，可以在通知栏看进度")
-                    }
-                    else -> say("系统语音服务没有${name}离线包" + if (dialect == 1) "（四川话目前只能联网识别，按普通话模型）" else "")
-                }
-                sr.destroy()
-            }
+        stopListening()
+        OfflineVoice.install(applicationContext, dialect) { ready, status ->
+            if (ready) prefs.edit().putBoolean(Prefs.VOICE_OFFLINE, true).apply()
+            voiceStatus = status; updateVoice()
+        }
+    }
 
-            override fun onError(error: Int) {
-                say("查询离线包失败（错误 $error）")
-                sr.destroy()
+    private fun startOfflineVoice(dialect: Int) {
+        speech?.destroy(); speech = null
+        lateinit var session: OfflineVoice.Session
+        session = OfflineVoice.Session(applicationContext, dialect, object : OfflineVoice.Listener {
+            private fun active() = offlineSpeech === session
+            override fun status(text: String) { if (active()) { voiceStatus = text; updateVoice() } }
+            override fun level(value: Float) { if (active()) voiceBoard?.level(value) }
+            override fun spectrum(values: FloatArray) { if (active()) voiceBoard?.spectrum(values) }
+            override fun partial(text: String) { if (active()) { voicePartial = text; updateVoice() } }
+            override fun result(text: String) {
+                if (!active()) return
+                voicePartial = ""
+                if (voiceToSink) {
+                    sinkBuf.append(text); sinkStrip.value = sinkBuf.toString(); onSinkChanged()
+                } else voiceText.append(text)
+                updateVoice()
+            }
+            override fun stopped(error: String?) {
+                if (!active()) return
+                offlineSpeech = null; listening = false
+                voiceStatus = error ?: "已暂停"
+                updateVoice()
+                val finish = offlineAfterStop; offlineAfterStop = null
+                finish?.invoke()
             }
         })
+        offlineSpeech = session; listening = true
+        voiceStatus = "正在打开麦克风…"
+        updateVoice(); session.start()
+    }
+
+    private fun confirmVoice() {
+        val finish = {
+            val t = voiceText.toString() + voicePartial
+            stopListening()
+            val draft = voiceDraft
+            val before = voiceBefore
+            voiceDraft = null; voiceBefore = null
+            if (draft != null) {
+                draft.preview(t)
+                draft.confirm()
+                if (t.isNotEmpty()) {
+                    if (before != null && undoStack.lastOrNull() != before) undoStack.addLast(before)
+                    while (undoStack.size > 100) undoStack.removeFirst()
+                    redoStack.clear(); lastTypingAt = 0L
+                    Prefs.addTyped(this, t.count { it.isLetterOrDigit() })
+                }
+            }
+            voiceText.setLength(0); voicePartial = ""
+            closePanel()
+            if (draft == null && t.isNotEmpty()) commitOut(t)
+        }
+        val session = offlineSpeech
+        if (session != null && listening) {
+            offlineAfterStop = finish
+            voiceStatus = "正在识别..."; updateVoice()
+            session.stop()
+        } else finish()
     }
 
     private fun stopListening() {
-        if (listening) runCatching { speech?.stopListening() }
+        voiceWantsListening = false
+        offlineSpeech?.cancel(); offlineSpeech = null; offlineAfterStop = null
+        if (listening) runCatching { speech?.cancel() }
         listening = false
+        voiceStatus = "已暂停"
         val leftover = voicePartial.trim()
         if (leftover.isNotEmpty()) {
             voicePartial = ""
@@ -1418,7 +1512,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun startSink(mode: Sink, initial: String, clip: Clip?) {
         if (seq.isNotEmpty()) resetComposing()
-        closePanel(render = false)
+        closePanel(render = false, animate=false)
         sink = mode
         sinkClip = clip
         sinkBuf.setLength(0)
@@ -1440,7 +1534,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         sinkStrip.hint = when (mode) { Sink.EDIT -> "修改内容"; Sink.TRANSLATE -> "输入要翻译的中文或外文"; Sink.NEWCAT -> "新分类的名字"; else -> "搜索剪贴板" }
         sinkStrip.value = initial
         sinkStrip.composing = ""
-        sinkStrip.visibility = View.VISIBLE
+        sinkStrip.showAnimated(true)
         sinkStrip.refresh()
         layer = Layer.LETTERS
         assoc = emptyList()
@@ -1448,14 +1542,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         updateClipSearch()
     }
 
-    private fun endSink() {
+    private fun endSink(animate: Boolean=false) {
         resetComposing()
         if (sink == Sink.TRANSLATE) { Translator.cancel(); main.removeCallbacks(transTask) }
         if (voiceToSink) { stopListening(); voiceToSink = false }
         sink = Sink.NONE
         sinkClip = null
         langPicking = false
-        if (::sinkStrip.isInitialized) sinkStrip.visibility = View.GONE
+        if (::sinkStrip.isInitialized) sinkStrip.showAnimated(false, animate)
         updateClipSearch()
     }
 
@@ -1534,44 +1628,51 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 if (transResult.isEmpty() && text.isNotBlank()) ic?.setComposingText(text, 1)
                 checkpoint(typing = false)
                 ic?.finishComposingText()
-                endSink()
+                endSink(animate=true)
                 render()
                 return
             }
             Sink.NONE -> return
         }
-        endSink()
+        endSink(animate=true)
         openPanel(Panel.CLIP)
     }
 
     private fun sinkCancel() {
         val wasTranslate = sink == Sink.TRANSLATE
         if (wasTranslate) ic()?.setComposingText("", 1)
-        endSink()
+        endSink(animate=true)
         if (wasTranslate) render() else openPanel(Panel.CLIP)
     }
 
     // —————————— 面板 ——————————
 
     private fun openPanel(p: Panel) {
+        if (panel == Panel.ADJUST && p != Panel.ADJUST) closePanel(render=false)
         if (p != Panel.CANDS && seq.isNotEmpty()) finalizeComposing()
         if (p != Panel.CLIP && p != Panel.TOKENS) { clipExpanded = null; clipPicking = null }
-        if (panel == Panel.VOICE && p != Panel.VOICE) stopListening()
+        if (panel == Panel.VOICE && p != Panel.VOICE) { stopListening(); cancelVoiceDraft() }
         panel = p
         assoc = emptyList()
-        buildPanel()
+        buildPanel(animate=true)
         // 调节高度时键盘还要看得见
         keyboard.visibility = if (p == Panel.ADJUST) View.VISIBLE else View.INVISIBLE
         panelHost.visibility = View.VISIBLE
         renderBar()
     }
 
-    private fun closePanel(render: Boolean = true) {
-        if (panel == Panel.VOICE) stopListening()
+    private fun closePanel(render: Boolean = true, animate: Boolean = true) {
+        val hadPanel = panel != Panel.NONE
+        if (panel == Panel.VOICE) { stopListening(); cancelVoiceDraft() }
         val wasAdjust = panel == Panel.ADJUST
+        adjustOverlay?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }; adjustOverlay = null
         panel = Panel.NONE
         voiceBoard = null
-        if (wasAdjust) { adj = null; applySkin(rebuildPanel = false) }
+        if (wasAdjust) {
+            adj = null
+            floating=prefs.getBoolean(Prefs.FLOAT,false)
+            applyFloat(); applySkin(rebuildPanel = false)
+        }
         selecting = false
         anchor = -1
         editView = null
@@ -1581,6 +1682,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             panelHost.removeAllViews()
             panelHost.visibility = View.GONE
             keyboard.visibility = View.VISIBLE
+            if (animate && hadPanel) NativeMotion.enter(keyboard)
         }
         if (render) renderBar()
     }
@@ -1616,8 +1718,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun symCats(): List<Pair<String, List<String>>> =
         listOf(Layouts.SYMBOLS[0], "最近" to recentSyms()) + Layouts.SYMBOLS.drop(1)
 
-    private fun buildPanel() {
+    private fun buildPanel(animate: Boolean=false) {
         if (root == null) return
+        val previous = if (animate && panelHost.visibility == View.VISIBLE) NativeMotion.snapshot(panelHost) else null
+        val clipScroll = (panelHost.getChildAt(0) as? ClipboardPanel)?.scrollPosition ?: 0
+        adjustOverlay?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }; adjustOverlay = null
         panelHost.removeAllViews()
         editView = null
         if (panel != Panel.HAND) handView = null
@@ -1628,14 +1733,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 onTab = { emojiTab = it }) { onKey(Key(Kind.DEL)) }
             Panel.CLIP -> ClipboardPanel(
                 this, skin, if (clipTab in ClipStore.tabs()) clipTab else "全部", clipQuery, clipExpanded, clipPicking,
-                onTab = { clipTab = it; clipExpanded = null; buildPanel() },
+                onTab = { clipTab = it; clipQuery = ""; clipExpanded = null; buildPanel(animate=true) },
                 onTabLong = { t -> confirm("cat:$t", "再长按一次删除分类“$t”（里面的内容不删）") { ClipStore.removeCategory(t); clipTab = "全部"; buildPanel() } },
                 onNewCat = { startSink(Sink.NEWCAT, "", null) },
                 onSearch = { startSink(Sink.SEARCH, clipQuery, null) },
                 onClearQuery = { clipQuery = ""; buildPanel() },
                 onClear = { confirm("clear", "再点一次垃圾桶，清空没置顶的记录") { ClipStore.clearUnpinned(); clipExpanded = null; buildPanel(); message("已清空没置顶的记录") } },
                 onPaste = ::pasteClip,
-                onExpand = { clipExpanded = it; clipPicking = null; buildPanel() },
+                onExpand = { clipExpanded = it; clipPicking = null },
                 onAction = ::clipAction,
             )
             Panel.TOKENS -> TokensPanel(this, skin, tokens, onInsert = {
@@ -1659,20 +1764,28 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 if (!zh) toggleLang()
             }
             Panel.ADJUST -> {
-                val a = adj ?: Adjust(Prefs.heightScale(this), Prefs.opacity(this), 0, 0, 0).also { adj = it }
+                val a = adj ?: newAdjustment().also { adj = it }
                 AdjustOverlay(
-                    this, skin, a, p.getInt(Prefs.VIB_STRENGTH, 2), p.getBoolean(Prefs.SOUND, false),
-                    onLive = { applySkin(rebuildPanel = false) },
-                    onVib = { lv -> p.edit().putInt(Prefs.VIB_STRENGTH, lv).apply(); buzz() },
-                    onSound = { on -> p.edit().putBoolean(Prefs.SOUND, on).apply() },
-                    onReset = { adj = Adjust(1f, 1f, 0, 0, 0); applySkin() },
+                    this, skin, a, a.floating,
+                    onLive = { applyFloat(); applySkin(rebuildPanel = false) },
+                    onFloating = {
+                        a.floating=!a.floating
+                        floating=a.floating
+                        applyFloat(); applySkin(rebuildPanel=false); buildPanel()
+                        root?.post { adjustOverlay?.bringToFront(); positionAdjustment() }
+                    },
+                    onMove = { x,y -> placeFloat(x,y); a.floatX=col.translationX; a.floatY=col.translationY },
+                    onReset = { adj = Adjust(1f, 1f, 0, 0, 0, floatX=resources.displayMetrics.widthPixels*.07f, floatY=resources.displayMetrics.heightPixels*.45f); floating=false; applyFloat(); applySkin() },
                     onDone = {
                         p.edit().putFloat(Prefs.HEIGHT_SCALE, a.scale).putFloat(Prefs.OPACITY, a.opacity)
+                            .putBoolean(Prefs.SPLIT_LAYOUT, a.split).putBoolean(Prefs.FLOAT, a.floating)
+                            .putFloat(Prefs.FLOAT_WIDTH, a.floatWidth).putFloat(Prefs.FLOAT_X, a.floatX).putFloat(Prefs.FLOAT_Y, a.floatY)
                             .putInt(Prefs.PAD_L, a.padL).putInt(Prefs.PAD_R, a.padR).putInt(Prefs.PAD_B, a.padB).apply()
                         closePanel()
                     },
                 )
             }
+
             Panel.SYMBOL -> SymbolBoard(this, skin, ::symCats, symCat,
                 onCat = { symCat = it },
                 onSym = { s -> useSym(s) },
@@ -1703,20 +1816,37 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 },
                 onMic = { toggleListening() },
                 onCancel = { stopListening(); voiceText.setLength(0); voicePartial = ""; closePanel() },
-                onOk = {
-                    val t = voiceText.toString() + voicePartial
-                    stopListening()
-                    voiceText.setLength(0); voicePartial = ""
-                    closePanel()
-                    if (t.isNotEmpty()) commitOut(t)
-                },
+                onOk = { confirmVoice() },
                 onPermission = { openSettings("grant_mic") },
-                onPack = { voicePack() },
             ).also { voiceBoard = it; it.update(voiceText.toString() + voicePartial, voiceStatus, listening) }
-            Panel.CANDS -> scroll(CandFlowView(this, skin, cands.take(120).map { it.w }) { i -> cands.getOrNull(i)?.let { pick(it) } })
-            Panel.HAND_CANDS -> scroll(CandFlowView(this, skin, handCands) { onCandidate(it) })
+            Panel.CANDS -> ExpandedCandidates(this, skin, cands.take(120).map { it.w }, candidateFilter,
+                onMode = { candidateFilter=it; buildPanel() },
+                onPick = { i -> cands.getOrNull(i)?.let { pick(it) } },
+                onDelete = { onKey(Key(Kind.DEL)); if (seq.isEmpty()) closePanel() }, onBack = { closePanel() })
+            Panel.HAND_CANDS -> ExpandedCandidates(this, skin, handCands, candidateFilter,
+                onMode = { candidateFilter=it; buildPanel() }, onPick = { onCandidate(it) },
+                onDelete = { handCands=emptyList(); panel=Panel.HAND; buildPanel(); renderBar() },
+                onBack = { panel=Panel.HAND; buildPanel(); renderBar() })
         }
-        panelHost.addView(v, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        if (panel == Panel.ADJUST) {
+            adjustOverlay=v
+            root?.addView(v, FrameLayout.LayoutParams(col.width, col.height))
+            positionAdjustment()
+        } else panelHost.addView(v, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        if (v is ClipboardPanel) v.restoreScroll(clipScroll)
+        if (animate) {
+            if (panel == Panel.ADJUST) NativeMotion.pulse(v)
+            else NativeMotion.reveal(panelHost, v, previous)
+        }
+    }
+
+    private fun positionAdjustment() {
+        val view=adjustOverlay ?: return
+        view.elevation=col.elevation+4*resources.displayMetrics.density
+        val l=view.layoutParams as FrameLayout.LayoutParams
+        val width=col.width-col.paddingLeft-col.paddingRight
+        if (l.width != width || l.height != col.height) { l.width=width; l.height=col.height; view.layoutParams=l }
+        view.x=col.x+col.paddingLeft; view.y=col.y
     }
 
     private fun recognize(view: HandwriteView) {

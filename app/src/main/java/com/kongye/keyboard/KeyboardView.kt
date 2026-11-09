@@ -4,11 +4,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.os.Handler
@@ -91,6 +89,7 @@ class KeyboardView(context: Context) : View(context) {
     private var sideTouch = false
     private var sidePressed = -1
 
+    var splitLayout = false
     private var cursorMode = false
 
     private val d = resources.displayMetrics.density
@@ -101,7 +100,6 @@ class KeyboardView(context: Context) : View(context) {
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val glassStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val glassFill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     private val radii = FloatArray(8)
     private val handler = Handler(Looper.getMainLooper())
@@ -172,6 +170,32 @@ class KeyboardView(context: Context) : View(context) {
                 val unit = (wv - 2 * pad - (n - 1) * gap) / sumW
                 var x = pad
                 for (k in row.keys) { val kw = k.w * unit; k.rect.set(x, y, x + kw, y + rh); x += kw + gap }
+            }
+            if (splitLayout && sideList == null && n >= 4) {
+                val splitGap = wv * .13f
+                val usable = wv - 2 * pad
+                val factor = (usable - splitGap) / usable
+                val midpoint = n / 2
+                row.keys.forEachIndexed { index, key ->
+                    val left = pad + (key.rect.left - pad) * factor + if (index >= midpoint) splitGap else 0f
+                    val right = pad + (key.rect.right - pad) * factor + if (index >= midpoint) splitGap else 0f
+                    key.rect.set(left, y, right, y + rh)
+                }
+            }
+            if (ri == rows.lastIndex && row.keys.lastOrNull()?.kind == Kind.ENTER) {
+                val delete=rows.dropLast(1).flatMap { it.keys }.lastOrNull { it.kind==Kind.DEL }
+                val spaceIndex=row.keys.indexOfFirst { it.kind==Kind.SPACE }
+                if(delete!=null && spaceIndex>=0) {
+                    val enter=row.keys.last()
+                    val left=enter.rect.right-delete.rect.width()
+                    val delta=left-enter.rect.left
+                    val space=row.keys[spaceIndex]
+                    if(space.rect.width()+delta>8*d) {
+                        space.rect.right+=delta
+                        for(i in spaceIndex+1 until row.keys.lastIndex) row.keys[i].rect.offset(delta,0f)
+                        enter.rect.left=left
+                    }
+                }
             }
             for ((i, k) in row.keys.withIndex()) {
                 val l = if (i == 0) (if (withSide) k.rect.left - gap / 2 else 0f) else k.rect.left - gap / 2
@@ -289,21 +313,21 @@ class KeyboardView(context: Context) : View(context) {
                 val size = if (k.label.length > 2) 14f else if (r.width() > 60 * d) 24f else 20f
                 drawText(c, k.label, cx, cy, size, withAlpha(fg, (255 * (1 - prog)).toInt()))
                 drawHints(c, k, r, prog, dir, size)
-                if (k.longEmoji) icons.draw(c, R.drawable.ic_emoji, r.right - 9 * d, r.top + 9 * d, 11f, s.hintFg)
+                if (k.longEmoji && k.hint == null) icons.draw(c, R.drawable.ic_emoji, r.right - 9 * d, r.top + 9 * d, 11f, s.hintFg)
             }
             Kind.SHIFT -> if (splitMode) icons.draw(c, R.drawable.ic_split, cx, cy, 22f, fg) else icons.draw(
                 c, when (shiftState) { 1 -> R.drawable.ic_shift_on; 2 -> R.drawable.ic_shift_lock; else -> R.drawable.ic_shift },
                 cx, cy, 22f, fg,
             )
             Kind.DEL -> {
-                // 下滑：红色“清空”；上滑：蓝色“撤回”——平滑过渡位移、缩放与透明度
+                // 下滑红色清空，上滑蓝色撤回——平滑过渡位移、缩放与透明度
                 val raw = if (p != null && dir != 0) prog else delReleaseProg
                 val activeDir = if (p != null && dir != 0) dir else delReleaseDir
                 if (raw > 0.01f && activeDir != 0) {
                     val t = (raw * 1.15f).coerceIn(0f, 1f)
                     val ease = t * t * (3f - 2f * t)
                     val tintColor = if (activeDir > 0) RED else BLUE
-                    // 键帽变成明亮的实色（红：清空，蓝：撤回），字是白的
+                    // 清空用红色，撤回用深蓝色，均配白色文字
                     fill.color = withAlpha(tintColor, (ease * 255).toInt())
                     c.drawPath(path, fill)
                     // 原删除图标随手势方向顺滑移出并淡出
@@ -334,54 +358,11 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    /** iOS 液态玻璃：多层折射光泽 + 对角高光玻璃描边 + 底部内折射亮边 */
+    /** 半透明键帽只保留均匀细边，不添加渐变。 */
     private fun drawGlass(c: Canvas, r: RectF) {
-        val dark = skin.dark
-        c.save()
-        c.clipPath(path)
-        // 1. 顶部弧面高光层（模拟 iOS 玻璃镜面反射）
-        glassFill.shader = LinearGradient(
-            0f, r.top, 0f, r.top + r.height() * 0.52f,
-            withAlpha(Color.WHITE, if (dark) 62 else 155),
-            withAlpha(Color.WHITE, 0),
-            Shader.TileMode.CLAMP,
-        )
-        c.drawRect(r.left, r.top, r.right, r.top + r.height() * 0.52f, glassFill)
-
-        // 2. 底部内侧微弱折射泛光（玻璃厚度感）
-        glassFill.shader = LinearGradient(
-            0f, r.bottom - r.height() * 0.25f, 0f, r.bottom,
-            withAlpha(Color.WHITE, 0),
-            withAlpha(Color.WHITE, if (dark) 26 else 75),
-            Shader.TileMode.CLAMP,
-        )
-        c.drawRect(r.left, r.bottom - r.height() * 0.25f, r.right, r.bottom, glassFill)
-        // 3. 左上镜面光斑
-        glassFill.shader = android.graphics.RadialGradient(
-            r.left + r.width() * 0.3f, r.top + r.height() * 0.18f, r.width() * 0.55f,
-            withAlpha(Color.WHITE, if (dark) 46 else 95), withAlpha(Color.WHITE, 0), Shader.TileMode.CLAMP,
-        )
-        c.drawRect(r, glassFill)
-        // 4. 右下内侧暗边（玻璃厚度和折射）
-        glassFill.shader = LinearGradient(
-            r.right, r.bottom, r.right - r.width() * 0.35f, r.bottom - r.height() * 0.35f,
-            withAlpha(Color.BLACK, if (dark) 60 else 22), withAlpha(Color.BLACK, 0), Shader.TileMode.CLAMP,
-        )
-        c.drawRect(r, glassFill)
-        c.restore()
-
-        // 3. iOS 对角高光玻璃边缘描边（左上极亮 → 中段通透 → 右下柔光）
-        glassStroke.strokeWidth = 1.15f * d
-        glassStroke.shader = LinearGradient(
-            r.left, r.top, r.right, r.bottom,
-            intArrayOf(
-                withAlpha(Color.WHITE, if (dark) 165 else 248),
-                withAlpha(Color.WHITE, if (dark) 38 else 110),
-                withAlpha(Color.WHITE, if (dark) 95 else 195),
-            ),
-            floatArrayOf(0f, 0.55f, 1f),
-            Shader.TileMode.CLAMP,
-        )
+        glassStroke.shader = null
+        glassStroke.strokeWidth = .8f * d
+        glassStroke.color = withAlpha(if (skin.dark) Color.WHITE else Color.GRAY, if (skin.dark) 68 else 62)
         c.drawPath(path, glassStroke)
     }
 
@@ -638,7 +619,7 @@ class KeyboardView(context: Context) : View(context) {
         longTask = null
         val k = p.key
         val popLong = k.kind == Kind.LETTER
-        val hintLong = k.hint != null && k.kind == Kind.CHAR
+        val hintLong = k.hint != null && k.kind == Kind.CHAR && !k.longEmoji
         val actionLong = k.longEmoji || k.kind == Kind.SPACE || k.kind == Kind.SHIFT || popLong
         if (!hintLong && !actionLong) return
         val task = Runnable {
@@ -804,7 +785,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     companion object {
-        private val RED = Color.parseColor("#FF5A5F")
-        private val BLUE = Color.parseColor("#3B8BFF")
+        private val RED = Color.parseColor("#E63946")
+        private val BLUE = Color.parseColor("#2166AC")
     }
 }

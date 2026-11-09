@@ -5,6 +5,9 @@
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.android.gms.internal.mlkit_** { *; }
 -keep class com.google.android.odml.** { *; }
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+# 独立设备验证程序和 ML Kit 共用任务 API，保留异步任务的公开入口。
+-keep class com.google.android.gms.tasks.** { *; }
 
 # 1.3.0：手写的数字墨水库带进了 WorkManager 和 Room。数据库实现类（WorkDatabase_Impl）、
 # androidx.startup 的 Initializer、Worker 都是反射创建的，R8 full mode 删掉构造后进程一启动就崩

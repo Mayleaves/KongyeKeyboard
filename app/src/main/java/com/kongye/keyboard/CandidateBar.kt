@@ -4,10 +4,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.view.MotionEvent
 import android.view.VelocityTracker
@@ -144,13 +142,6 @@ class CandidateBar(context: Context) : View(context) {
     }
 
     override fun onDraw(c: Canvas) {
-        if (cursorMode) {
-            // 光标模式（照图2）：顶栏不画图标，只留一条极淡的胶囊横槽
-            fill.color = withAlpha(skin.keyBg, if (skin.dark) 65 else 120)
-            rect.set(12 * d, 8 * d, width - 12 * d, height - 8 * d)
-            c.drawRoundRect(rect, 14 * d, 14 * d, fill)
-            return
-        }
         if (toolDrag) { drawToolDrag(c); return }
         when (mode) {
             Mode.TOOLS -> drawTools(c)
@@ -203,10 +194,10 @@ class CandidateBar(context: Context) : View(context) {
     /** 长按编辑工具后：整条变成一个提示，左右滑移动光标 */
     private fun drawToolDrag(c: Canvas) {
         val h = height.toFloat()
-        fill.color = if (skin.toolHiBg != 0) skin.toolHiBg else skin.modBg
+        fill.color = withAlpha(skin.barFg, if (skin.dark) 32 else 18)
         rect.set(10 * d, 7 * d, width - 10 * d, h - 7 * d)
         c.drawRoundRect(rect, 15 * d, 15 * d, fill)
-        val fg = if (skin.toolHiFg != 0) skin.toolHiFg else skin.candFg
+        val fg = skin.barFg
         icons.draw(c, R.drawable.ic_chevron_left, 30 * d, h / 2, 20f, fg)
         icons.draw(c, R.drawable.ic_chevron_right, width - 30 * d, h / 2, 20f, fg)
         icons.draw(c, R.drawable.ic_cursor, width / 2f, h / 2, 21f, fg)
@@ -278,11 +269,6 @@ class CandidateBar(context: Context) : View(context) {
         }
         c.restore()
         if (expandW > 0) {
-            val fadeW = 18 * d
-            val clear = skin.kbBg and 0x00FFFFFF
-            fill.shader = LinearGradient(viewW - fadeW, 0f, viewW, 0f, clear, skin.kbBg, Shader.TileMode.CLAMP)
-            c.drawRect(viewW - fadeW, 0f, viewW, h, fill)
-            fill.shader = null
             fill.color = skin.kbBg
             c.drawRect(viewW, 0f, width.toFloat(), h, fill)
             val ic = when {

@@ -49,10 +49,10 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
     }
     private val path = Path()
 
-    private val textSizePx get() = (if (expanded) 24f else 15.5f) * d
-    private val padX get() = (if (expanded) 15f else 13f) * d
-    private val topInset get() = if (expanded) 9 * d else 2 * d
-    private val rightInset get() = if (expanded) 11 * d else 2 * d
+    private val textSizePx get() = (if (expanded) 22f else 15f) * d
+    private val padX get() = (if (expanded) 10f else 5f) * d
+    private val topInset get() = if (expanded) 9 * d else d
+    private val rightInset get() = if (expanded) 10 * d else d
     private val btnRadius get() = 10.5f * d
 
     fun reset() {
@@ -77,10 +77,10 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
         val maxW = if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) resources.displayMetrics.widthPixels
         else MeasureSpec.getSize(widthMeasureSpec)
         tp.textSize = textSizePx
-        val minW = (if (expanded) 88 else 56) * d
+        val minW = (if (expanded) 62 else 32) * d
         val want = (tp.measureText(text) + 2 * padX + rightInset + 6 * d).toInt()
-            .coerceIn(minW.toInt(), max(minW.toInt(), maxW - (16 * d).toInt()))
-        val h = ((if (expanded) 44 else 32) * d + topInset).toInt()
+            .coerceIn(minW.toInt(), max(minW.toInt(), min(maxW - (16 * d).toInt(), (176 * d).toInt())))
+        val h = ((if (expanded) 34 else 23) * d + topInset).toInt()
         setMeasuredDimension(want, h)
     }
 
@@ -96,19 +96,12 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
             floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f),
             Path.Direction.CW,
         )
-        // 实色底 + 很淡的投影，不描黑边
-        c.save()
-        c.translate(0f, -0.8f * d)
-        fill.color = withAlpha(android.graphics.Color.BLACK, if (skin.dark) 70 else 16)
+        // 所有状态都用细灰边与略透明底，避免玻璃模式下出现一整条模糊带。
+        fill.color = withAlpha(if (skin.dark) skin.popBg else android.graphics.Color.WHITE, 222)
         c.drawPath(path, fill)
-        c.restore()
-        fill.color = if (skin.dark) skin.popBg else android.graphics.Color.WHITE
-        c.drawPath(path, fill)
-        if (expanded) {
-            stroke.strokeWidth = 1f * d
-            stroke.color = withAlpha(skin.candFg, if (skin.dark) 60 else 30)
-            c.drawPath(path, stroke)
-        }
+        stroke.strokeWidth = .8f * d
+        stroke.color = if (skin.dark) android.graphics.Color.parseColor("#777B80") else android.graphics.Color.parseColor("#C5C7CA")
+        c.drawPath(path, stroke)
 
         val textW = tp.measureText(text)
         val avail = (boxRight - d) - 2 * padX
@@ -121,7 +114,7 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
         val fm = tp.fontMetrics
         val base = boxTop + (boxBottom - boxTop) / 2f + d - (fm.ascent + fm.descent) / 2
         c.drawText(text, d + padX - offset, base, tp)
-        if (caret >= 0 || expanded) {
+        if (expanded) {
             fill.color = if (expanded) skin.candFg else skin.candHi
             val x = d + padX - offset + caretX
             val barW = (if (expanded) 1.8f else 1.6f) * d
@@ -155,13 +148,10 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
                 if (abs(e.x - bx) <= 16 * d && abs(e.y - by) <= 16 * d) {
                     expanded = false
                     requestLayout()
+                    NativeMotion.pulse(this)
                     invalidate()
                     return true
                 }
-            } else {
-                expanded = true
-                requestLayout()
-                invalidate()
             }
             tp.textSize = textSizePx
             val x = e.x - (d + padX) + offset
@@ -171,6 +161,7 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
                 val dx = abs(tp.measureText(text, 0, i) - x)
                 if (dx < bestD) { bestD = dx; best = i }
             }
+            if (!expanded) { expanded = true; requestLayout(); NativeMotion.pulse(this); invalidate() }
             onCaret(best)
         }
         return true
@@ -251,17 +242,13 @@ class SymbolBoard(
 ) : LinearLayout(context) {
     private val d = resources.displayMetrics.density
     private var curCat = startCat
-    private val grid: SymGrid
-    private val gridScroller: ScrollView
+    private val pager = CategoryPager(context)
     private val tabViews = ArrayList<TextView>()
 
     init {
         orientation = VERTICAL
         val initialCats = catsProvider()
-        val items = initialCats.getOrNull(curCat)?.second.orEmpty()
-        grid = SymGrid(items)
-        gridScroller = ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(grid) }
-        addView(gridScroller, lp(MATCH, 0, 1f))
+        addView(pager, lp(MATCH, 0, 1f))
         val bottom = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -299,6 +286,8 @@ class SymbolBoard(
             }
         }
         initialCats.forEachIndexed { i, (name, _) ->
+            // 输入法使用原生 View 自绘，不依赖 AppCompat 的主题着色替换。
+            @SuppressLint("AppCompatCustomView")
             val tv = object : TextView(context) {
                 private val p = Paint(Paint.ANTI_ALIAS_FLAG)
                 override fun onDraw(c: Canvas) {
@@ -315,11 +304,7 @@ class SymbolBoard(
                 setPadding((15 * d).toInt(), 0, (15 * d).toInt(), 0)
                 setOnClickListener {
                     if (curCat == i) return@setOnClickListener
-                    curCat = i
-                    onCat(i)
-                    grid.updateItems(catsProvider().getOrNull(i)?.second.orEmpty())
-                    gridScroller.scrollTo(0, 0)
-                    updateTabs(i, animateScroll = true)
+                    pager.select(i)
                 }
             }
             tabViews.add(tv)
@@ -329,6 +314,9 @@ class SymbolBoard(
         bottom.addView(scroller, lp(0, keyH, 4.6f).apply { marginEnd = (5 * d).toInt() })
         modKey(null, R.drawable.ic_del, 1.25f, onDel, repeat = true).let { (it.layoutParams as LayoutParams).marginEnd = 0 }
         addView(bottom, lp(MATCH, WRAP))
+        pager.pages(initialCats.size, curCat, { index ->
+            ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(SymGrid(catsProvider().getOrNull(index)?.second.orEmpty())) }
+        }) { index -> curCat = index; onCat(index); updateTabs(index, true) }
         scroller.post { updateTabs(curCat, animateScroll = false) }
     }
 
@@ -408,180 +396,152 @@ class SymbolBoard(
 }
 
 /** 键盘调节时的临时设置；点“完成”才保存 */
-class Adjust(var scale: Float, var opacity: Float, var padL: Int, var padR: Int, var padB: Int)
+data class Adjust(
+    var scale: Float, var opacity: Float, var padL: Int, var padR: Int, var padB: Int,
+    var split: Boolean = false, var floating: Boolean = false,
+    var floatWidth: Float = .86f, var floatX: Float = 0f, var floatY: Float = 0f,
+)
 
 /**
  * 键盘调节：盖在键盘上。顶上的手柄上下拖改高度，左右两边的手柄横拖把键盘收窄；
- * 下面调透明度、底部留白、震动、按键音。
+ * 上下边调高度，左右边调宽度，四角同时缩放；悬浮时另有移动手柄。
  */
 class AdjustOverlay(
-    context: Context,
-    private val skin: Skin,
-    private val a: Adjust,
-    vib: Int,
-    sound: Boolean,
-    private val onLive: () -> Unit,
-    onVib: (Int) -> Unit,
-    onSound: (Boolean) -> Unit,
-    onReset: () -> Unit,
-    onDone: () -> Unit,
+    context: Context, private val skin: Skin, private val a: Adjust,
+    floating: Boolean, private val onLive: () -> Unit,
+    onFloating: () -> Unit, onMove: (Float, Float) -> Unit,
+    onReset: () -> Unit, onDone: () -> Unit,
 ) : FrameLayout(context) {
     private val d = resources.displayMetrics.density
-    private val label = TextView(context)
+    private val gray = if (skin.dark) android.graphics.Color.parseColor("#E4313338") else android.graphics.Color.parseColor("#F0E8E8EB")
+    private val ink = if (skin.dark) android.graphics.Color.parseColor("#E7E8EA") else android.graphics.Color.parseColor("#4B4E50")
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.STROKE; strokeWidth=3*d; strokeCap=Paint.Cap.ROUND; color=ink }
     private val card = LinearLayout(context)
-    private val frameStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 2f * d
-    }
-
+    private val label = TextView(context)
+    private val blankLabel = TextView(context)
     init {
         setWillNotDraw(false)
-        // 背景完全通透，直接看清底下正在调节的键盘；拖动时中间控制卡片自动变淡
-        setBackgroundColor(android.graphics.Color.TRANSPARENT)
-
-        // 顶部高度拖动手柄
-        addView(
-            Handle(true, "上下拖动调高度") { dy, _ ->
-                a.scale = (a.scale + dy / (220 * d)).coerceIn(0.7f, 1.5f)
-                onLive()
-            },
-            LayoutParams(MATCH, (34 * d).toInt(), Gravity.TOP),
-        )
-
-        // 中间悬浮的紧凑调节卡（不遮挡四周按键，按住拖动时自动透明）
-        card.orientation = LinearLayout.VERTICAL
-        val cardBg = if (skin.dark) android.graphics.Color.parseColor("#E61E2026") else android.graphics.Color.parseColor("#EBFFFFFF")
-        card.background = roundBg(cardBg, 18 * d)
-        card.setPadding((14 * d).toInt(), (10 * d).toInt(), (14 * d).toInt(), (10 * d).toInt())
-
-        label.textSize = 12f
-        label.typeface = Typeface.DEFAULT_BOLD
-        label.gravity = Gravity.CENTER
-        label.setTextColor(skin.candHi)
-        card.addView(label, lp(MATCH, WRAP))
-
-        fun row(title: String, v: View) = card.addView(LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, (3 * d).toInt(), 0, 0)
-            addView(TextView(context).apply { text = title; textSize = 13f; setTextColor(skin.candFg) }, lp((62 * d).toInt(), WRAP))
-            addView(v, lp(0, WRAP, 1f))
-        }, lp(MATCH, WRAP))
-
-        row("透明度", SliderView(context, skin, a.opacity, 0.3f, 1f, {
-            setInteracting(true); a.opacity = it; refresh(); onLive()
-        }, { setInteracting(false) }))
-        row("底部留白", SliderView(context, skin, a.padB.toFloat(), 0f, 48f, {
-            setInteracting(true); a.padB = it.toInt(); refresh(); onLive()
-        }, { setInteracting(false) }))
-
-        val btns = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, (6 * d).toInt(), 0, 0) }
-        fun btn(t: String, strong: Boolean, f: () -> Unit) = btns.addView(TextView(context).apply {
-            text = t; textSize = 13.5f; gravity = Gravity.CENTER
-            typeface = if (strong) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            setTextColor(if (strong) skin.accFg else skin.modFg)
-            background = roundBg(if (strong) skin.accBg else skin.modBg, 16 * d)
-            setPadding(0, (6 * d).toInt(), 0, (6 * d).toInt())
-            setOnClickListener { f() }
-        }, lp(0, WRAP, 1f).apply { if (!strong) marginEnd = (8 * d).toInt() })
-        btn("恢复默认", false, onReset)
-        btn("完成", true, onDone)
-        card.addView(btns, lp(MATCH, WRAP))
-
-        // 宽度和位置：比两边拖手柄好控制
-        val screenDp = resources.displayMetrics.widthPixels / d
-        val total0 = a.padL + a.padR
-        var widthPct = (100f - total0 / screenDp * 100f).coerceIn(60f, 100f)
-        var align = when { total0 == 0 -> 1; a.padL == 0 -> 0; a.padR == 0 -> 2; else -> 1 }
-        fun applyWidth() {
-            val total = ((100f - widthPct) / 100f * screenDp).toInt()
-            a.padL = when (align) { 0 -> 0; 2 -> total; else -> total / 2 }
-            a.padR = total - a.padL
-            refresh(); onLive()
-        }
+        // 中央卡片、四角与边缘手柄，键盘始终留在后面作为实时预览。
+        card.orientation=LinearLayout.VERTICAL
+        card.background=roundBg(gray, 18*d)
+        card.setPadding((12*d).toInt(), (10*d).toInt(), (12*d).toInt(), (10*d).toInt())
         card.addView(LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, (3 * d).toInt(), 0, 0)
-            addView(TextView(context).apply { text = "宽度"; textSize = 13f; setTextColor(skin.candFg) }, lp((62 * d).toInt(), WRAP))
-            addView(SliderView(context, skin, widthPct, 60f, 100f, { setInteracting(true); widthPct = it; applyWidth() }, { setInteracting(false) }), lp(0, WRAP, 1f))
-            addView(segmented(context, skin, listOf("左", "中", "右"), align) { align = it; applyWidth() }, lp(WRAP, WRAP).apply { marginStart = (6 * d).toInt() })
-        }, card.childCount - 1, lp(MATCH, WRAP))
-
-        addView(card, LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply {
-            leftMargin = (20 * d).toInt()
-            rightMargin = (20 * d).toInt()
-            bottomMargin = (8 * d).toInt()
-        })
+            gravity=Gravity.CENTER_VERTICAL
+            addView(SliderView(context, skin.copy(candHi=ink), 1f-a.opacity, 0f, .7f, {
+                a.opacity=1f-it; refresh(); onLive()
+            }), lp(0, (38*d).toInt(), 1f))
+            label.setTextColor(ink); label.textSize=13f; label.gravity=Gravity.CENTER
+            addView(label, lp((94*d).toInt(), WRAP))
+        }, lp(MATCH, WRAP))
+        val buttons=LinearLayout(context).apply { orientation=LinearLayout.HORIZONTAL; setPadding(0,(9*d).toInt(),0,0) }
+        fun button(title: String, active: Boolean=false, action: () -> Unit) {
+            buttons.addView(TextView(context).apply {
+                text=title; textSize=14f; gravity=Gravity.CENTER
+                setTextColor(if(active) android.graphics.Color.WHITE else ink)
+                background=roundBg(if(active) ink else withAlpha(ink, 20), 12*d)
+                setOnClickListener { action() }
+            }, lp(0,(48*d).toInt(),1f).apply { setMargins((2*d).toInt(),0,(2*d).toInt(),0) })
+        }
+        button("↺ 重置", action=onReset)
+        button("↗ 悬浮", floating, onFloating)
+        button("分体", a.split) { a.split=!a.split; onLive(); (buttons.getChildAt(2) as TextView).apply {
+            background=roundBg(if(a.split) ink else withAlpha(ink,20),12*d)
+            setTextColor(if(a.split) android.graphics.Color.WHITE else ink)
+        } }
+        button("✓ 确认", action=onDone)
+        card.addView(buttons, lp(MATCH,WRAP))
+        addView(card, LayoutParams(MATCH,WRAP,Gravity.CENTER).apply { leftMargin=(34*d).toInt(); rightMargin=(34*d).toInt() })
+        addView(Handle { _,dy,start -> resize(start, 0f, dy, vertical=-1) },
+            LayoutParams((86*d).toInt(),(25*d).toInt(),Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        addView(TextView(context).apply {
+            text=if(floating) "✥ 拖动移动" else "↕ 高度  ↔ 宽度"
+            textSize=11f; gravity=Gravity.CENTER; setTextColor(ink); background=roundBg(gray,10*d)
+        }, LayoutParams((112*d).toInt(),(22*d).toInt(),Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin=(44*d).toInt() })
+        if(floating) addView(Handle { dx,dy,start ->
+            onMove(start.floatX+dx, start.floatY+dy)
+        }, LayoutParams((130*d).toInt(),(40*d).toInt(),Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin=(24*d).toInt() })
+        addView(Handle { dx,_,start -> resize(start, dx, 0f, horizontal=-1) },
+            LayoutParams((24*d).toInt(),MATCH,Gravity.START).apply { topMargin=(28*d).toInt(); bottomMargin=(28*d).toInt() })
+        addView(Handle { dx,_,start -> resize(start, dx, 0f, horizontal=1) },
+            LayoutParams((24*d).toInt(),MATCH,Gravity.END).apply { topMargin=(28*d).toInt(); bottomMargin=(28*d).toInt() })
+        addView(Handle { _,dy,start -> resize(start, 0f, dy, vertical=1) },
+            LayoutParams((90*d).toInt(),(24*d).toInt(),Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        for(right in listOf(false,true)) for(bottom in listOf(false,true)) addView(Handle { dx,dy,start ->
+            resize(start, dx, dy, if(right) 1 else -1, if(bottom) 1 else -1)
+        }, LayoutParams((28*d).toInt(),(28*d).toInt(),(if(right) Gravity.END else Gravity.START) or (if(bottom) Gravity.BOTTOM else Gravity.TOP)))
+        // 独立调底部留白，顶部高度手柄只改 scale。
+        val blank=LinearLayout(context).apply {
+            orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
+            background=roundBg(if(skin.dark) android.graphics.Color.parseColor("#45474B") else android.graphics.Color.parseColor("#D3D3D8"),10*d)
+        }
+        fun blankButton(title:String,delta:Int)=TextView(context).apply {
+            text=title;textSize=23f;gravity=Gravity.CENTER;setTextColor(ink)
+            repeatOnHold { a.padB=(a.padB+delta).coerceIn(0,48);refresh();onLive() }
+        }
+        blank.addView(blankButton("−",-1),lp((36*d).toInt(),MATCH))
+        blankLabel.textSize=13f;blankLabel.gravity=Gravity.CENTER;blankLabel.setTextColor(ink)
+        blank.addView(blankLabel,lp(0,MATCH,1f))
+        blank.addView(blankButton("+",1),lp((36*d).toInt(),MATCH))
+        addView(blank,LayoutParams((210*d).toInt(),(34*d).toInt(),Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {bottomMargin=(32*d).toInt()})
         refresh()
     }
-
-    // 调节时整块盖住键盘：点到的地方不会落到下面的按键上
-    @SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(event: MotionEvent): Boolean = true
-
-    private fun setInteracting(active: Boolean) {
-        card.animate().alpha(if (active) 0.14f else 0.94f).setDuration(120).start()
-    }
-
-    override fun onDraw(c: Canvas) {
-        super.onDraw(c)
-        frameStroke.color = withAlpha(skin.candHi, 170)
-        val inset = 2 * d
-        c.drawRoundRect(RectF(inset, inset, width - inset, height - inset), 12 * d, 12 * d, frameStroke)
-    }
-
-    private fun refresh() {
-        label.text = "高度 ${(a.scale * 100).toInt()}%  ·  左距 ${a.padL}  ·  右距 ${a.padR}  ·  留白 ${a.padB}  ·  透明度 ${(a.opacity * 100).toInt()}%"
-    }
-
-    /** 手柄：横的（顶上，拖动给 dy）或竖的（两边，拖动给 dx）；拖动时让卡片变透明看清键盘 */
-    private inner class Handle(private val horizontal: Boolean, private val tip: String, private val onDrag: (dy: Float, dx: Float) -> Unit) : View(context) {
-        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = 11 * d }
-        private var lx = 0f
-        private var ly = 0f
-
-        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-            super.onLayout(changed, left, top, right, bottom)
-            if (!horizontal && android.os.Build.VERSION.SDK_INT >= 29) systemGestureExclusionRects = listOf(android.graphics.Rect(0, 0, width, height))
+    private fun resize(start: Adjust, dx: Float, dy: Float, horizontal: Int=0, vertical: Int=0) {
+        val screen = resources.displayMetrics.widthPixels.toFloat()
+        if (vertical != 0) {
+            val scalePixels = 4 * skin.keyH * d
+            a.scale = (start.scale + vertical * dy / scalePixels).coerceIn(.7f, 1.5f)
+            if (a.floating && vertical < 0) a.floatY = start.floatY - (a.scale-start.scale)*scalePixels
         }
-
-        override fun onDraw(c: Canvas) {
-            if (horizontal) {
-                p.color = withAlpha(skin.keyBg, 220)
-                val pillW = 148 * d
-                c.drawRoundRect(RectF(width / 2f - pillW / 2, 4 * d, width / 2f + pillW / 2, 28 * d), 12 * d, 12 * d, p)
-                p.color = skin.candHi
-                val w = 42 * d
-                c.drawRoundRect(RectF(width / 2f - w / 2, 8 * d, width / 2f + w / 2, 12 * d), 2 * d, 2 * d, p)
-                if (tip.isNotEmpty()) {
-                    tp.color = skin.candFg
-                    c.drawText(tip, width / 2f, 24 * d, tp)
-                }
+        if (horizontal != 0) {
+            if (a.floating) {
+                a.floatWidth = (start.floatWidth + horizontal * dx / screen).coerceIn(.55f, 1f)
+                if (horizontal < 0) a.floatX = start.floatX + (start.floatWidth-a.floatWidth)*screen
             } else {
-                p.color = withAlpha(skin.keyBg, 220)
-                c.drawRoundRect(RectF(3 * d, height / 2f - 32 * d, width - 3 * d, height / 2f + 32 * d), 8 * d, 8 * d, p)
-                p.color = skin.candHi
-                val h = 42 * d
-                c.drawRoundRect(RectF(width / 2f - 2.5f * d, height / 2f - h / 2, width / 2f + 2.5f * d, height / 2f + h / 2), 3 * d, 3 * d, p)
+                // 以按下时的原值累计，避免每帧取整丢失小幅移动；至少保留 55% 宽度。
+                val maxTotalPad = (screen/d * .45f).toInt()
+                if (horizontal < 0) a.padL = kotlin.math.round(start.padL + dx/d).toInt().coerceIn(0, (maxTotalPad-start.padR).coerceAtLeast(0))
+                else a.padR = kotlin.math.round(start.padR - dx/d).toInt().coerceIn(0, (maxTotalPad-start.padL).coerceAtLeast(0))
             }
         }
-
+        onLive()
+    }
+    private fun refresh() { label.text="透明度 ${((1-a.opacity)*100).toInt()}%"; blankLabel.text="↕ 底部留白 ${a.padB} dp"; invalidate() }
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(event: MotionEvent)=true
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w,h,oldw,oldh)
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            // 边缘手柄用于缩放，拖动时不要被系统的侧滑返回抢走。
+            val edge=(24*d).toInt(); val half=(44*d).toInt()
+            systemGestureExclusionRects=listOf(
+                android.graphics.Rect(0, (h/2-half).coerceAtLeast(0), edge, (h/2+half).coerceAtMost(h)),
+                android.graphics.Rect((w-edge).coerceAtLeast(0), (h/2-half).coerceAtLeast(0), w, (h/2+half).coerceAtMost(h)),
+            )
+        }
+    }
+    override fun onDraw(c: Canvas) {
+        val inset=4*d; val r=20*d; val w=width.toFloat(); val h=height.toFloat()
+        val path=Path()
+        for(right in listOf(false,true)) for(bottom in listOf(false,true)) {
+            val x=if(right) w-inset else inset; val y=if(bottom) h-inset else inset
+            val sx=if(right) -1 else 1; val sy=if(bottom) -1 else 1
+            path.moveTo(x+sx*r*1.8f,y); path.lineTo(x+sx*r,y)
+            path.quadTo(x,y,x,y+sy*r); path.lineTo(x,y+sy*r*1.8f)
+        }
+        c.drawPath(path,stroke)
+        c.drawLine(w/2-16*d,6*d,w/2+16*d,6*d,stroke)
+        c.drawLine(w/2-16*d,h-6*d,w/2+16*d,h-6*d,stroke)
+        c.drawLine(6*d,h/2-14*d,6*d,h/2+14*d,stroke)
+        c.drawLine(w-6*d,h/2-14*d,w-6*d,h/2+14*d,stroke)
+    }
+    private inner class Handle(private val drag:(Float,Float,Adjust)->Unit):View(context) {
+        private var x0=0f; private var y0=0f
+        private var start = a.copy()
         @SuppressLint("ClickableViewAccessibility")
-        override fun onTouchEvent(e: MotionEvent): Boolean {
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    lx = e.rawX; ly = e.rawY
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                    setInteracting(true)
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (horizontal) onDrag(ly - e.rawY, 0f) else onDrag(0f, e.rawX - lx)
-                    lx = e.rawX; ly = e.rawY
-                    refresh()
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> setInteracting(false)
+        override fun onTouchEvent(e:MotionEvent):Boolean {
+            when(e.actionMasked) {
+                MotionEvent.ACTION_DOWN->{ x0=e.rawX; y0=e.rawY; start=a.copy(); parent?.requestDisallowInterceptTouchEvent(true) }
+                MotionEvent.ACTION_MOVE->{ drag(e.rawX-x0,e.rawY-y0,start); refresh() }
             }
             return true
         }
@@ -636,14 +596,11 @@ class VoiceBoard(
     onCancel: () -> Unit,
     onOk: () -> Unit,
     onPermission: () -> Unit,
-    onPack: () -> Unit = {},
 ) : LinearLayout(context) {
     private val d = resources.displayMetrics.density
-    private val textView = TextView(context)
     private val statusView = TextView(context)
     private val wave = Wave()
     private val mic = MicButton()
-    private val scroll = ScrollView(context)
 
     init {
         orientation = VERTICAL
@@ -652,24 +609,9 @@ class VoiceBoard(
         statusView.typeface = Typeface.DEFAULT_BOLD
         statusView.setTextColor(skin.candHi)
         head.addView(statusView, lp(0, WRAP, 1f))
-        head.addView(TextView(context).apply {
-            text = "离线包"
-            textSize = 12.5f
-            setTextColor(skin.modFg)
-            gravity = Gravity.CENTER
-            background = roundBg(skin.modBg, 14 * d)
-            setPadding((10 * d).toInt(), (5 * d).toInt(), (10 * d).toInt(), (5 * d).toInt())
-            setOnClickListener { onPack() }
-        }, lp(WRAP, WRAP).apply { marginEnd = (8 * d).toInt() })
         head.addView(segmented(context, skin, listOf("普通话", "四川话"), dialect) { onDialect(it) }, lp(WRAP, WRAP))
         addView(head, lp(MATCH, WRAP))
-        textView.textSize = 20f
-        textView.setTextColor(skin.candFg)
-        textView.setPadding((16 * d).toInt(), (8 * d).toInt(), (16 * d).toInt(), (4 * d).toInt())
-        scroll.isVerticalScrollBarEnabled = false
-        scroll.addView(textView)
-        addView(scroll, lp(MATCH, 0, 1f))
-        addView(wave, lp(MATCH, (42 * d).toInt()))
+        addView(wave, lp(MATCH, 0, 1f))
         val row = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding((16 * d).toInt(), (2 * d).toInt(), (16 * d).toInt(), (8 * d).toInt()) }
         fun btn(t: String, strong: Boolean, f: () -> Unit) = TextView(context).apply {
             text = t; textSize = 15f; gravity = Gravity.CENTER
@@ -685,45 +627,26 @@ class VoiceBoard(
         addView(row, lp(MATCH, WRAP))
     }
 
-    /** committed：已识别完的句子；partial：正在流式识别的字；listening 时麦克风脉冲光环 + 动态声波 */
+    /** committed 为已识别句子，partial 为临时结果；麦克风保持静态，只有声波随音量变化。 */
     fun update(committed: String, partial: String, status: String, listening: Boolean) {
-        val hasText = committed.isNotEmpty() || partial.isNotEmpty()
-        statusView.text = if (listening) "● $status" else status
+        statusView.text = status
         statusView.setTextColor(if (listening) skin.candHi else skin.barFg)
-        if (!hasText) {
-            textView.text = if (listening) "正在倾听，请说话…" else status
-            textView.setTextColor(if (listening) skin.candHi else skin.barFg)
-        } else {
-            val sb = android.text.SpannableStringBuilder(committed)
-            if (partial.isNotEmpty()) {
-                val start = sb.length
-                sb.append(partial)
-                sb.setSpan(android.text.style.ForegroundColorSpan(skin.candHi), start, sb.length, 0)
-                sb.setSpan(android.text.style.UnderlineSpan(), start, sb.length, 0)
-            }
-            if (listening) {
-                val start = sb.length
-                sb.append(" ▍")
-                sb.setSpan(android.text.style.ForegroundColorSpan(skin.candHi), start, sb.length, 0)
-            }
-            textView.text = sb
-            textView.setTextColor(skin.candFg)
-        }
         mic.listening = listening
         wave.active = listening
-        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
     }
 
     fun update(text: String, status: String, listening: Boolean) = update(text, "", status, listening)
 
-    /** 音量（RecognitionListener.onRmsChanged 的 dB，大约 -2 到 10） */
-    /** 安静的房间底噪大约在 4 dB 以下，说话一般 6～10 dB：低于门槛就当没声音，声波是平的 */
-    fun level(rmsDb: Float) { wave.target = max(wave.target, ((rmsDb - 4.5f) / 5.5f).coerceIn(0f, 1f)) }
+    /** 系统与离线录音统一到约 0–10 的音量；底噪不抬高声波。 */
+    fun level(rmsDb: Float) {
+        wave.sample(((rmsDb - 1.2f) / 7f).coerceIn(0f, 1f))
+    }
+
+    fun spectrum(values: FloatArray) { wave.bands(values) }
 
     private inner class MicButton : View(context) {
         private val icons = Icons(context)
         private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        private var phase = 0f
         var listening = false
             set(v) {
                 if (field != v) {
@@ -736,54 +659,64 @@ class VoiceBoard(
             val cx = width / 2f
             val cy = height / 2f
             val baseR = min(width, height) / 2f - 10 * d
-            if (listening) {
-                phase = (phase + 0.045f) % 1f
-                val r1 = baseR + phase * 11 * d
-                val a1 = ((1f - phase) * 115).toInt().coerceIn(0, 255)
-                p.color = withAlpha(skin.accBg, a1)
-                c.drawCircle(cx, cy, r1, p)
 
-                val p2 = (phase + 0.5f) % 1f
-                val r2 = baseR + p2 * 11 * d
-                val a2 = ((1f - p2) * 115).toInt().coerceIn(0, 255)
-                p.color = withAlpha(skin.accBg, a2)
-                c.drawCircle(cx, cy, r2, p)
-            }
             p.color = if (listening) skin.accBg else skin.modBg
             c.drawCircle(cx, cy, baseR, p)
             icons.draw(c, R.drawable.ic_mic, cx, cy, 28f, if (listening) skin.accFg else skin.modFg)
-            if (listening) postInvalidateOnAnimation()
+
         }
     }
 
     /** 声波：一排竖条，只随说话的音量起伏；没声音时是平的 */
     private inner class Wave : View(context) {
         private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val levels=FloatArray(17)
+        private val displayed=FloatArray(17)
+        private var lastSpectrum=0L
         var active = false
-            set(v) { field = v; if (!v) target = 0f; if (v) postInvalidateOnAnimation() else invalidate() }
-        var target = 0f
-        private var level = 0f
-        private var t = 0f
+            set(v) {
+                field=v
+                if(!v) levels.fill(0f)
+                postInvalidateOnAnimation()
+            }
+
+        fun bands(values: FloatArray) {
+            if(!active) return
+            lastSpectrum=android.os.SystemClock.uptimeMillis()
+            val mirrored = VoiceSpectrum.mirrored(values)
+            mirrored.copyInto(levels)
+            postInvalidateOnAnimation()
+        }
+
+        fun sample(value:Float) {
+            if(!active || android.os.SystemClock.uptimeMillis()-lastSpectrum<600) return
+            // 系统识别只给总音量时采用固定位置的包络；离线录音使用实际频谱。
+            for(i in levels.indices) {
+                val profile=.35f+.65f*(1f-abs(i-8)/8f)
+                levels[i]=value*profile
+            }
+            postInvalidateOnAnimation()
+        }
 
         override fun onDraw(c: Canvas) {
-            level += (target - level) * 0.3f
-            target *= 0.9f
-            if (level > 0.02f) t += 0.25f
-            val n = 31
-            val gap = 3.2f * d
-            val bw = 3.4f * d
+            val n = levels.size
+            val gap = 8.5f * d
+            val bw = 2.6f * d
             val total = n * bw + (n - 1) * gap
             var x = (width - total) / 2
-            val flat = 4 * d
+            val flat = 2.6f * d
+            var moving=false
+            // 整段颜色固定，波形不随音量在红色与灰色之间切换。
+            p.color=if(skin.dark) android.graphics.Color.parseColor("#ACBEBB") else android.graphics.Color.parseColor("#879D9B")
             for (i in 0 until n) {
-                val center = 1f - abs(i - n / 2) / (n / 2f)
-                val wob = 0.55f + 0.45f * abs(sin(t + i * 0.55f))
-                val h = flat + (height * 0.9f - flat) * level * (0.3f + 0.7f * center) * wob
-                p.color = if (active && level > 0.05f) skin.accBg else withAlpha(skin.barFg, if (active) 140 else 80)
+                val response = if(levels[i] > displayed[i]) .52f else .25f
+                displayed[i]+=(levels[i]-displayed[i])*response
+                if(abs(levels[i]-displayed[i])>.002f) moving=true
+                val h = flat + min(36*d,height*.7f)*displayed[i]
                 c.drawRoundRect(RectF(x, height / 2f - h / 2, x + bw, height / 2f + h / 2), bw / 2, bw / 2, p)
                 x += bw + gap
             }
-            if (active || level > 0.02f) postInvalidateOnAnimation()
+            if(moving) postInvalidateOnAnimation()
         }
     }
 }

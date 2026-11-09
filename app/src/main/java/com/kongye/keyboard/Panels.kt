@@ -43,9 +43,7 @@ internal const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
 /** 一个画图标的小按钮 */
 class IconButton(context: Context, private val icon: Int, private val tint: Int, private val sizeDp: Float = 21f, onClick: () -> Unit) : View(context) {
     private val icons = Icons(context)
-
     init { setOnClickListener { onClick() } }
-
     override fun onDraw(c: Canvas) = icons.draw(c, icon, width / 2f, height / 2f, sizeDp, tint)
 }
 
@@ -159,17 +157,16 @@ class CandFlowView(context: Context, private val skin: Skin, private val items: 
 
     private fun layoutBoxes(w: Int): Int {
         boxes.clear()
-        val minW = 54 * d
         val gap = 6 * d
         val pad = 6 * d
-        var x = pad
-        var y = pad
-        for (s in items) {
-            val bw = max(minW, text.measureText(s) + 28 * d)
-            if (x + bw > w - pad && x > pad) { x = pad; y += cellH + gap }
-            boxes.add(RectF(x, y, x + min(bw, w - 2 * pad), y + cellH))
-            x += bw + gap
+        val cols = if (w / d < 280) 3 else 4
+        val bw = (w - 2 * pad - (cols - 1) * gap) / cols
+        items.forEachIndexed { i, _ ->
+            val x = pad + i % cols * (bw + gap)
+            val y = pad + i / cols * (cellH + gap)
+            boxes.add(RectF(x, y, x + bw, y + cellH))
         }
+        val y = pad + ((items.size - 1).coerceAtLeast(0) / cols) * (cellH + gap)
         return (y + cellH + pad).toInt()
     }
 
@@ -195,7 +192,10 @@ class CandFlowView(context: Context, private val skin: Skin, private val items: 
                 else -> skin.keyFg
             }
             text.typeface = Typeface.DEFAULT
-            c.drawText(items[i], r.centerX(), r.centerY() - (fm.ascent + fm.descent) / 2, text)
+            text.textSize = 18 * d
+            while (text.measureText(items[i]) > r.width() - 12 * d && text.textSize > 10 * d) text.textSize -= d
+            val tfm = text.fontMetrics
+            c.drawText(items[i], r.centerX(), r.centerY() - (tfm.ascent + tfm.descent) / 2, text)
         }
     }
 
@@ -660,18 +660,8 @@ class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private 
 
     override fun onDraw(c: Canvas) {
         val cy = (height - inset - extra) / 2f + (if (inset < 30 * d) inset / 4f else 0f)
-        if (cursorMode) {
-            // 光标模式底栏（照图2）：左地球图标，右深色圆角方块图标
-            icons.draw(c, R.drawable.ic_globe, 34 * d, cy, 24f, skin.keyFg)
-            val box = 36 * d
-            val rx = width - 36 * d
-            fill.color = if (skin.dark) Color.parseColor("#F2F2F2") else Color.parseColor("#111111")
-            c.drawRoundRect(RectF(rx - box / 2, cy - box / 2, rx + box / 2, cy + box / 2), 9 * d, 9 * d, fill)
-            icons.draw(c, R.drawable.ic_select_all, rx, cy, 20f, if (skin.dark) Color.parseColor("#111111") else Color.WHITE)
-            return
-        }
-        icons.draw(c, R.drawable.ic_kbd_hide, 30 * d, cy, 22f, skin.barFg)
-        icons.draw(c, R.drawable.ic_clip_stack, width - 30 * d, cy, 22f, skin.barFg)
+        icons.draw(c, R.drawable.ic_chevron_down, 30 * d, cy, 22f, skin.barFg)
+        icons.draw(c, R.drawable.ic_clip, width - 30 * d, cy, 22f, skin.barFg)
     }
 
     @SuppressLint("ClickableViewAccessibility")

@@ -6,15 +6,17 @@ import org.json.JSONObject
 import java.io.File
 
 /** 一条剪贴板记录：文字，或图片（image 是 filesDir/clips 下的文件名）；cat 是用户自定义的分类 */
+@androidx.annotation.Keep
 class Clip(var text: String, var pinned: Boolean, var time: Long, val image: String? = null, var cat: String? = null)
 
 /**
  * 剪贴板记录：最多 500 条（置顶的不算在淘汰里），存在 filesDir/clipboard.json，图片存在 filesDir/clips/。
  * 只有键盘进程活着时才能收到复制事件，所以只记录用空叶键盘期间复制的内容。
  */
+@androidx.annotation.Keep
 object ClipStore {
     const val MAX = 500
-    val FIXED_TABS = listOf("全部", "置顶", "文本", "图片")
+    val FIXED_TABS = listOf("全部", "置顶", "文本")
 
     val items = ArrayList<Clip>()
     private var file: File? = null
@@ -28,22 +30,32 @@ object ClipStore {
         val f = File(ctx.filesDir, "clipboard.json")
         file = f
         dir = File(ctx.filesDir, "clips").apply { mkdirs() }
-        if (!f.exists()) return
+        if (!android.util.AtomicFile(f).baseFile.exists() && !File(f.path + ".bak").exists()) return
         runCatching {
-            val arr = JSONArray(f.readText())
+            val arr = JSONArray(android.util.AtomicFile(f).openRead().bufferedReader().use { it.readText() })
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                items.add(Clip(o.getString("t"), o.optBoolean("p"), o.optLong("ts"), o.optString("img").ifEmpty { null }, o.optString("cat").ifEmpty { null }))
+                items.add(Clip(o.getString("t"), (o.optBoolean("p") || o.optBoolean("pinned") || o.optString("cat") == "置顶"), o.optLong("ts"), o.optString("img").ifEmpty { null }, o.optString("cat").ifEmpty { null }))
             }
         }
     }
+
+    private val writer = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     private fun save() {
         val f = file ?: return
         val arr = JSONArray()
         for (c in items) arr.put(JSONObject().put("t", c.text).put("p", c.pinned).put("ts", c.time).put("img", c.image ?: "").put("cat", c.cat ?: ""))
         val text = arr.toString()
-        Thread { runCatching { f.writeText(text) } }.start()
+        writer.execute {
+            val atomic = android.util.AtomicFile(f)
+            var out: java.io.FileOutputStream? = null
+            try {
+                out = atomic.startWrite()
+                out.write(text.toByteArray(Charsets.UTF_8))
+                atomic.finishWrite(out)
+            } catch (_: Exception) { atomic.failWrite(out) }
+        }
     }
 
     private fun trim() {
@@ -74,7 +86,14 @@ object ClipStore {
     private fun removeFile(c: Clip) { imageFile(c)?.delete() }
 
     fun remove(c: Clip) { items.remove(c); removeFile(c); save() }
-    fun togglePin(c: Clip) { c.pinned = !c.pinned; save() }
+    private fun stored(c: Clip) = items.firstOrNull { it === c }
+        ?: items.firstOrNull { it.image == c.image && it.text == c.text }
+    fun togglePin(c: Clip) {
+        val actual = stored(c) ?: return
+        actual.pinned = !actual.pinned
+        c.pinned = actual.pinned
+        save()
+    }
     fun update(c: Clip, text: String) { if (text.isNotBlank()) { c.text = text; c.time = System.currentTimeMillis(); save() } }
     fun setCategory(c: Clip, cat: String?) { c.cat = cat; save() }
     fun clearUnpinned() { items.filter { !it.pinned }.forEach { removeFile(it) }; items.removeAll { !it.pinned }; save() }

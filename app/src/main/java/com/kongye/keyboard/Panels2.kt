@@ -25,7 +25,7 @@ import kotlin.math.min
  */
 class ArrangeView(
     context: Context,
-    private val skin: Skin,
+    private var skin: Skin,
     tools: List<String>,
     menu: List<String>,
     private val labelFg: Int = skin.candFg,
@@ -52,6 +52,19 @@ class ArrangeView(
     private var downX = 0f
     private var downY = 0f
     private var downItem: String? = null
+    private var settle: android.animation.ValueAnimator? = null
+    private var progress=1f
+    private val from=HashMap<String,android.graphics.PointF>()
+
+    fun updateArrangement(skin: Skin, tools: List<String>, menu: List<String>) {
+        this.skin = skin
+        if (drag == null && (this.tools != tools || this.menu != menu)) {
+            this.tools.clear(); this.tools.addAll(tools)
+            this.menu.clear(); this.menu.addAll(menu)
+            requestLayout()
+        }
+        invalidate()
+    }
 
     private fun rowsOf(n: Int) = max(1, ceil(n / cols.toFloat()).toInt())
     private val toolsTop get() = headH
@@ -76,13 +89,21 @@ class ArrangeView(
         head.color = subFg
         c.drawText("工具栏（${tools.size}/${Prefs.MAX_TOOLS}）　长按拖动排序，拖到下面就从工具栏拿掉", 14 * d, toolsTop - 11 * d, head)
         c.drawText("菜单（左上角“更多”里）", 14 * d, menuTop - 11 * d, head)
-        for ((i, id) in tools.withIndex()) tile(c, cellRect(0, i), id, id == drag)
-        for ((i, id) in menu.withIndex()) tile(c, cellRect(1, i), id, id == drag)
+        for ((i, id) in tools.withIndex()) movingTile(c,cellRect(0,i),id)
+        for ((i, id) in menu.withIndex()) movingTile(c,cellRect(1,i),id)
         drag?.let { id ->
             val cw = width / cols.toFloat()
             r.set(dragX - cw / 2, dragY - tileH / 2, dragX + cw / 2, dragY + tileH / 2)
             tile(c, RectF(r), id, false, lifted = true)
         }
+    }
+
+    private fun movingTile(c:Canvas, rc:RectF, id:String) {
+        val origin=from[id]
+        c.save()
+        if(origin!=null && progress<1f) c.translate((origin.x-rc.centerX())*(1-progress),(origin.y-rc.centerY())*(1-progress))
+        tile(c,rc,id,id==drag)
+        c.restore()
     }
 
     private fun tile(c: Canvas, rc: RectF, id: String, ghost: Boolean, lifted: Boolean = false) {
@@ -107,6 +128,7 @@ class ArrangeView(
 
     private val longTask = Runnable {
         val id = downItem ?: return@Runnable
+        settle?.cancel(); settle=null; progress=1f;from.clear()
         drag = id
         dragX = downX; dragY = downY
         parent?.requestDisallowInterceptTouchEvent(true)
@@ -131,6 +153,7 @@ class ArrangeView(
                 val id = drag
                 if (id != null && e.actionMasked == MotionEvent.ACTION_UP) drop(id, e.x, e.y)
                 drag = null
+                parent?.requestDisallowInterceptTouchEvent(false)
                 invalidate()
             }
         }
@@ -138,6 +161,10 @@ class ArrangeView(
     }
 
     private fun drop(id: String, x: Float, y: Float) {
+        settle?.cancel();from.clear()
+        for((i,item) in tools.withIndex()) cellRect(0,i).let { from[item]=android.graphics.PointF(it.centerX(),it.centerY()) }
+        for((i,item) in menu.withIndex()) cellRect(1,i).let { from[item]=android.graphics.PointF(it.centerX(),it.centerY()) }
+        from[id]=android.graphics.PointF(x,y)
         val cw = width / cols.toFloat()
         val col = (x / cw).toInt().coerceIn(0, cols - 1)
         tools.remove(id); menu.remove(id)
@@ -151,15 +178,29 @@ class ArrangeView(
         }
         requestLayout()
         onChange(tools.toList(), menu.toList())
+        if(android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            progress=0f
+            settle=android.animation.ValueAnimator.ofFloat(0f,1f).apply {
+                duration=200;interpolator=android.view.animation.DecelerateInterpolator(1.4f)
+                addUpdateListener {progress=it.animatedValue as Float;invalidate()}
+                start()
+            }
+        } else {progress=1f;from.clear()}
+    }
+    override fun onDetachedFromWindow() {
+        handler.removeCallbacks(longTask);settle?.cancel();settle=null
+        super.onDetachedFromWindow()
     }
 }
 
 /** 键盘布局选择：26 键、14 键、九键 */
-class LayoutPicker(context: Context, private val skin: Skin, private val current: String, private val onPick: (String) -> Unit) : View(context) {
+class LayoutPicker(context: Context, private val skin: Skin, current: String, private val onPick: (String) -> Unit) : View(context) {
     private val d = resources.displayMetrics.density
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    var current = current
+        set(value) { if (field != value) { field = value; invalidate() } }
     private val opts = listOf("26" to "26 键", "14" to "14 键", "9" to "九键")
     private val cards = ArrayList<RectF>()
     private val r = RectF()
@@ -210,7 +251,7 @@ class LayoutPicker(context: Context, private val skin: Skin, private val current
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (e.actionMasked == MotionEvent.ACTION_UP) {
-            cards.forEachIndexed { i, card -> if (e.x in card.left..card.right && e.y < card.bottom + 34 * d) onPick(opts[i].first) }
+            cards.forEachIndexed { i, card -> if (e.x in card.left..card.right && e.y >= card.top && e.y < card.bottom + 34 * d) { current = opts[i].first; onPick(current) } }
         }
         return true
     }

@@ -29,8 +29,10 @@ object Prefs {
     /** 中文键盘布局：26、14、9 */
     const val LAYOUT = "layout"
     const val FLOAT = "float_mode"
+    const val SPLIT_LAYOUT = "split_layout"
     const val FLOAT_X = "float_x"
     const val FLOAT_Y = "float_y"
+    const val FLOAT_WIDTH = "float_width"
     const val CLIP_CATS = "clip_cats"
     const val COUNT_DATE = "count_date"
     const val COUNT_TODAY = "count_today"
@@ -86,7 +88,8 @@ object Prefs {
         "emoji", "clip", "edit", "skin", "undo", "redo", "voice", "handwrite", "translate",
         "float", "layout", "adjust", "arrange", "settings", "lang",
     )
-    val DEFAULT_TOOLS = listOf("emoji", "clip", "edit", "skin", "undo", "voice")
+    val DEFAULT_TOOLS = listOf("emoji", "layout", "edit", "translate", "handwrite", "voice")
+    val DEFAULT_MENU = listOf("settings", "undo", "redo", "skin", "float", "adjust", "arrange", "clip", "lang")
     const val MAX_TOOLS = 6
 
     val NAMES = mapOf(
@@ -127,7 +130,7 @@ object Prefs {
     /** 菜单：没放进工具栏的功能，按用户排的顺序 */
     fun menu(ctx: Context): List<String> {
         val t = tools(ctx)
-        val saved = of(ctx).getString(MENU, null)?.split(',')?.filter { it in FEATURES && it !in t }.orEmpty()
+        val saved = (of(ctx).getString(MENU, null)?.split(',') ?: DEFAULT_MENU).filter { it in FEATURES && it !in t }
         return saved + FEATURES.filter { it !in t && it !in saved }
     }
 

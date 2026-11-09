@@ -173,51 +173,15 @@ object Skins {
 
 /** 按设置给皮肤加透明度和液态玻璃效果 */
 fun Skin.styled(opacity: Float, glass: Boolean): Skin {
-    if (opacity >= 0.999f && !glass) return this
-    fun a(c: Int, f: Float) = withAlpha(c, (Color.alpha(c) * f).toInt().coerceIn(0, 255))
-    if (!glass) {
-        // 透明度作用在整块键盘上（底色和按键一起），越透明越能看到键盘下面的内容；字不透明
-        val keyF = opacity
-        return copy(
-            kbBg = a(kbBg, opacity), bg2 = if (bg2 != 0) a(bg2, opacity) else 0,
-            keyBg = a(keyBg, keyF), modBg = a(modBg, keyF), keyDown = a(keyDown, keyF), keyShadow = 0,
-        )
-    }
-    // iOS 液态玻璃：通透磨砂底 + 悬浮高折射率玻璃键帽
-    // 键盘背后有系统模糊（见 KongyeIME.applyBlur），底色可以更通透
-    val baseA = (0.2f + 0.42f * opacity).coerceIn(0.2f, 0.7f)
-    val glassRadius = max(radius, 11f)
-    return if (dark) copy(
-        kbBg = withAlpha(mix(kbBg, Color.parseColor("#182030"), 0.32f), (255 * baseA).toInt()),
-        bg2 = withAlpha(mix(if (bg2 != 0) bg2 else kbBg, accBg, 0.22f), (255 * (baseA + 0.06f).coerceAtMost(0.9f)).toInt()),
-        keyBg = withAlpha(Color.WHITE, 38),
-        modBg = withAlpha(Color.WHITE, 22),
-        keyDown = withAlpha(Color.WHITE, 80),
-        keyFg = Color.parseColor("#F8FAFC"),
-        modFg = Color.parseColor("#E8EEF5"),
-        candFg = Color.parseColor("#F8FAFC"),
-        barFg = Color.parseColor("#C6D0DEC0".let { "#CBD5E1" }),
-        hintFg = withAlpha(Color.WHITE, 165),
-        toolHiBg = withAlpha(Color.WHITE, 52),
-        keyShadow = withAlpha(Color.BLACK, 68),
-        radius = glassRadius,
-        glass = true,
-    ) else copy(
-        kbBg = withAlpha(mix(kbBg, Color.parseColor("#EBF3FF"), 0.45f), (255 * baseA).toInt()),
-        bg2 = withAlpha(mix(if (bg2 != 0) bg2 else kbBg, accBg, 0.16f), (255 * (baseA + 0.06f).coerceAtMost(0.9f)).toInt()),
-        keyBg = withAlpha(Color.WHITE, 120),
-        modBg = withAlpha(Color.WHITE, 78),
-        keyDown = withAlpha(Color.WHITE, 210),
-        keyFg = Color.parseColor("#141820"),
-        modFg = Color.parseColor("#1E2430"),
-        candFg = Color.parseColor("#141820"),
-        barFg = Color.parseColor("#4A5568"),
-        hintFg = Color.parseColor("#5A6578"),
-        toolHiBg = withAlpha(Color.WHITE, 195),
-        keyShadow = withAlpha(Color.parseColor("#0F172A"), 24),
-        radius = glassRadius,
-        glass = true,
-    )
+    fun alpha(c: Int, factor: Float) = withAlpha(c, (Color.alpha(c) * factor).toInt().coerceIn(0, 255))
+    if (!glass) return copy(bg2 = 0, kbBg = alpha(kbBg, opacity), keyBg = alpha(keyBg, opacity),
+        modBg = alpha(modBg, opacity), keyDown = alpha(keyDown, opacity), keyShadow = if (opacity < .999f) 0 else keyShadow)
+    // 玻璃只是原配色上的透明材质；不再加入额外颜色、渐变和镜面光斑。
+    return copy(bg2 = 0, glass = true, radius = max(radius, 11f),
+        kbBg = alpha(kbBg, .78f * opacity),
+        keyBg = alpha(keyBg, .68f * opacity), modBg = alpha(modBg, .62f * opacity),
+        keyDown = alpha(keyDown, .88f * opacity), keyShadow = 0,
+        toolHiBg = alpha(modBg, .7f))
 }
 
 object Themes {
@@ -230,7 +194,7 @@ object Themes {
     }
 
     private fun gradient(id: String, name: String, seed: String, l2: String, d2: String) = c(seed).let {
-        Theme(id, name, it, Skins.lightOf("${id}_l", name, it, pastel = true, gradientTo = c(l2)), Skins.darkOf("${id}_d", name, it, gradientTo = c(d2)))
+        Theme(id, name, it, Skins.lightOf("${id}_l", name, it, pastel = true), Skins.darkOf("${id}_d", name, it))
     }
 
     private val FIXED = listOf(

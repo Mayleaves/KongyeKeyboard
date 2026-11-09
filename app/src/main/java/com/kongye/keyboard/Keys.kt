@@ -52,9 +52,9 @@ object Layouts {
     private fun bottom(zh: Boolean): List<Key> = listOf(
         Key(Kind.NUM, "123", w = 1.3f, look = Look.MOD),
         Key(Kind.LANG, w = 1f, look = Look.MOD),
-        Key(Kind.CHAR, if (zh) "，" else ",", longEmoji = true),
+        Key(Kind.CHAR, if (zh) "，" else ",", hint = if (zh) "," else null, longEmoji = true),
         Key(Kind.SPACE, w = 3.6f),
-        Key(Kind.CHAR, if (zh) "。" else "."),
+        Key(Kind.CHAR, if (zh) "。" else ".", hint = if (zh) "." else null),
         Key(Kind.ENTER, w = 1.6f, look = Look.MOD),
     )
 

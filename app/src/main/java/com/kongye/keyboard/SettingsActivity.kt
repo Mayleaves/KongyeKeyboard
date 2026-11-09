@@ -10,6 +10,12 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -186,7 +192,14 @@ class SettingsActivity : ComponentActivity() {
         BackHandler(enabled = page != Page.MAIN) { navigateBack() }
 
         Box(Modifier.fillMaxSize().background(pal.bg)) {
-            if (page == Page.MAIN) {
+            AnimatedContent(
+                targetState=page,
+                transitionSpec={
+                    (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { it/12 }) togetherWith
+                        (fadeOut(tween(130)) + slideOutHorizontally(tween(220)) { -it/12 })
+                }, label="settingsPage",
+            ) { shownPage ->
+            if (shownPage == Page.MAIN) {
                 Column(
                     Modifier.fillMaxSize().background(pal.bg).windowInsetsPadding(WindowInsets.safeDrawing)
                         .verticalScroll(mainScroll).padding(horizontal = 16.dp, vertical = 12.dp),
@@ -196,7 +209,7 @@ class SettingsActivity : ComponentActivity() {
                     Spacer(Modifier.height(16.dp))
                 }
             } else {
-                val subScroll = androidx.compose.runtime.key(page) { rememberScrollState() }
+                val subScroll = androidx.compose.runtime.key(shownPage) { rememberScrollState() }
                 Column(
                     Modifier.fillMaxSize().background(pal.bg).windowInsetsPadding(WindowInsets.safeDrawing),
                 ) {
@@ -211,7 +224,7 @@ class SettingsActivity : ComponentActivity() {
                         ) {
                             Image(painterResource(R.drawable.ic_chevron_left), null, Modifier.size(24.dp), colorFilter = ColorFilter.tint(pal.ink))
                             Spacer(Modifier.width(4.dp))
-                            BasicText(page.title, style = TextStyle(color = pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold))
+                            BasicText(shownPage.title, style = TextStyle(color = pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold))
                         }
                     }
                     Line(pal)
@@ -219,7 +232,7 @@ class SettingsActivity : ComponentActivity() {
                         Modifier.fillMaxSize().verticalScroll(subScroll).padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        when (page) {
+                        when (shownPage) {
                             Page.LAYOUT -> LayoutPage(pal, tick)
                             Page.KEYS -> KeysPage(pal, tick)
                             Page.PINYIN -> PinyinPage(pal, tick)
@@ -236,6 +249,8 @@ class SettingsActivity : ComponentActivity() {
                         Spacer(Modifier.height(20.dp))
                     }
                 }
+            }
+
             }
 
             if (showSplash) {
@@ -477,7 +492,7 @@ class SettingsActivity : ComponentActivity() {
             Item("输入与手势", R.drawable.ic_adjust, cInput, "按键与手势", "震动反馈、按键音、上下滑符号与空格长按", null, null) { go(Page.KEYS) },
             Item("输入与手势", R.drawable.ic_translate, cInput, "拼音与词库", "简拼、模糊音、智能纠错、词频自学习", Prefs.fuzzy(this).size.takeIf { it > 0 }?.let { "模糊音 $it 项" }, null) { go(Page.PINYIN) },
             Item("输入与手势", R.drawable.ic_symbol, cInput, "数字键盘定制", "可视化调整左侧符号列与右侧快捷按键", null, null) { go(Page.NUMPAD) },
-            Item("主题与外观", R.drawable.ic_palette, cLook, "主题与液态玻璃", "18 套日夜配色、iOS 液态玻璃与透明度", theme.name + if (p.getBoolean(Prefs.GLASS, false)) " · 液态玻璃" else "", null) { go(Page.LOOK) },
+            Item("主题与外观", R.drawable.ic_palette, cLook, "主题与液态玻璃", "18 套纯色日夜配色、半透明玻璃与透明度", theme.name + if (p.getBoolean(Prefs.GLASS, false)) " · 液态玻璃" else "", null) { go(Page.LOOK) },
             Item("主题与外观", R.drawable.ic_float, cLook, "键盘高度", "无级缩放键盘高度与预览", "${(scale * 100).roundToInt()}%", null) { go(Page.HEIGHT) },
             Item("主题与外观", R.drawable.ic_float, cLook, "悬浮键盘", "自由拖动的小尺寸悬浮输入窗口", if (floating) "已开启" else "关闭", if (floating) pal.accent else null) { p.edit().putBoolean(Prefs.FLOAT, !floating).apply() },
             Item("效率工具", R.drawable.ic_toolbar, cTool, "工具栏与菜单排序", "长按拖拽自定义顶部工具栏与更多面板", null, null) { go(Page.ARRANGE) },
@@ -521,7 +536,7 @@ class SettingsActivity : ComponentActivity() {
         Card(pal) {
             AndroidView(
                 factory = { ctx -> LayoutPicker(ctx, skin, cur) { p.edit().putString(Prefs.LAYOUT, it).apply() } },
-                update = { },
+                update = { it.current = cur },
                 modifier = Modifier.fillMaxWidth().height(200.dp),
             )
         }
@@ -616,15 +631,7 @@ class SettingsActivity : ComponentActivity() {
     private fun Preview(pal: Pal, tick: Int, scaleOverride: Float? = null) {
         val skin = remember(tick) { Prefs.skin(this) }
         val layout = remember(tick) { Prefs.layout(this) }
-        val previewBoxMod = if (skin.glass) {
-            // 液态玻璃开启时，预览垫一层模拟 iOS 彩色壁纸的渐变底，直观展现玻璃通透感
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(
-                Brush.linearGradient(
-                    if (skin.dark) listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF115E59))
-                    else listOf(Color(0xFFDBEAFE), Color(0xFFFCE7F3), Color(0xFFFEF3C7)),
-                ),
-            ).padding(6.dp)
-        } else Modifier.fillMaxWidth()
+        val previewBoxMod = Modifier.fillMaxWidth()
 
         Card(pal) {
             Box(previewBoxMod) {
@@ -667,7 +674,7 @@ class SettingsActivity : ComponentActivity() {
                 Segment(pal, listOf("跟随系统", "浅色", "深色"), mode) { p.edit().putInt(Prefs.MODE, it).apply() }
             }
             Line(pal)
-            ToggleRow(pal, "液态玻璃", "按键变成半透明的薄玻璃，带高光描边，键盘底透出后面的内容；每套配色都能开", glass) { p.edit().putBoolean(Prefs.GLASS, it).apply() }
+            ToggleRow(pal, "液态玻璃", "在当前配色上增加半透明底与细描边，不改变配色，不使用渐变；每套配色都能开", glass) { p.edit().putBoolean(Prefs.GLASS, it).apply() }
             Line(pal)
             Column(Modifier.padding(vertical = 10.dp)) {
                 BasicText("键盘透明度 ${(opacity * 100).roundToInt()}%", style = TextStyle(color = pal.ink, fontSize = 16.sp))
@@ -713,12 +720,11 @@ class SettingsActivity : ComponentActivity() {
         val tools = remember(tick) { Prefs.tools(this) }
         val menu = remember(tick) { Prefs.menu(this) }
         Card(pal) {
-            key(tick) {
-                AndroidView(
-                    factory = { ctx -> ArrangeView(ctx, skin, tools, menu, pal.ink.toArgb(), pal.text2.toArgb()) { t, m -> Prefs.saveArrangement(ctx, t, m) } },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            AndroidView(
+                factory = { ctx -> ArrangeView(ctx, skin, tools, menu, pal.ink.toArgb(), pal.text2.toArgb()) { t, m -> Prefs.saveArrangement(ctx, t, m) } },
+                update = { it.updateArrangement(skin, tools, menu) },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 
