@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
@@ -49,6 +50,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,7 +80,7 @@ private val DARK = Pal(Color(0xFF0E0E10), Color(0xFF1A1A1C), Color(0xFFF2F2F2), 
 
 private enum class Page(val title: String) {
     MAIN("空叶键盘 设置"), LAYOUT("键盘布局"), KEYS("按键与手势"), PINYIN("拼音"), LOOK("主题与外观"), HEIGHT("键盘高度"),
-    ARRANGE("工具栏与菜单"), CLIP("剪贴板"), TIPS("小技巧"), TRY("试一试")
+    ARRANGE("工具栏与菜单"), CLIP("剪贴板"), TIPS("小技巧"), TRY("试一试"), NUMPAD("数字键盘"), UPDATE("检查更新")
 }
 
 /** 主页上的一行：可以被搜索 */
@@ -90,6 +92,29 @@ class SettingsActivity : ComponentActivity() {
     private var confirmAt = 0L
     private var confirmWhat = ""
     private val micRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick.intValue++ }
+    /** 检查更新的状态：显示在“检查更新”那一行 */
+    private val updateState = mutableStateOf("")
+    private val release = mutableStateOf<UpdateChecker.Release?>(null)
+
+    private fun checkUpdate(silent: Boolean) {
+        if (updateState.value == "检查中…") return
+        if (!silent) updateState.value = "检查中…"
+        Thread {
+            val r = runCatching { UpdateChecker.fetch() }
+            runOnUiThread {
+                Prefs.of(this).edit().putLong(Prefs.UPDATE_CHECKED, System.currentTimeMillis()).apply()
+                r.onSuccess { rel ->
+                    val newer = UpdateChecker.newer(rel.version, UpdateChecker.currentVersion(this))
+                    release.value = if (newer) rel else null
+                    updateState.value = if (newer) "有新版本 ${rel.tag}" else if (silent) "" else "已是最新"
+                }.onFailure { e -> if (!silent) updateState.value = "检查失败：${e.message ?: "网络不通"}" }
+            }
+        }.start()
+    }
+
+    private fun openUrl(url: String) {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -151,6 +176,8 @@ class SettingsActivity : ComponentActivity() {
                     Page.CLIP -> ClipPage(pal, tick)
                     Page.TIPS -> TipsPage(pal)
                     Page.TRY -> TryPage(pal)
+                    Page.NUMPAD -> NumpadPage(pal, tick)
+                    Page.UPDATE -> UpdatePage(pal)
                     Page.MAIN -> Unit
                 }
             }
@@ -170,6 +197,12 @@ class SettingsActivity : ComponentActivity() {
         val scale = remember(tick) { Prefs.heightScale(this) }
         val floating = remember(tick) { p.getBoolean(Prefs.FLOAT, false) }
         var query by remember { mutableStateOf("") }
+        val upd = updateState.value
+        val version = remember { UpdateChecker.currentVersion(this) }
+        // 一天最多自动查一次，有新版本才提示
+        LaunchedEffect(Unit) {
+            if (System.currentTimeMillis() - p.getLong(Prefs.UPDATE_CHECKED, 0L) > 24 * 3600_000L) checkUpdate(silent = true)
+        }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             BasicText("今天 $today 字", style = TextStyle(color = pal.text2, fontSize = 14.sp))
@@ -202,13 +235,17 @@ class SettingsActivity : ComponentActivity() {
             Item("配置选择", R.drawable.ic_edit, "试一试", "打开一个输入框试打", null, null) { go(Page.TRY) },
             Item("输入", R.drawable.ic_kbd, "键盘布局", "26 键、14 键、九键", mapOf("26" to "26 键", "14" to "14 键", "9" to "九键")[layout], null) { go(Page.LAYOUT) },
             Item("输入", R.drawable.ic_adjust, "按键与手势", "震动、按键音、上下滑输入符号、删除键手势", null, null) { go(Page.KEYS) },
-            Item("输入", R.drawable.ic_translate, "拼音", "简拼、联想、纠错、记住选词", null, null) { go(Page.PINYIN) },
-            Item("外观", R.drawable.ic_palette, "主题与外观", "配色方案、深色模式", theme.name, null) { go(Page.LOOK) },
+            Item("输入", R.drawable.ic_translate, "拼音", "简拼、模糊音、联想、纠错、记住选词", Prefs.fuzzy(this).size.takeIf { it > 0 }?.let { "模糊音 $it 项" }, null) { go(Page.PINYIN) },
+            Item("输入", R.drawable.ic_symbol, "数字键盘", "自定义左列符号和 @ . 空格三个键", null, null) { go(Page.NUMPAD) },
+            Item("外观", R.drawable.ic_palette, "主题与外观", "配色方案、深色模式、液态玻璃、透明度", theme.name + if (p.getBoolean(Prefs.GLASS, false)) " · 玻璃" else "", null) { go(Page.LOOK) },
             Item("外观", R.drawable.ic_float, "键盘高度", "拖动调节", "${(scale * 100).roundToInt()}%", null) { go(Page.HEIGHT) },
             Item("外观", R.drawable.ic_float, "悬浮键盘", "键盘浮在屏幕上，可以拖动", if (floating) "开" else "关", null) { p.edit().putBoolean(Prefs.FLOAT, !floating).apply() },
             Item("工具", R.drawable.ic_toolbar, "工具栏与菜单", "长按拖动排列顺序和位置", null, null) { go(Page.ARRANGE) },
             Item("工具", R.drawable.ic_clip, "剪贴板", "最多 ${ClipStore.MAX} 条，分类、图片", "${ClipStore.items.size} 条", null) { go(Page.CLIP) },
             Item("关于", R.drawable.ic_settings, "小技巧", "滑动输入、分词、光标、手写", null, null) { go(Page.TIPS) },
+            Item("关于", R.drawable.ic_download, "检查更新", "当前 $version · GitHub ${UpdateChecker.REPO}", upd.ifEmpty { null }, if (upd.startsWith("有新版本")) pal.accent else null) {
+                go(Page.UPDATE); if (release.value == null) checkUpdate(silent = false)
+            },
         )
         val shown = items.filter { query.isBlank() || it.title.contains(query) || it.sub.contains(query) || it.section.contains(query) }
         for ((section, rows) in shown.groupBy { it.section }) {
@@ -221,7 +258,7 @@ class SettingsActivity : ComponentActivity() {
             }
         }
         if (shown.isEmpty()) BasicText("没有找到“$query”", style = TextStyle(color = pal.text2, fontSize = 15.sp), modifier = Modifier.padding(16.dp))
-        BasicText("空叶键盘 1.2.0", style = TextStyle(color = pal.text2, fontSize = 12.sp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        BasicText("空叶键盘 $version", style = TextStyle(color = pal.text2, fontSize = 12.sp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
     }
 
     @Composable
@@ -261,6 +298,7 @@ class SettingsActivity : ComponentActivity() {
         val vib = remember(tick) { p.getInt(Prefs.VIB_STRENGTH, 2) }
         val sound = remember(tick) { p.getBoolean(Prefs.SOUND, false) }
         val swipe = remember(tick) { p.getBoolean(Prefs.SWIPE, true) }
+        val spaceLong = remember(tick) { p.getInt(Prefs.SPACE_LONG, 0) }
         Card(pal) {
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 BasicText("按键震动", style = TextStyle(color = pal.ink, fontSize = 16.sp), modifier = Modifier.weight(1f))
@@ -272,7 +310,22 @@ class SettingsActivity : ComponentActivity() {
             ToggleRow(pal, "上下滑输入符号", "按住字母往下滑输入右上角的符号，往上滑输入左下角的", swipe) { p.edit().putBoolean(Prefs.SWIPE, it).apply() }
             Line(pal)
             Tip(pal, "删除键", "往下滑清空整个输入框，往上滑撤销。撤销、重做和空叶文档一样：连续打字停顿不到 1 秒算一步，最多记 100 步。")
-            Tip(pal, "空格键", "左右滑移动光标；长按进入光标模式，手指在屏幕任意位置上下左右滑。")
+            Line(pal)
+            Column(Modifier.padding(vertical = 10.dp)) {
+                BasicText("空格长按", style = TextStyle(color = pal.ink, fontSize = 16.sp))
+                Spacer(Modifier.height(8.dp))
+                Segment(pal, listOf("移动光标", "连续空格", "语音"), spaceLong) { p.edit().putInt(Prefs.SPACE_LONG, it).apply() }
+                Spacer(Modifier.height(6.dp))
+                BasicText(
+                    when (spaceLong) {
+                        1 -> "按住空格一直输入空格，松手停止。"
+                        2 -> "长按空格打开语音并开始说话，再长按一次停止。"
+                        else -> "长按进入光标模式，手指在屏幕任意位置上下左右滑。"
+                    } + "左右滑空格始终可以移动光标。",
+                    style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp),
+                )
+            }
+            Tip(pal, "长按字母", "弹出这个键的小写、大写和符号，手指左右滑选，松手输入。")
         }
     }
 
@@ -289,6 +342,30 @@ class SettingsActivity : ComponentActivity() {
             ToggleRow(pal, "记住选词", "选过的词排到前面，分几次选出的整句记成新词；密码框里打的字不记录", r[Prefs.LEARN]!!) { p.edit().putBoolean(Prefs.LEARN, it).apply() }
             Line(pal)
             Tip(pal, "纠错", "打错一个字母时，候选里会给出正确的词，后面带拼音，打错的字母标红。")
+        }
+        BasicText("模糊音", style = TextStyle(color = pal.text2, fontSize = 15.sp), modifier = Modifier.padding(start = 4.dp))
+        Card(pal) {
+            val on = remember(tick) { Prefs.fuzzy(this@SettingsActivity) }
+            BasicText("分不清的读音打开对应的一项，比如打开 z = zh 后，zi 也能出“只”。", style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp), modifier = Modifier.padding(vertical = 8.dp))
+            Prefs.FUZZY_RULES.chunked(3).forEach { row ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { (id, label) ->
+                        val sel = id in on
+                        Box(
+                            Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (sel) pal.accent else pal.track)
+                                .clickable {
+                                    val next = if (sel) on - id else on + id
+                                    p.edit().putString(Prefs.FUZZY, next.joinToString(",")).apply()
+                                }.padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { BasicText(label, style = TextStyle(color = if (sel) pal.onAccent else pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium)) }
+                    }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+        Card(pal) {
             Line(pal, top = 10.dp)
             ActionRow(pal, "清除选词记录", forgetHint.ifEmpty { "只删学到的东西，不影响词库" }, "清除") {
                 if (confirmed("forget")) { Lexicon.clearUser(this@SettingsActivity); forgetHint = "已清除" } else forgetHint = "再点一次“清除”确认"
@@ -330,11 +407,21 @@ class SettingsActivity : ComponentActivity() {
         val p = Prefs.of(this)
         val theme = remember(tick) { Prefs.theme(this) }
         val mode = remember(tick) { p.getInt(Prefs.MODE, 0) }
+        val glass = remember(tick) { p.getBoolean(Prefs.GLASS, false) }
+        var opacity by remember { mutableFloatStateOf(Prefs.opacity(this)) }
         Preview(pal, tick)
         Card(pal) {
             Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 BasicText("深色模式", style = TextStyle(color = pal.ink, fontSize = 16.sp), modifier = Modifier.weight(1f))
                 Segment(pal, listOf("跟随系统", "浅色", "深色"), mode) { p.edit().putInt(Prefs.MODE, it).apply() }
+            }
+            Line(pal)
+            ToggleRow(pal, "液态玻璃", "按键变成半透明的薄玻璃，带高光描边，键盘底透出后面的内容；每套配色都能开", glass) { p.edit().putBoolean(Prefs.GLASS, it).apply() }
+            Line(pal)
+            Column(Modifier.padding(vertical = 10.dp)) {
+                BasicText("键盘透明度 ${(opacity * 100).roundToInt()}%", style = TextStyle(color = pal.ink, fontSize = 16.sp))
+                Spacer(Modifier.height(10.dp))
+                Slider(pal, opacity, 0.3f, 1f, { opacity = it }) { p.edit().putFloat(Prefs.OPACITY, opacity).apply() }
             }
         }
         BasicText("配色方案", style = TextStyle(color = pal.text2, fontSize = 15.sp), modifier = Modifier.padding(start = 4.dp))
@@ -401,6 +488,72 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun NumpadPage(pal: Pal, tick: Int) {
+        val p = Prefs.of(this)
+        var side by remember { mutableStateOf(Prefs.numSide(this).joinToString(" ")) }
+        val saved = remember(tick) { Prefs.numKeys(this) }
+        var k1 by remember { mutableStateOf(saved[0].let { if (it == " ") "空格" else it }) }
+        var k2 by remember { mutableStateOf(saved[1].let { if (it == " ") "空格" else it }) }
+        var k3 by remember { mutableStateOf(saved[2].let { if (it == " ") "空格" else it }) }
+        var hint by remember { mutableStateOf("") }
+        fun key(v: String) = v.trim().let { if (it.isEmpty() || it == "空格") " " else it.take(8) }
+        Card(pal) {
+            BasicText("左边一列（可以上下滑）的符号，用空格隔开：", style = TextStyle(color = pal.ink, fontSize = 15.sp), modifier = Modifier.padding(top = 10.dp))
+            Field(pal, side) { side = it }
+            Line(pal, top = 6.dp)
+            BasicText("右边可以自定义的三个键（填“空格”就是空格键）：", style = TextStyle(color = pal.ink, fontSize = 15.sp), modifier = Modifier.padding(top = 10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) { BasicText("6 右边", style = TextStyle(color = pal.text2, fontSize = 12.5.sp)); Field(pal, k1) { k1 = it } }
+                Column(Modifier.weight(1f)) { BasicText("9 右边", style = TextStyle(color = pal.text2, fontSize = 12.5.sp)); Field(pal, k2) { k2 = it } }
+                Column(Modifier.weight(1f)) { BasicText("0 右边", style = TextStyle(color = pal.text2, fontSize = 12.5.sp)); Field(pal, k3) { k3 = it } }
+            }
+            Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Pill(pal, "保存", true) {
+                    p.edit().putString(Prefs.NUM_SIDE_KEY, side.split(' ', '　').filter { it.isNotEmpty() }.joinToString(" "))
+                        .putString(Prefs.NUM_KEYS, listOf(key(k1), key(k2), key(k3)).joinToString("\u0001")).apply()
+                    hint = "已保存"
+                }
+                Pill(pal, "恢复默认", false) {
+                    p.edit().remove(Prefs.NUM_SIDE_KEY).remove(Prefs.NUM_KEYS).apply()
+                    side = Prefs.DEFAULT_NUM_SIDE.joinToString(" "); k1 = "@"; k2 = "."; k3 = "空格"; hint = "已恢复"
+                }
+                BasicText(hint, style = TextStyle(color = pal.ok, fontSize = 13.sp))
+            }
+        }
+    }
+
+    @Composable
+    private fun Field(pal: Pal, value: String, onChange: (String) -> Unit) {
+        BasicTextField(
+            value = value, onValueChange = onChange, singleLine = true,
+            textStyle = TextStyle(color = pal.ink, fontSize = 17.sp), cursorBrush = SolidColor(pal.accent),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(12.dp)).background(pal.tile).padding(horizontal = 12.dp, vertical = 10.dp),
+        )
+    }
+
+    @Composable
+    private fun UpdatePage(pal: Pal) {
+        val version = remember { UpdateChecker.currentVersion(this) }
+        val state = updateState.value
+        val rel = release.value
+        Card(pal) {
+            BasicText("当前版本 $version", style = TextStyle(color = pal.ink, fontSize = 16.sp, fontWeight = FontWeight.Medium), modifier = Modifier.padding(top = 10.dp))
+            BasicText(state.ifEmpty { "从 GitHub 读取最新发布的版本" }, style = TextStyle(color = if (rel != null) pal.accent else pal.text2, fontSize = 14.sp, lineHeight = 20.sp), modifier = Modifier.padding(top = 4.dp))
+            if (rel != null && rel.notes.isNotBlank()) {
+                Line(pal, top = 10.dp)
+                BasicText("更新内容", style = TextStyle(color = pal.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium), modifier = Modifier.padding(top = 10.dp))
+                BasicText(rel.notes.trim().take(1500), style = TextStyle(color = pal.text2, fontSize = 13.sp, lineHeight = 19.sp), modifier = Modifier.padding(top = 4.dp))
+            }
+            Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (rel != null) Pill(pal, "下载 ${rel.tag}", true) { openUrl(rel.apkUrl ?: rel.pageUrl) }
+                Pill(pal, "重新检查", rel == null) { checkUpdate(silent = false) }
+                Pill(pal, "打开发布页", false) { openUrl(UpdateChecker.RELEASES) }
+            }
+            BasicText("下载后在系统里安装即可覆盖更新，设置和词库都会保留。", style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp), modifier = Modifier.padding(bottom = 8.dp))
+        }
+    }
+
+    @Composable
     private fun TipsPage(pal: Pal) {
         Card(pal) {
             Tip(pal, "上下滑输入符号", "按住字母往下滑，右上角的符号会移到中间，松手输入它；往上滑是左下角的。长按也输入右上角的。")
@@ -408,8 +561,9 @@ class SettingsActivity : ComponentActivity() {
             Tip(pal, "分词", "打中文时大写键会变成“分词”，比如 xi 分词 an 出“西安”。")
             Tip(pal, "移动光标", "在空格上左右滑；长按空格进入光标模式，可以上下左右移动。")
             Tip(pal, "纠错", "打错一个字母时候选会给出正确的词，拼音里打错的字母标红。")
-            Tip(pal, "手写", "更多 → 手写。写完停笔半秒自动识别，候选带拼音。识别在手机上完成，不联网。")
-            Tip(pal, "翻译", "更多 → 翻译。中文译成英文，其他语言译成中文。第一次用要下载约 30MB 的翻译模型。")
+            Tip(pal, "手写", "更多 → 手写。写完停笔半秒自动识别，候选带拼音。第一次用会下载约 20MB 的手写模型，之后识别在手机上完成，不联网。")
+            Tip(pal, "翻译", "更多 → 翻译。在上面的输入框打字，译文实时出现在聊天框里，点“完成”确定；点左边的语言可以选译成什么。第一次用要下载约 30MB 的翻译模型。")
+            Tip(pal, "拼音条", "打拼音时键盘左上角会伸出拼音条，点拼音中间的位置可以把光标移过去改错字母。")
             Tip(pal, "工具栏", "点工具栏里的工具打开它，再点一次回到键盘。左上角“更多”里是其余的功能。")
         }
     }

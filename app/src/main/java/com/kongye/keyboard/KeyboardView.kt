@@ -4,9 +4,11 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.os.Handler
@@ -74,6 +76,8 @@ class KeyboardView(context: Context) : View(context) {
     var heightScale = 1f
         set(v) { if (v != field) { field = v; requestLayout() } }
     var longMs = 360L
+    /** 空格长按：0 光标模式，1 连续输入空格，2 开关语音 */
+    var spaceLong = 0
 
     /** 数字键盘、九键左边那一列可滚动的符号 */
     private var side: List<String>? = null
@@ -94,6 +98,8 @@ class KeyboardView(context: Context) : View(context) {
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val glassStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val glassFill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     private val radii = FloatArray(8)
     private val handler = Handler(Looper.getMainLooper())
@@ -108,7 +114,16 @@ class KeyboardView(context: Context) : View(context) {
         this.rows = rows
         if (side != this.side) sideScroll = 0f
         this.side = side
+        // 光标模式中编辑器重启输入（比如空叶文档光标跨段换了输入框）会重新 setup：
+        // 保住按着的空格和光标模式，不然手指还没松开就退出了
+        val keep = if (cursorMode) presses.values.firstOrNull { it.key.kind == Kind.SPACE } else null
+        val space = keep?.let { rows.flatMap { r -> r.keys }.firstOrNull { it.kind == Kind.SPACE } }
         cancelAll()
+        if (keep != null && space != null) {
+            keep.key = space
+            presses[keep.id] = keep
+            cursorMode = true
+        }
         if (relayout) requestLayout()
         layoutKeys()
         invalidate()
@@ -182,7 +197,39 @@ class KeyboardView(context: Context) : View(context) {
         for (p in presses.values) pressMap[p.key] = p
         for (row in rows) for (k in row.keys) drawKey(c, k, pressMap[k])
         side?.let { drawSide(c, it) }
+        for (p in presses.values) p.popup?.let { drawPopup(c, p, it) }
         if (cursorMode) drawCursorMode(c)
+    }
+
+    /** 长按字母弹出的一排：小写、大写和角标符号；左右滑选，松手输入 */
+    private fun popupRect(p: Press, n: Int): RectF {
+        val k = p.key.rect
+        val cw = max(min(k.width(), 46 * d), 34 * d)
+        val total = n * cw
+        val h = rowH()
+        // 默认选中的那格（大写）对准按下的键
+        var left = k.centerX() - cw * (p.popDefault + 0.5f)
+        left = left.coerceIn(2 * d, width - total - 2 * d)
+        val top = max(0f, k.top - h - 6 * d)
+        return RectF(left, top, left + total, top + h)
+    }
+
+    private fun drawPopup(c: Canvas, p: Press, items: List<String>) {
+        val r = popupRect(p, items.size)
+        val rad = 10 * d
+        fill.color = withAlpha(Color.BLACK, 40)
+        c.drawRoundRect(RectF(r.left, r.top + 2 * d, r.right, r.bottom + 2 * d), rad, rad, fill)
+        fill.color = skin.popBg
+        c.drawRoundRect(r, rad, rad, fill)
+        val cw = r.width() / items.size
+        for ((i, s) in items.withIndex()) {
+            val x = r.left + i * cw
+            if (i == p.popSel) {
+                fill.color = skin.accBg
+                c.drawRoundRect(RectF(x + 3 * d, r.top + 3 * d, x + cw - 3 * d, r.bottom - 3 * d), 8 * d, 8 * d, fill)
+            }
+            drawText(c, s, x + cw / 2, r.centerY(), if (s.length > 1) 15f else 21f, if (i == p.popSel) skin.accFg else skin.popFg)
+        }
     }
 
     private fun buildShape(r: RectF) {
@@ -212,6 +259,7 @@ class KeyboardView(context: Context) : View(context) {
         }
         fill.color = bg
         c.drawPath(path, fill)
+        if (s.glass) drawGlass(c, r)
         if (down) {
             stroke.strokeWidth = 1.6f * d
             stroke.color = withAlpha(fg, 110)
@@ -242,15 +290,35 @@ class KeyboardView(context: Context) : View(context) {
                 c, when (shiftState) { 1 -> R.drawable.ic_shift_on; 2 -> R.drawable.ic_shift_lock; else -> R.drawable.ic_shift },
                 cx, cy, 22f, fg,
             )
-            Kind.DEL -> icons.draw(c, R.drawable.ic_del, cx, cy, 22f, fg)
+            Kind.DEL -> {
+                // 下滑：红色“清空”；上滑：蓝色“撤回”
+                if (p != null && dir != 0 && prog > 0.12f) drawText(c, if (dir > 0) "清空" else "撤回", cx, cy, 15f, if (dir > 0) RED else BLUE, bold = true)
+                else icons.draw(c, R.drawable.ic_del, cx, cy, 22f, fg)
+            }
             Kind.ENTER -> icons.draw(c, enterIcon, cx, cy, 22f, fg)
-            Kind.SPACE -> Unit
+            Kind.SPACE -> if (k.icon != 0) icons.draw(c, k.icon, cx, cy, 24f, withAlpha(fg, 170))
             Kind.SYM, Kind.NUM, Kind.ABC, Kind.SEP, Kind.RESET -> {
-                drawText(c, k.label, cx, cy, if (k.label.any { it.code > 0x2E80 }) 16f else 15f, fg)
+                if (k.icon != 0) icons.draw(c, k.icon, cx, cy, 22f, fg)
+                else drawText(c, k.label, cx, cy, if (k.label.any { it.code > 0x2E80 }) 16f else 15f, fg)
                 k.hint?.let { drawHint(c, it, r.right - 5 * d, r.top + 3 * d, Paint.Align.RIGHT, 10f, s.hintFg) }
             }
             Kind.LANG -> drawLang(c, cx, cy, fg)
         }
+    }
+
+    /** 液态玻璃：上亮下暗的细描边，加上半部一层淡淡的高光 */
+    private fun drawGlass(c: Canvas, r: RectF) {
+        val dark = skin.dark
+        glassFill.shader = LinearGradient(0f, r.top, 0f, r.top + r.height() * 0.55f,
+            withAlpha(Color.WHITE, if (dark) 40 else 110), withAlpha(Color.WHITE, 0), Shader.TileMode.CLAMP)
+        c.save()
+        c.clipPath(path)
+        c.drawRect(r.left, r.top, r.right, r.top + r.height() * 0.55f, glassFill)
+        c.restore()
+        glassStroke.strokeWidth = d
+        glassStroke.shader = LinearGradient(0f, r.top, 0f, r.bottom,
+            withAlpha(Color.WHITE, if (dark) 120 else 235), withAlpha(Color.WHITE, if (dark) 18 else 60), Shader.TileMode.CLAMP)
+        c.drawPath(path, glassStroke)
     }
 
     /** 两个角标；滑动时被选中的那个随进度移到按键中间、变大 */
@@ -359,6 +427,12 @@ class KeyboardView(context: Context) : View(context) {
         var lastY = y0
         var accX = 0f
         var accY = 0f
+        /** 长按字母弹出的选项和当前选中的 */
+        var popup: List<String>? = null
+        var popSel = 0
+        var popDefault = 0
+        /** 空格长按连续输入中 */
+        var repeating = false
     }
 
     private val presses = LinkedHashMap<Int, Press>()
@@ -466,14 +540,39 @@ class KeyboardView(context: Context) : View(context) {
         longTask?.let { handler.removeCallbacks(it) }
         longTask = null
         val k = p.key
-        val hintLong = k.hint != null && (k.kind == Kind.LETTER || k.kind == Kind.CHAR)
-        val actionLong = k.longEmoji || k.kind == Kind.SPACE || k.kind == Kind.SHIFT
+        val popLong = k.kind == Kind.LETTER
+        val hintLong = k.hint != null && k.kind == Kind.CHAR
+        val actionLong = k.longEmoji || k.kind == Kind.SPACE || k.kind == Kind.SHIFT || popLong
         if (!hintLong && !actionLong) return
         val task = Runnable {
             if (p.key !== k || p.dragging || p.swipe != 0) return@Runnable
             p.long = true
             when {
+                popLong -> {
+                    // 小写、大写，再加上角标的符号
+                    val letters = k.letters.map { it.toString() }
+                    val opts = (letters + letters.map { it.uppercase() } + listOfNotNull(k.hint, k.hint2)).distinct()
+                    p.popup = opts
+                    p.popDefault = if (letters.size == 1 && opts.size > 1) 1 else 0
+                    p.popSel = p.popDefault
+                    listener?.onPress(k)
+                    invalidate()
+                }
                 hintLong -> { p.swipe = 1; p.prog = 1f; invalidate() }
+                k.kind == Kind.SPACE && spaceLong == 1 -> {
+                    // 连续输入空格
+                    p.fired = true
+                    p.repeating = true
+                    val task = object : Runnable {
+                        override fun run() { listener?.onKey(k); handler.postDelayed(this, 70) }
+                    }
+                    repeatTask = task
+                    handler.post(task)
+                }
+                k.kind == Kind.SPACE && spaceLong == 2 -> {
+                    p.fired = true
+                    listener?.onLongKey(k)
+                }
                 k.kind == Kind.SPACE -> {
                     // 长按空格：进入光标模式，上下左右滑都能移动光标
                     p.fired = true
@@ -500,7 +599,14 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun move(p: Press, x: Float, y: Float) {
         val k = p.key
+        p.popup?.let { items ->
+            val r = popupRect(p, items.size)
+            val sel = ((x - r.left) / (r.width() / items.size)).toInt().coerceIn(0, items.size - 1)
+            if (sel != p.popSel) { p.popSel = sel; listener?.onPress(k); invalidate() }
+            return
+        }
         if (k.kind == Kind.SPACE) {
+            if (p.repeating) return
             if (!p.dragging && abs(x - p.x0) > 12 * d) {
                 p.dragging = true
                 longTask?.let { handler.removeCallbacks(it) }
@@ -561,7 +667,7 @@ class KeyboardView(context: Context) : View(context) {
         presses.remove(p.id)
         longTask?.let { handler.removeCallbacks(it) }
         longTask = null
-        if (p.key.kind == Kind.DEL || p.key.repeat) {
+        if (p.key.kind == Kind.DEL || p.key.repeat || p.repeating) {
             repeatTask?.let { handler.removeCallbacks(it) }
             repeatTask = null
         }
@@ -569,6 +675,7 @@ class KeyboardView(context: Context) : View(context) {
         invalidate()
         if (!fire || p.fired) return
         val k = p.key
+        p.popup?.let { items -> items.getOrNull(p.popSel)?.let { listener?.onKey(Key(Kind.CHAR, it)) }; return }
         // 滑得够远（进度过 0.12）才算滑动输入，不够就当普通点击
         val swiped = p.swipe != 0 && p.prog > 0.12f
         if (p.long && k.hint != null) { listener?.onKey(Key(Kind.CHAR, k.hint)); return }
@@ -583,5 +690,10 @@ class KeyboardView(context: Context) : View(context) {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         cancelAll()
+    }
+
+    companion object {
+        private val RED = Color.parseColor("#E5484D")
+        private val BLUE = Color.parseColor("#1A73E8")
     }
 }

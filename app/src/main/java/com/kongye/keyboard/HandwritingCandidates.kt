@@ -10,13 +10,13 @@ object HandwritingCandidates {
         "好如妈她", "晴睛情清", "问间闻闷", "青清请情", "休体住往", "白百自首",
     )
 
-    fun expand(recognized: List<String>, associate: (String) -> List<String>): List<String> {
+    fun expand(recognized: List<String>, associate: (String) -> List<String>, similar: Boolean = true): List<String> {
         val originals = recognized.filter { it.isNotBlank() }.distinct()
         if (originals.isEmpty()) return emptyList()
         val out = LinkedHashSet(originals)
         val first = originals.first()
-        if (first.length == 1) {
-            similar.filter { first[0] in it }.forEach { group ->
+        if (similar && first.length == 1) {
+            this.similar.filter { first[0] in it }.forEach { group ->
                 group.forEach { if (out.size < 10) out.add(it.toString()) }
             }
         }

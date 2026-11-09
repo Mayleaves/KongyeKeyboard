@@ -84,42 +84,51 @@ object Layouts {
     /** 九键：左边一列可滚动的标点，由 KeyboardView 的 side 画 */
     val NINE_SIDE = listOf("，", "。", "？", "！", "…", "～", "、", "：", "；", "@", "—")
 
+    /**
+     * 九键（照截图）：左边一列标点；中间 3×3 字母键；右边一列删除、重输、0，最下面一行
+     * 符号、123（和左列一样宽）、加宽的空格、中英切换、回车。
+     */
     fun nine(): List<Row> {
         fun k(t: String, d: String) = Key(Kind.LETTER, t, hint = d, w = 1.5f)
         return listOf(
             Row(listOf(Key(Kind.SEP, "分词", hint = "1", w = 1.5f), k("ABC", "2"), k("DEF", "3"), del(1f))),
-            Row(listOf(k("GHI", "4"), k("JKL", "5"), k("MNO", "6"), Key(Kind.RESET, "重输", look = Look.MOD))),
-            Row(listOf(k("PQRS", "7"), k("TUV", "8"), k("WXYZ", "9"), Key(Kind.ENTER, look = Look.MOD))),
+            Row(listOf(k("GHI", "4"), k("JKL", "5"), k("MNO", "6"), Key(Kind.RESET, look = Look.MOD, icon = R.drawable.ic_refresh))),
+            Row(listOf(k("PQRS", "7"), k("TUV", "8"), k("WXYZ", "9"), Key(Kind.CHAR, "0"))),
             Row(listOf(
-                Key(Kind.SYM, "符", look = Look.MOD),
-                Key(Kind.NUM, "123", w = 1.5f, look = Look.MOD),
-                Key(Kind.SPACE, w = 3f),
+                Key(Kind.SYM, look = Look.MOD, icon = R.drawable.ic_symbol),
+                Key(Kind.NUM, "123", look = Look.MOD),
+                Key(Kind.SPACE, w = 2.5f),
                 Key(Kind.LANG, look = Look.MOD),
+                Key(Kind.ENTER, look = Look.MOD),
             )),
         )
     }
 
-    /** 123 数字键盘：左边一列可滚动的符号 */
-    val NUM_SIDE = listOf("·", "/", "+", "-", "=", "%", "*", "#", ",", ":", "(", ")", "~", "_")
+    /** 123 数字键盘的默认左列符号（可在设置里改） */
+    val NUM_SIDE = Prefs.DEFAULT_NUM_SIDE
 
-    fun numpad(): List<Row> = listOf(
-        Row(listOf(Key(Kind.CHAR, "1", w = 1.5f), Key(Kind.CHAR, "2", w = 1.5f), Key(Kind.CHAR, "3", w = 1.5f), Key(Kind.DEL, look = Look.MOD, repeat = true))),
-        Row(listOf(Key(Kind.CHAR, "4", w = 1.5f), Key(Kind.CHAR, "5", w = 1.5f), Key(Kind.CHAR, "6", w = 1.5f), Key(Kind.CHAR, "@"))),
-        Row(listOf(Key(Kind.CHAR, "7", w = 1.5f), Key(Kind.CHAR, "8", w = 1.5f), Key(Kind.CHAR, "9", w = 1.5f), Key(Kind.CHAR, "."))),
-        Row(listOf(
-            Key(Kind.SYM, "符", look = Look.MOD),
-            Key(Kind.ABC, "返回", w = 1.5f, look = Look.MOD),
-            Key(Kind.CHAR, "0", w = 1.5f),
-            Key(Kind.SPACE, "空格", w = 1.5f),
-            Key(Kind.ENTER, look = Look.MOD),
-        )),
-    )
+    /** 数字键盘；custom 是右边三个可自定义的键（默认 @ . 空格），是空格就画成空格键 */
+    fun numpad(custom: List<String> = Prefs.DEFAULT_NUM_KEYS): List<Row> {
+        fun c(s: String, w: Float = 1f) = if (s == " ") Key(Kind.SPACE, w = w, icon = R.drawable.ic_space) else Key(Kind.CHAR, s, w = w)
+        return listOf(
+            Row(listOf(Key(Kind.CHAR, "1", w = 1.5f), Key(Kind.CHAR, "2", w = 1.5f), Key(Kind.CHAR, "3", w = 1.5f), Key(Kind.DEL, look = Look.MOD, repeat = true))),
+            Row(listOf(Key(Kind.CHAR, "4", w = 1.5f), Key(Kind.CHAR, "5", w = 1.5f), Key(Kind.CHAR, "6", w = 1.5f), c(custom[0]))),
+            Row(listOf(Key(Kind.CHAR, "7", w = 1.5f), Key(Kind.CHAR, "8", w = 1.5f), Key(Kind.CHAR, "9", w = 1.5f), c(custom[1]))),
+            Row(listOf(
+                Key(Kind.SYM, look = Look.MOD, icon = R.drawable.ic_symbol),
+                Key(Kind.ABC, w = 1.5f, look = Look.MOD, icon = R.drawable.ic_back),
+                Key(Kind.CHAR, "0", w = 1.5f),
+                c(custom[2], 1.5f),
+                Key(Kind.ENTER, look = Look.MOD),
+            )),
+        )
+    }
 
     /** 符号面板（照截图）：分类和符号 */
     val SYMBOLS: List<Pair<String, List<String>>> = listOf(
         "常用" to "（） 【】 ： “” 「」 ！ / _ ？ + : —— @ * - …… ， 。 、 ； 《》 ~ # % & = | ¥".split(' '),
-        "中文" to "， 。 ？ ！ 、 ； ： “ ” ‘ ’ （ ） 【 】 《 》 〈 〉 「 」 『 』 …… —— · ～ ￥".split(' '),
-        "英文" to ", . ? ! ; : ' \" ( ) [ ] { } < > - _ / \\ | @ # $ % ^ & * + = ~ `".split(' '),
+        "中" to "， 。 ？ ！ 、 ； ： “ ” ‘ ’ （ ） 【 】 《 》 〈 〉 「 」 『 』 …… —— · ～ ￥".split(' '),
+        "英" to ", . ? ! ; : ' \" ( ) [ ] { } < > - _ / \\ | @ # $ % ^ & * + = ~ `".split(' '),
         "网址" to "http:// https:// www. .com .cn .net .org / : ? = & # @ - _ ~ % .html".split(' '),
         "数学" to "+ − × ÷ = ≠ ≈ < > ≤ ≥ ± √ ∞ π % ‰ ° ∑ ∫ ∠ ⊥ ∥ ∈ ∩ ∪ ∵ ∴ ½ ⅓ ¼ ² ³".split(' '),
         "邮箱" to "@ @qq.com @163.com @126.com @gmail.com @outlook.com @foxmail.com @sina.com @icloud.com @hotmail.com .com .cn".split(' '),

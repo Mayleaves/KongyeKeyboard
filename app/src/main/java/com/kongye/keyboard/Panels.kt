@@ -338,19 +338,25 @@ fun segmented(context: Context, skin: Skin, options: List<String>, index: Int, o
         val p = context.dp(3f).toInt()
         setPadding(p, p, p, p)
     }
+    // 点了先自己换高亮：有的面板改设置后不重建（语音、键盘调节）
+    fun mark(sel: Int) {
+        for (j in 0 until row.childCount) (row.getChildAt(j) as TextView).apply {
+            setTextColor(if (j == sel) skin.keyFg else skin.barFg)
+            typeface = if (j == sel) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            background = if (j == sel) roundBg(skin.keyBg, context.dp(15f)) else null
+        }
+    }
     options.forEachIndexed { i, s ->
         row.addView(TextView(context).apply {
             text = s
             textSize = 13.5f
             gravity = Gravity.CENTER
-            setTextColor(if (i == index) skin.keyFg else skin.barFg)
-            typeface = if (i == index) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            background = if (i == index) roundBg(skin.keyBg, context.dp(15f)) else null
             val h = context.dp(12f).toInt()
             setPadding(h, context.dp(5f).toInt(), h, context.dp(5f).toInt())
-            setOnClickListener { onSel(i) }
+            setOnClickListener { mark(i); onSel(i) }
         }, lp(WRAP, WRAP))
     }
+    mark(index)
     return row
 }
 
@@ -631,13 +637,16 @@ class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private 
     /** 系统手势区或导航栏的高度：图标画在它上面 */
     var inset = 0
         set(v) { field = v; requestLayout() }
+    /** 键盘调节里的“底部留白”：加在图标下面 */
+    var extra = 0
+        set(v) { if (v != field) { field = v; requestLayout() } }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), max((40 * d).toInt(), inset + (24 * d).toInt()))
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), max((40 * d).toInt(), inset + (24 * d).toInt()) + extra)
     }
 
     override fun onDraw(c: Canvas) {
-        val cy = (height - inset) / 2f + (if (inset < 30 * d) inset / 4f else 0f)
+        val cy = (height - inset - extra) / 2f + (if (inset < 30 * d) inset / 4f else 0f)
         icons.draw(c, R.drawable.ic_kbd, 30 * d, cy, 22f, skin.barFg)
         icons.draw(c, R.drawable.ic_clip_stack, width - 30 * d, cy, 22f, skin.barFg)
     }

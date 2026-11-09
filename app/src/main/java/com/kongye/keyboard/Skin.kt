@@ -11,7 +11,7 @@ import kotlin.math.roundToInt
 /** KONGYE：叶形圆角、红色回车；FLAT：圆角矩形的通用键盘（晴空、墨夜和各套配色） */
 enum class SkinStyle { KONGYE, FLAT }
 
-class Skin(
+data class Skin(
     val id: String,
     val name: String,
     val style: SkinStyle,
@@ -49,6 +49,8 @@ class Skin(
     val enterMod: Boolean = false,
     /** 键盘底色渐变的下端颜色，0 表示纯色 */
     val bg2: Int = 0,
+    /** 液态玻璃：半透明按键、高光描边，键盘底透出后面的内容 */
+    val glass: Boolean = false,
 )
 
 /** 一套配色：浅色和深色两个版本；只有浅色的配色在深色模式下也用浅色 */
@@ -167,6 +169,33 @@ object Skins {
             bg2 = gradientTo,
         )
     }
+}
+
+/** 按设置给皮肤加透明度和液态玻璃效果 */
+fun Skin.styled(opacity: Float, glass: Boolean): Skin {
+    if (opacity >= 0.999f && !glass) return this
+    fun a(c: Int, f: Float) = withAlpha(c, (Color.alpha(c) * f).toInt().coerceIn(0, 255))
+    if (!glass) {
+        // 透明度主要作用在键盘底色上；按键少透一点，免得看不清
+        val keyF = 0.55f + 0.45f * opacity
+        return copy(
+            kbBg = a(kbBg, opacity), bg2 = if (bg2 != 0) a(bg2, opacity) else 0,
+            keyBg = a(keyBg, keyF), modBg = a(modBg, keyF), keyDown = a(keyDown, keyF), keyShadow = 0,
+        )
+    }
+    // 液态玻璃：底色是带主题色的磨砂半透明，按键是更亮的薄玻璃
+    val baseA = 0.5f + 0.32f * opacity
+    return if (dark) copy(
+        kbBg = withAlpha(mix(kbBg, Color.BLACK, 0.25f), (255 * baseA).toInt()),
+        bg2 = withAlpha(mix(if (bg2 != 0) bg2 else kbBg, accBg, 0.18f), (255 * baseA).toInt()),
+        keyBg = withAlpha(Color.WHITE, 34), modBg = withAlpha(Color.WHITE, 20), keyDown = withAlpha(Color.WHITE, 60),
+        keyShadow = 0, glass = true,
+    ) else copy(
+        kbBg = withAlpha(mix(kbBg, Color.WHITE, 0.35f), (255 * baseA).toInt()),
+        bg2 = withAlpha(mix(if (bg2 != 0) bg2 else kbBg, accBg, 0.14f), (255 * baseA).toInt()),
+        keyBg = withAlpha(Color.WHITE, 150), modBg = withAlpha(Color.WHITE, 85), keyDown = withAlpha(Color.WHITE, 215),
+        keyShadow = 0, glass = true,
+    )
 }
 
 object Themes {

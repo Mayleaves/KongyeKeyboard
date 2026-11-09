@@ -5,3 +5,11 @@
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.android.gms.internal.mlkit_** { *; }
 -keep class com.google.android.odml.** { *; }
+
+# 1.3.0：手写的数字墨水库带进了 WorkManager 和 Room。数据库实现类（WorkDatabase_Impl）、
+# androidx.startup 的 Initializer、Worker 都是反射创建的，R8 full mode 删掉构造后进程一启动就崩
+-keep class * extends androidx.room.RoomDatabase { <init>(); }
+-keep class * implements androidx.startup.Initializer { <init>(); }
+-keep class * extends androidx.work.ListenableWorker { <init>(android.content.Context, androidx.work.WorkerParameters); }
+-keep class * extends androidx.work.InputMerger { <init>(); }
+-keep class androidx.work.impl.** { *; }

@@ -28,6 +28,14 @@ import com.google.mlkit.nl.translate.TranslateRemoteModel
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import com.google.mlkit.vision.digitalink.DigitalInkRecognition
+import com.google.mlkit.vision.digitalink.DigitalInkRecognitionModel
+import com.google.mlkit.vision.digitalink.DigitalInkRecognitionModelIdentifier
+import com.google.mlkit.vision.digitalink.DigitalInkRecognizer
+import com.google.mlkit.vision.digitalink.DigitalInkRecognizerOptions
+import com.google.mlkit.vision.digitalink.RecognitionContext
+import com.google.mlkit.vision.digitalink.WritingArea
+import com.google.mlkit.vision.digitalink.Ink as DInk
 import kotlin.math.max
 import kotlin.math.min
 
@@ -54,8 +62,79 @@ object Ink {
     }
 }
 
+/**
+ * 手写识别（主力）：ML Kit 数字墨水识别，按笔画和书写顺序认字，单字、简单字（一、二、三）也认得准，
+ * 一次给出多个候选。中文模型约 20MB，第一次用时下载；下好之前用上面的 OCR 兜底。
+ */
+object HandInk {
+    private var recognizer: DigitalInkRecognizer? = null
+    /** 0 未开始，1 下载中，2 可用，3 失败 */
+    @Volatile var state = 0
+        private set
+    var status = ""
+        private set
+
+    fun prepare(onState: () -> Unit) {
+        if (state == 1 || state == 2) return
+        val id = runCatching { DigitalInkRecognitionModelIdentifier.fromLanguageTag("zh-Hani-CN") }.getOrNull()
+        if (id == null) { state = 3; status = "没有中文手写模型，暂用文字识别"; onState(); return }
+        val model = DigitalInkRecognitionModel.builder(id).build()
+        val mgr = RemoteModelManager.getInstance()
+        state = 1
+        status = "正在准备手写模型…"
+        fun ready() {
+            recognizer = runCatching { DigitalInkRecognition.getClient(DigitalInkRecognizerOptions.builder(model).build()) }.getOrNull()
+            state = if (recognizer != null) 2 else 3
+            status = if (recognizer != null) "" else "手写模型打不开，暂用文字识别"
+            onState()
+        }
+        fun fail(e: Exception) {
+            Log.w("KongyeInk", "model failed", e)
+            state = 3
+            status = "手写模型下载失败（需能访问谷歌的网络），暂用文字识别；重新打开手写会再试"
+            onState()
+        }
+        runCatching {
+            mgr.isModelDownloaded(model).addOnSuccessListener { ok ->
+                if (ok) ready() else {
+                    status = "第一次用：正在下载手写模型（约 20MB，只下一次）…"
+                    onState()
+                    mgr.download(model, DownloadConditions.Builder().build())
+                        .addOnSuccessListener { ready() }
+                        .addOnFailureListener { fail(it) }
+                }
+            }.addOnFailureListener { fail(it) }
+        }.onFailure { fail(it as? Exception ?: Exception(it)) }
+    }
+
+    /** strokes：每笔是 (x, y, 毫秒) 的点；返回 false 表示模型还不能用 */
+    fun recognize(strokes: List<List<FloatArray>>, w: Float, h: Float, pre: String, cb: (List<String>) -> Unit): Boolean {
+        val r = recognizer ?: return false
+        return runCatching {
+            val b = DInk.builder()
+            for (st in strokes) {
+                if (st.isEmpty()) continue
+                val sb = DInk.Stroke.builder()
+                for (pt in st) sb.addPoint(DInk.Point.create(pt[0], pt[1], pt[2].toLong()))
+                b.addStroke(sb.build())
+            }
+            val ctx = RecognitionContext.builder().setPreContext(pre.takeLast(20)).setWritingArea(WritingArea(w, h)).build()
+            r.recognize(b.build(), ctx)
+                .addOnSuccessListener { res -> cb(res.candidates.map { it.text.trim() }.filter { it.isNotEmpty() }.distinct()) }
+                .addOnFailureListener { cb(emptyList()) }
+            true
+        }.getOrDefault(false)
+    }
+}
+
 /** 手写板：左边写字，右边一列重写、删除、空格、回车；停笔 0.5 秒自动识别 */
-class HandwriteView(context: Context, private val skin: Skin, private val onRecognize: (Bitmap) -> Unit, private val onAction: (String) -> Unit, private val onChanged: () -> Unit = {}) : View(context) {
+class HandwriteView(context: Context, private val skin: Skin, private val onRecognize: (HandwriteView) -> Unit, private val onAction: (String) -> Unit, private val onChanged: () -> Unit = {}) : View(context) {
+    /** 带时间的笔画点（给数字墨水识别用）：x、y、离第一笔的毫秒数 */
+    private val points = ArrayList<ArrayList<FloatArray>>()
+    private var t0 = 0L
+    /** 模型下载等状态，写在格子下方 */
+    var status = ""
+        set(v) { field = v; invalidate() }
     private val d = resources.displayMetrics.density
     private val icons = Icons(context)
     private val strokes = ArrayList<Path>()
@@ -67,7 +146,7 @@ class HandwriteView(context: Context, private val skin: Skin, private val onReco
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val handler = Handler(Looper.getMainLooper())
-    private val recognize = Runnable { bitmap()?.let(onRecognize) }
+    private val recognize = Runnable { if (strokes.isNotEmpty()) onRecognize(this) }
     private var pressedSide = -1
     private val side = listOf("rewrite" to "重写", "del" to "", "space" to "空格", "enter" to "")
 
@@ -82,7 +161,7 @@ class HandwriteView(context: Context, private val skin: Skin, private val onReco
     private fun padRect() = RectF(6 * d, 6 * d, width - sideW - 12 * d, height - 6 * d)
 
     fun clear() {
-        strokes.clear(); cur = null; bounds.setEmpty(); handler.removeCallbacks(recognize); invalidate()
+        strokes.clear(); points.clear(); cur = null; bounds.setEmpty(); handler.removeCallbacks(recognize); invalidate()
         onChanged()
     }
 
@@ -100,6 +179,11 @@ class HandwriteView(context: Context, private val skin: Skin, private val onReco
             text.textSize = 15 * d
             text.color = skin.barFg
             c.drawText("在这里写字，停笔自动识别", pr.centerX(), pr.centerY() + 30 * d, text)
+        }
+        if (status.isNotEmpty()) {
+            text.textSize = 11.5f * d
+            text.color = skin.barFg
+            c.drawText(status, pr.centerX(), pr.bottom - 10 * d, text)
         }
         pen.color = skin.keyFg
         pen.strokeWidth = 5 * d
@@ -144,12 +228,19 @@ class HandwriteView(context: Context, private val skin: Skin, private val onReco
                 handler.removeCallbacks(recognize)
                 onChanged()
                 cur = Path().also { it.moveTo(e.x, e.y); strokes.add(it) }
+                if (points.isEmpty()) t0 = e.eventTime
+                points.add(arrayListOf(floatArrayOf(e.x, e.y, (e.eventTime - t0).toFloat())))
                 if (bounds.isEmpty) bounds.set(e.x, e.y, e.x + 1, e.y + 1) else bounds.union(e.x, e.y)
                 parent?.requestDisallowInterceptTouchEvent(true)
             }
             MotionEvent.ACTION_MOVE -> {
-                for (h in 0 until e.historySize) { cur?.lineTo(e.getHistoricalX(h), e.getHistoricalY(h)); bounds.union(e.getHistoricalX(h), e.getHistoricalY(h)) }
+                val pts = points.lastOrNull()
+                for (h in 0 until e.historySize) {
+                    cur?.lineTo(e.getHistoricalX(h), e.getHistoricalY(h)); bounds.union(e.getHistoricalX(h), e.getHistoricalY(h))
+                    pts?.add(floatArrayOf(e.getHistoricalX(h), e.getHistoricalY(h), (e.getHistoricalEventTime(h) - t0).toFloat()))
+                }
                 cur?.lineTo(e.x, e.y); bounds.union(e.x, e.y)
+                pts?.add(floatArrayOf(e.x, e.y, (e.eventTime - t0).toFloat()))
                 invalidate()
             }
             MotionEvent.ACTION_UP -> { cur = null; handler.postDelayed(recognize, 500) }
@@ -158,8 +249,12 @@ class HandwriteView(context: Context, private val skin: Skin, private val onReco
         return true
     }
 
-    /** 把笔画画成白底黑字的小图，留边距，长边 256 像素 */
-    private fun bitmap(): Bitmap? {
+    fun inkStrokes(): List<List<FloatArray>> = points
+    fun padWidth() = padRect().width()
+    fun padHeight() = padRect().height()
+
+    /** 把笔画画成白底黑字的小图，留边距，长边 256 像素（OCR 兜底用） */
+    fun bitmap(): Bitmap? {
         if (strokes.isEmpty()) return null
         val margin = 24 * d
         val bw = bounds.width() + 2 * margin
@@ -182,47 +277,20 @@ class HandwriteView(context: Context, private val skin: Skin, private val onReco
     }
 }
 
-/** 语音面板：大麦克风按钮，用系统的语音识别服务；没有可用服务时可以切到系统里的语音输入法 */
-class VoicePanel(context: Context, skin: Skin, status: String, listening: Boolean, partial: String, needPermission: Boolean, onMic: () -> Unit, onPermission: () -> Unit, onSwitch: () -> Unit) : LinearLayout(context) {
-    init {
-        val d = resources.displayMetrics.density
-        orientation = VERTICAL
-        gravity = Gravity.CENTER_HORIZONTAL
-        addView(TextView(context).apply {
-            text = partial.ifEmpty { status }
-            textSize = if (partial.isNotEmpty()) 18f else 14f
-            setTextColor(if (partial.isNotEmpty()) skin.candFg else skin.barFg)
-            gravity = Gravity.CENTER
-            setPadding((16 * d).toInt(), (14 * d).toInt(), (16 * d).toInt(), (8 * d).toInt())
-        }, lp(MATCH, WRAP))
-        val mic = object : View(context) {
-            private val icons = Icons(context)
-            private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-            override fun onDraw(c: Canvas) {
-                p.color = if (listening) skin.accBg else skin.modBg
-                c.drawCircle(width / 2f, height / 2f, min(width, height) / 2f - 2 * d, p)
-                icons.draw(c, R.drawable.ic_mic, width / 2f, height / 2f, 34f, if (listening) skin.accFg else skin.modFg)
-            }
-        }
-        mic.setOnClickListener { if (needPermission) onPermission() else onMic() }
-        addView(mic, lp((84 * d).toInt(), (84 * d).toInt()).apply { topMargin = (4 * d).toInt() })
-        addView(TextView(context).apply {
-            text = if (needPermission) "需要麦克风权限：点这里去授权" else "改用系统里的语音输入法"
-            textSize = 13f
-            setTextColor(skin.candHi)
-            setPadding(0, (12 * d).toInt(), 0, 0)
-            setOnClickListener { if (needPermission) onPermission() else onSwitch() }
-        }, lp(WRAP, WRAP))
-    }
-}
-
 /** 翻译：中文译成英文，其他语言译成中文；用 ML Kit 的离线翻译模型（第一次用要下载模型） */
 object Translator {
     private var cancelActive: (() -> Unit)? = null
 
     fun cancel() { cancelActive?.invoke(); cancelActive = null }
 
-    fun run(context: Context, text: String, retryDownload: Boolean = false, cb: (ok: Boolean, result: String, status: String) -> Unit) {
+    /** 可选的目标语言：ML Kit 代码和名字；"auto" 表示中文译英文、其他译中文 */
+    val TARGETS = listOf(
+        "auto" to "自动", TranslateLanguage.ENGLISH to "英文", TranslateLanguage.CHINESE to "中文", TranslateLanguage.JAPANESE to "日文",
+        TranslateLanguage.KOREAN to "韩文", TranslateLanguage.FRENCH to "法文", TranslateLanguage.GERMAN to "德文",
+        TranslateLanguage.SPANISH to "西班牙文", TranslateLanguage.RUSSIAN to "俄文",
+    )
+
+    fun run(context: Context, text: String, retryDownload: Boolean = false, target: String = "auto", cb: (ok: Boolean, result: String, status: String) -> Unit) {
         cancel()
         var done = false
         val main = Handler(Looper.getMainLooper())
@@ -319,16 +387,19 @@ object Translator {
                 }
             }.onFailure { failed(it as? Exception ?: Exception(it)) }
         }
+        fun go(src: String) {
+            val tgt = if (target != "auto") target else if (src == TranslateLanguage.CHINESE) TranslateLanguage.ENGLISH else TranslateLanguage.CHINESE
+            if (src == tgt) finish(true, text, "原文已经是${name(tgt)}") else translate(src, tgt)
+        }
         runCatching {
-            if (text.any { it in '一'..'鿿' }) translate(TranslateLanguage.CHINESE, TranslateLanguage.ENGLISH)
+            if (text.any { it in '一'..'鿿' }) go(TranslateLanguage.CHINESE)
             else {
                 cb(false, "", "正在识别语言…")
                 val identifier = LanguageIdentification.getClient()
                 languageId = identifier
                 identifier.identifyLanguage(text).addOnSuccessListener { code ->
-                    val src = TranslateLanguage.fromLanguageTag(code) ?: TranslateLanguage.ENGLISH
-                    translate(if (src == TranslateLanguage.CHINESE) TranslateLanguage.ENGLISH else src, TranslateLanguage.CHINESE)
-                }.addOnFailureListener { translate(TranslateLanguage.ENGLISH, TranslateLanguage.CHINESE) }
+                    go(TranslateLanguage.fromLanguageTag(code) ?: TranslateLanguage.ENGLISH)
+                }.addOnFailureListener { go(TranslateLanguage.ENGLISH) }
             }
         }.onFailure { failed(it as? Exception ?: Exception(it)) }
     }
@@ -362,38 +433,5 @@ object Translator {
         }
     }.getOrNull()
 
-    private fun name(code: String) = when (code) {
-        TranslateLanguage.CHINESE -> "中文"
-        TranslateLanguage.ENGLISH -> "英文"
-        TranslateLanguage.JAPANESE -> "日文"
-        TranslateLanguage.KOREAN -> "韩文"
-        else -> code
-    }
-}
-
-/** 翻译结果面板 */
-class TranslatePanel(context: Context, skin: Skin, source: String, result: String, status: String, onCommit: () -> Unit, onCopy: () -> Unit, onAgain: () -> Unit, onRetry: () -> Unit) : LinearLayout(context) {
-    init {
-        val d = resources.displayMetrics.density
-        orientation = VERTICAL
-        setPadding((10 * d).toInt(), (6 * d).toInt(), (10 * d).toInt(), (6 * d).toInt())
-        val box = LinearLayout(context).apply { orientation = VERTICAL; background = roundBg(skin.keyBg, 12 * d); setPadding((12 * d).toInt(), (10 * d).toInt(), (12 * d).toInt(), (10 * d).toInt()) }
-        box.addView(TextView(context).apply { text = source; textSize = 13f; setTextColor(skin.barFg); maxLines = 2 })
-        box.addView(TextView(context).apply { text = result.ifEmpty { "…" }; textSize = 17f; setTextColor(skin.keyFg); setPadding(0, (6 * d).toInt(), 0, 0) })
-        addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(box) }, lp(MATCH, 0, 1f))
-        addView(TextView(context).apply { text = status; textSize = 12f; setTextColor(skin.barFg); setPadding((4 * d).toInt(), (6 * d).toInt(), 0, (6 * d).toInt()) }, lp(MATCH, WRAP))
-        val acts = LinearLayout(context).apply { orientation = HORIZONTAL }
-        fun btn(t: String, strong: Boolean, f: () -> Unit) = acts.addView(TextView(context).apply {
-            text = t; textSize = 14f; gravity = Gravity.CENTER
-            setTextColor(if (strong) skin.accFg else skin.modFg)
-            background = roundBg(if (strong) skin.accBg else skin.modBg, 16 * d)
-            setPadding(0, (8 * d).toInt(), 0, (8 * d).toInt())
-            setOnClickListener { f() }
-        }, lp(0, WRAP, 1f).apply { marginEnd = (6 * d).toInt() })
-        btn("再翻一句", false, onAgain)
-        btn("重试", false, onRetry)
-        btn("复制", false, onCopy)
-        btn("上屏", true, onCommit)
-        addView(acts, lp(MATCH, WRAP))
-    }
+    fun name(code: String) = TARGETS.firstOrNull { it.first == code }?.second ?: code
 }

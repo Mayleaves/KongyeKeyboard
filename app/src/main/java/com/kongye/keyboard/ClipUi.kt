@@ -107,7 +107,23 @@ class EmojiPanel(
                 }
                 selectEmoji(if (recent.isEmpty()) 1 else 0)
             }
-            1 -> show(EmojiData.KAOMOJI, kao = true)
+            1 -> {
+                val row = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                Kaomoji.CATS.forEachIndexed { i, (name, _) ->
+                    val tv = TextView(context).apply {
+                        text = name
+                        gravity = Gravity.CENTER
+                        textSize = 13f
+                        setTextColor(skin.candFg)
+                        setPadding(context.dp(11f).toInt(), 0, context.dp(11f).toInt(), 0)
+                        setOnClickListener { selectKao(i) }
+                    }
+                    subTabs.add(tv)
+                    row.addView(tv, lp(WRAP, context.dp(32f).toInt()))
+                }
+                subRow.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(row) }, lp(0, context.dp(36f).toInt(), 6f))
+                selectKao(0)
+            }
             else -> {
                 show(favs.ifEmpty { listOf("") }, kao = favs.any { EmojiData.isKaomoji(it) })
                 if (favs.isEmpty()) subRow.addView(TextView(context).apply {
@@ -118,7 +134,7 @@ class EmojiPanel(
                 }, lp(0, context.dp(36f).toInt(), 6f))
             }
         }
-        if (startTab != 0) subRow.addView(View(context), lp(0, 1, 6f))
+        if (startTab == 2) subRow.addView(View(context), lp(0, 1, 6f))
         subRow.addView(IconButton(context, R.drawable.ic_del, skin.modFg, 22f) { onDel() }, lp(0, context.dp(36f).toInt(), 1.2f))
         addView(subRow, lp(MATCH, WRAP))
     }
@@ -128,6 +144,11 @@ class EmojiPanel(
         grid.textSize = if (kao) 15f else 26f
         grid.cellH = if (kao) 50f else 46f
         grid.items = list
+    }
+
+    private fun selectKao(i: Int) {
+        show(Kaomoji.CATS[i].second, kao = true)
+        subTabs.forEachIndexed { j, tv -> tv.background = if (j == i) roundBg(skin.keyBg, context.dp(10f)) else null }
     }
 
     private fun selectEmoji(i: Int) {
@@ -235,41 +256,54 @@ class ClipboardPanel(
             setOnClickListener { onPaste(clip) }
             setOnLongClickListener { onExpand(if (expanded === clip) null else clip); true }
         }
+        // 内容区固定四行高：字少也占满四行，卡片整齐
+        val box = android.widget.FrameLayout(context)
         val img = ClipStore.imageFile(clip)
+        val fourLines = (4 * 14f * 1.32f * resources.displayMetrics.scaledDensity).toInt()
         if (img != null && img.exists()) {
             val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
             BitmapFactory.decodeFile(img.path, opts)?.let { bmp ->
-                card.addView(ImageView(context).apply {
+                box.addView(ImageView(context).apply {
                     setImageBitmap(bmp)
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     clipToOutline = true
                     background = roundBg(skin.modBg, 8 * d)
-                }, lp(MATCH, (86 * d).toInt()))
+                }, android.widget.FrameLayout.LayoutParams(MATCH, MATCH))
             }
         } else {
-            card.addView(TextView(context).apply {
+            box.addView(TextView(context).apply {
                 text = clip.text
-                maxLines = 4
+                setLines(4)
                 ellipsize = TextUtils.TruncateAt.END
                 textSize = 14f
                 setTextColor(skin.keyFg)
-            }, lp(MATCH, WRAP))
+            }, android.widget.FrameLayout.LayoutParams(MATCH, WRAP))
         }
         val tags = listOfNotNull(if (clip.pinned) "置顶" else null, clip.cat)
-        if (tags.isNotEmpty()) card.addView(TextView(context).apply {
+        if (tags.isNotEmpty()) box.addView(TextView(context).apply {
             text = tags.joinToString(" · ")
-            textSize = 11f
+            textSize = 10.5f
             setTextColor(skin.candHi)
-            setPadding(0, (4 * d).toInt(), 0, 0)
-        }, lp(WRAP, WRAP))
+            background = roundBg(skin.keyBg, 6 * d)
+            setPadding((5 * d).toInt(), (1 * d).toInt(), (5 * d).toInt(), (1 * d).toInt())
+        }, android.widget.FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END))
+        card.addView(box, lp(MATCH, fourLines))
         if (expanded === clip) {
-            val acts = if (clip.image != null) listOf("pin" to if (clip.pinned) "取消置顶" else "置顶", "copy" to "复制", "cat" to "分类", "delete" to "删除")
-            else listOf("pin" to if (clip.pinned) "取消置顶" else "置顶", "copy" to "复制", "edit" to "编辑", "split" to "分词", "cat" to "分类", "delete" to "删除")
-            acts.chunked(3).forEach { chunk ->
-                val r = LinearLayout(context).apply { orientation = HORIZONTAL; setPadding(0, (6 * d).toInt(), 0, 0) }
-                chunk.forEach { (id, label) -> r.addView(actButton(label, id == "delete") { onAction(clip, id) }, lp(0, WRAP, 1f).apply { marginEnd = (4 * d).toInt() }) }
-                card.addView(r, lp(MATCH, WRAP))
+            // 长按后的操作：只用图标
+            val acts = listOfNotNull(
+                Triple("pin", R.drawable.ic_pin, if (clip.pinned) skin.candHi else skin.modFg),
+                Triple("copy", R.drawable.ic_copy, skin.modFg),
+                if (clip.image == null) Triple("edit", R.drawable.ic_edit, skin.modFg) else null,
+                if (clip.image == null) Triple("split", R.drawable.ic_split, skin.modFg) else null,
+                Triple("cat", R.drawable.ic_tag, if (picking === clip) skin.candHi else skin.modFg),
+                Triple("delete", R.drawable.ic_trash, Color.parseColor("#D93025")),
+            )
+            val r = LinearLayout(context).apply { orientation = HORIZONTAL; setPadding(0, (6 * d).toInt(), 0, 0) }
+            acts.forEach { (id, icon, tint) ->
+                r.addView(IconButton(context, icon, tint, 19f) { onAction(clip, id) }.apply { background = roundBg(skin.modBg, 10 * d) },
+                    lp(0, (32 * d).toInt(), 1f).apply { marginEnd = (3 * d).toInt() })
             }
+            card.addView(r, lp(MATCH, WRAP))
             if (picking === clip) {
                 val r = LinearLayout(context).apply { orientation = HORIZONTAL; setPadding(0, (6 * d).toInt(), 0, 0) }
                 (listOf("无分类") + ClipStore.customTabs()).forEach { cat ->
@@ -314,10 +348,22 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
     var multiline = false
     var value = ""
     var composing = ""
+    /** 翻译模式：左边的语言按钮文字；null 表示普通输入条 */
+    var chip: String? = null
+    var micOn = false
+    var onChip: () -> Unit = {}
+    var onMic: () -> Unit = {}
+    var onClear: () -> Unit = {}
+
+    private val chipW get() = max(58 * d, tpChip.measureText(chip ?: "") + 26 * d)
+    private val tpChip = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 15 * d }
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val boxLeft get() = 8 * d + chipW + 8 * d + 38 * d + 8 * d
+    private val boxRight get() = width - 64 * d
 
     fun refresh() { requestLayout(); invalidate() }
 
-    private fun textWidth(w: Int) = max(1, (w - 44 * d - 92 * d).toInt())
+    private fun textWidth(w: Int) = if (chip != null) max(1, (w - 64 * d - boxLeft - 46 * d).toInt()) else max(1, (w - 44 * d - 92 * d).toInt())
 
     private fun layoutFor(w: Int): StaticLayout {
         tp.textSize = 15 * d
@@ -340,6 +386,7 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
     }
 
     override fun onDraw(c: Canvas) {
+        if (chip != null) { drawTranslate(c); return }
         r.set(8 * d, 6 * d, width - 8 * d, height - 4 * d)
         fill.color = skin.keyBg
         c.drawRoundRect(r, 12 * d, 12 * d, fill)
@@ -369,9 +416,66 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         icons.draw(c, R.drawable.ic_close, width - 32 * d, 6 * d + 19 * d, 18f, skin.barFg)
     }
 
+    private fun drawTranslate(c: Canvas) {
+        val cy = 6 * d + 19 * d
+        // 语言
+        r.set(8 * d, cy - 17 * d, 8 * d + chipW, cy + 17 * d)
+        stroke.strokeWidth = 1.2f * d
+        stroke.color = withAlpha(skin.candFg, 90)
+        c.drawRoundRect(r, 17 * d, 17 * d, stroke)
+        tpChip.color = skin.candFg
+        tpChip.textAlign = Paint.Align.CENTER
+        val fm = tpChip.fontMetrics
+        c.drawText(chip ?: "", r.centerX(), cy - (fm.ascent + fm.descent) / 2, tpChip)
+        // 麦克风
+        val mx = r.right + 8 * d + 19 * d
+        stroke.color = if (micOn) skin.candHi else withAlpha(skin.candFg, 90)
+        stroke.strokeWidth = (if (micOn) 2f else 1.2f) * d
+        c.drawCircle(mx, cy, 17 * d, stroke)
+        icons.draw(c, R.drawable.ic_mic, mx, cy, 19f, if (micOn) skin.candHi else skin.candFg)
+        // 输入框（黑色描边），右端是清空
+        r.set(boxLeft, 6 * d, boxRight, height - 4 * d)
+        fill.color = skin.keyBg
+        c.drawRoundRect(r, 19 * d, 19 * d, fill)
+        stroke.color = skin.candFg
+        stroke.strokeWidth = 1.6f * d
+        c.drawRoundRect(r, 19 * d, 19 * d, stroke)
+        val lay = layoutFor(width)
+        c.save()
+        c.clipRect(boxLeft + 12 * d, r.top, boxRight - 34 * d, r.bottom)
+        val visible = 5
+        val shift = if (lay.lineCount > visible) lay.getLineTop(lay.lineCount - visible) else 0
+        c.translate(boxLeft + 14 * d, 6 * d + 9 * d - shift)
+        lay.draw(c)
+        if (value.isNotEmpty() || composing.isNotEmpty()) {
+            val line = lay.lineCount - 1
+            val x = lay.getLineRight(line)
+            fill.color = skin.candHi
+            c.drawRect(x + d, lay.getLineTop(line).toFloat(), x + 3 * d, lay.getLineBottom(line).toFloat(), fill)
+        }
+        c.restore()
+        if (value.isNotEmpty() || composing.isNotEmpty()) {
+            fill.color = withAlpha(skin.candFg, 120)
+            c.drawCircle(boxRight - 19 * d, cy, 10 * d, fill)
+            icons.draw(c, R.drawable.ic_close, boxRight - 19 * d, cy, 13f, skin.keyBg)
+        }
+        // 完成
+        tpChip.color = skin.candFg
+        c.drawText("完成", width - 34 * d, cy - (fm.ascent + fm.descent) / 2, tpChip)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (e.actionMasked == MotionEvent.ACTION_UP) {
+            if (chip != null) {
+                when {
+                    e.x < 8 * d + chipW + 4 * d -> onChip()
+                    e.x < boxLeft -> onMic()
+                    e.x > boxRight + 4 * d -> onOk()
+                    e.x > boxRight - 40 * d -> onClear()
+                }
+                return true
+            }
             if (e.x > width - 48 * d) onCancel() else if (e.x > width - 86 * d) onOk()
         }
         return true
@@ -387,7 +491,7 @@ class TokensPanel(context: Context, private val skin: Skin, private val tokens: 
     init {
         orientation = VERTICAL
         addView(TextView(context).apply {
-            text = "点选要的词，可以连着点好几个"
+            text = "点选要的词，手指按住滑过去可以一次选好几个"
             textSize = 12.5f
             setTextColor(skin.barFg)
             setPadding((12 * d).toInt(), (6 * d).toInt(), 0, 0)
@@ -425,9 +529,8 @@ class TokensPanel(context: Context, private val skin: Skin, private val tokens: 
         private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = 16 * d }
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
         private val boxes = ArrayList<RectF>()
-        private val slop = ViewConfiguration.get(context).scaledTouchSlop
-        private var dx = 0f
-        private var dy = 0f
+        private var dragging = false
+        private var target = true
 
         private fun layout(w: Int): Int {
             boxes.clear()
@@ -461,11 +564,22 @@ class TokensPanel(context: Context, private val skin: Skin, private val tokens: 
         @SuppressLint("ClickableViewAccessibility")
         override fun onTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { dx = e.x; dy = e.y }
-                MotionEvent.ACTION_UP -> if (abs(e.x - dx) < slop && abs(e.y - dy) < slop) {
+                MotionEvent.ACTION_DOWN -> {
                     val i = boxes.indexOfFirst { it.contains(e.x, e.y) }
-                    if (i >= 0) { chosen[i] = !chosen[i]; invalidate() }
+                    dragging = i >= 0
+                    if (dragging) {
+                        // 从一个词开始按：滑过的词都设成和它一样（选上或取消），不让外面的列表滚动
+                        target = !chosen[i]
+                        chosen[i] = target
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        invalidate()
+                    }
                 }
+                MotionEvent.ACTION_MOVE -> if (dragging) {
+                    val i = boxes.indexOfFirst { it.contains(e.x, e.y) }
+                    if (i >= 0 && chosen[i] != target) { chosen[i] = target; invalidate() }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dragging = false
             }
             return true
         }

@@ -101,7 +101,7 @@ class CandidateBar(context: Context) : View(context) {
         widths = FloatArray(items.size)
         var x = 4 * d
         for ((i, it) in items.withIndex()) {
-            text.typeface = if (i == 0 && mode == Mode.CANDS) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            text.typeface = Typeface.DEFAULT
             var w = text.measureText(it.w) + 2 * pad
             if (it.py != null) w += 4 * d + small.measureText(it.py)
             starts[i] = x
@@ -162,15 +162,16 @@ class CandidateBar(context: Context) : View(context) {
             val x = starts[i]
             val w = widths[i]
             if (x + w < scrollPos || x > scrollPos + viewW) continue
-            if (i == pressed) {
-                fill.color = skin.keyDown
-                rect.set(x + 2 * d, 5 * d, x + w - 2 * d, h - 5 * d)
-                c.drawRoundRect(rect, 9 * d, 9 * d, fill)
-            }
             val it = items[i]
             val hi = mode == Mode.CANDS && i == 0
-            text.color = if (hi) skin.candHi else skin.candFg
-            text.typeface = if (hi) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            if (i == pressed || hi) {
+                // 第一个候选：主题色打底（和工具栏高亮同一种颜色），字不变色
+                fill.color = if (i == pressed) skin.keyDown else if (skin.toolHiBg != 0) skin.toolHiBg else skin.modBg
+                rect.set(x + 3 * d, 6 * d, x + w - 3 * d, h - 6 * d)
+                c.drawRoundRect(rect, 10 * d, 10 * d, fill)
+            }
+            text.color = skin.candFg
+            text.typeface = Typeface.DEFAULT
             text.textSize = 17 * d
             c.drawText(it.w, x + pad, base, text)
             val py = it.py ?: continue

@@ -60,6 +60,20 @@ fun main(args: Array<String>) {
     if (handwriting.firstOrNull() != "大" || "太" !in handwriting || "天" !in handwriting || handwriting.none { it.startsWith("大") && it.length > 1 }) fail++
     if (HandwritingCandidates.expand(emptyList(), Lexicon::assoc).isNotEmpty()) fail++
     if (HandwritingCandidates.expand(listOf("你好", "你", "好"), Lexicon::assoc).take(3) != listOf("你好", "你", "好")) fail++
+    // 模糊音：打开 z=zh、n=l 后 zongguo → 中国、lihao → 你好，候选吃掉的键数按原输入算
+    Lexicon.fuzzyRules = setOf("z-zh", "n-l")
+    val fz1 = Lexicon.candidates("zongguo")
+    println("模糊 zongguo → " + fz1.take(5).joinToString(" ") { it.w } + "  [" + Lexicon.display("zongguo", fz1.firstOrNull()) + "]")
+    if (fz1.take(3).none { it.w == "中国" } || fz1.first { it.w == "中国" }.n != 7) fail++
+    val fz2 = Lexicon.candidates("lihao")
+    println("模糊 lihao → " + fz2.take(5).joinToString(" ") { it.w })
+    if (fz2.take(3).none { it.w == "你好" } || fz2.first { it.w == "你好" }.n != 5) fail++
+    val fz3 = Lexicon.candidates("nihao")
+    if (fz3.firstOrNull()?.w != "你好") fail++
+    println("模糊 nihao → " + fz3.take(5).joinToString(" ") { it.w })
+    Lexicon.fuzzyRules = emptySet()
+    // 关掉模糊音后 lihao 不应再出你好
+    if (Lexicon.candidates("lihao").take(5).any { it.w == "你好" }) fail++
     println(if (fail == 0) "ALL OK" else "$fail FAILED")
     check(fail == 0) { "$fail checks failed" }
 }

@@ -23,6 +23,8 @@ class Cand(
     val abbr: Boolean = false, val py: String? = null, val mask: BooleanArray? = null,
     /** 由几个词拼成的整句，选中后记成新词 */
     val sentence: Boolean = false,
+    /** 按模糊音换了读音才对上的（拼音显示不按它的读音来） */
+    val fuzzy: Boolean = false,
 ) {
     val fix get() = mask != null
 }
@@ -172,7 +174,95 @@ object Lexicon {
 
     fun candidates(raw: String, abbr: Boolean = true): List<Cand> = candidates(raw.map { it.toString() }, abbr)
 
+    /** 打开的模糊音规则（Prefs.FUZZY_RULES 的 id） */
+    @Volatile
+    var fuzzyRules: Set<String> = emptySet()
+
+    private val INITIAL_PAIRS = mapOf(
+        "z-zh" to ("z" to "zh"), "c-ch" to ("c" to "ch"), "s-sh" to ("s" to "sh"),
+        "n-l" to ("n" to "l"), "f-h" to ("f" to "h"), "r-l" to ("r" to "l"),
+    )
+    private val FINAL_PAIRS = mapOf(
+        "an-ang" to ("an" to "ang"), "en-eng" to ("en" to "eng"), "in-ing" to ("in" to "ing"),
+        "ian-iang" to ("ian" to "iang"), "uan-uang" to ("uan" to "uang"),
+    )
+
+    private fun initialOf(x: String): String = when {
+        x.length >= 2 && x[1] == 'h' && x[0] in "zcs" -> x.substring(0, 2)
+        x.isNotEmpty() && x[0] !in "aeiouv" -> x.substring(0, 1)
+        else -> ""
+    }
+
+    /** 一个音节按打开的模糊音规则能换成的读音（含自己）；最后一个音节可以是半截 */
+    fun syllableVariants(x: String, partial: Boolean, rules: Set<String> = fuzzyRules): List<String> {
+        val ini = initialOf(x)
+        val fin = x.substring(ini.length)
+        val inis = linkedSetOf(ini)
+        val fins = linkedSetOf(fin)
+        for ((id, ab) in INITIAL_PAIRS) if (id in rules) {
+            if (ini == ab.first) inis.add(ab.second) else if (ini == ab.second) inis.add(ab.first)
+        }
+        for ((id, ab) in FINAL_PAIRS) if (id in rules) {
+            if (fin == ab.first) fins.add(ab.second) else if (fin == ab.second) fins.add(ab.first)
+        }
+        val out = ArrayList<String>()
+        for (i in inis) for (f in fins) {
+            val v = i + f
+            if (v == x || v in sylSet || (partial && syllables.any { it.startsWith(v) })) out.add(v)
+        }
+        return out
+    }
+
     fun candidates(keys: List<String>, abbr: Boolean = true, fuzzy: Boolean = true): List<Cand> {
+        val base = core(keys, abbr, fuzzy)
+        val rules = fuzzyRules
+        if (rules.isEmpty() || !ready) return base
+        val (sets, marks) = split(keys)
+        if (marks.isNotEmpty() || sets.isEmpty() || sets.any { it.length != 1 }) return base
+        return withFuzzy(sets, base, abbr, rules)
+    }
+
+    /** 模糊音：把输入切成音节，每个音节换成能对应的读音，拼出几种别的输入再查，结果按原输入的长度折算 */
+    private fun withFuzzy(sets: List<String>, base: List<Cand>, abbr: Boolean, rules: Set<String>): List<Cand> {
+        val n = sets.size
+        val syl = decode(sets)
+        if (syl.joinToString("").length != n) return base
+        val alts = syl.mapIndexed { i, x -> syllableVariants(x, i == syl.lastIndex, rules) }
+        if (alts.all { it.size <= 1 }) return base
+        val origBounds = IntArray(syl.size + 1).also { b -> syl.forEachIndexed { i, x -> b[i + 1] = b[i] + x.length } }
+        val combos = ArrayList<List<String>>()
+        fun build(i: Int, acc: List<String>) {
+            if (combos.size >= 24) return
+            if (i == alts.size) { if (acc != syl) combos.add(acc); return }
+            for (v in alts[i]) build(i + 1, acc + v)
+        }
+        build(0, emptyList())
+        val fz = ArrayList<Cand>()
+        for (combo in combos) {
+            val varBounds = IntArray(combo.size + 1).also { b -> combo.forEachIndexed { i, x -> b[i + 1] = b[i] + x.length } }
+            val v = combo.joinToString("")
+            for (c in core(v.map { it.toString() }, abbr, fuzzy = false).take(40)) {
+                val e = c.e ?: continue
+                if (c.sentence || c.abbr || c.fix) continue
+                val j = varBounds.indexOf(c.n)
+                if (j <= 0) continue
+                fz.add(Cand(c.w, origBounds[j], e, c.score - 5f, fuzzy = true))
+            }
+        }
+        if (fz.isEmpty()) return base
+        fz.sortByDescending { it.score }
+        // 整个输入都对上的词（原读音和模糊读音）放一起按分数排最前；拼出来的整句只在没有模糊整词时保留
+        val baseFull = base.filter { it.n == n && !it.abbr && !it.fix && !it.sentence && it.e != null && it.e.p.length == n }
+        val fzFull = fz.filter { it.n == n }
+        val full = (baseFull + fzFull).sortedByDescending { it.score }
+        val sentences = if (fzFull.isEmpty()) base.filter { it.sentence } else emptyList()
+        val rest = base.filterNot { it in baseFull || it.sentence }
+        val merged = sentences + full.take(8) + rest.take(4) + fz.filter { it.n != n }.take(12) + rest.drop(4) + full.drop(8)
+        val seen = HashSet<String>()
+        return merged.filter { seen.add(it.w) }
+    }
+
+    private fun core(keys: List<String>, abbr: Boolean, fuzzy: Boolean): List<Cand> {
         val (sets, marks) = split(keys)
         val n = sets.size
         if (n == 0) return emptyList()
@@ -352,7 +442,7 @@ object Lexicon {
         if (top?.e != null && top.abbr) {
             sets.forEach { out.add(it.take(1)) }
             pos = sets.size
-        } else if (top?.e != null && !top.fix) {
+        } else if (top?.e != null && !top.fix && !top.fuzzy) {
             var acc = 0
             for (x in top.e.syl) {
                 if (acc >= top.n) break

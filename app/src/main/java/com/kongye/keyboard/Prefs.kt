@@ -34,6 +34,50 @@ object Prefs {
     const val CLIP_CATS = "clip_cats"
     const val COUNT_DATE = "count_date"
     const val COUNT_TODAY = "count_today"
+    /** 数字键盘：左列符号（空格隔开）和右边三个可自定义的键（默认 @ . 空格） */
+    const val NUM_SIDE_KEY = "num_side"
+    const val NUM_KEYS = "num_keys"
+    const val RECENT_SYM = "recent_sym"
+    /** 键盘透明度 0.3–1 */
+    const val OPACITY = "opacity"
+    /** 液态玻璃外观 */
+    const val GLASS = "glass"
+    /** 键盘左右收进、底部留白（dp） */
+    const val PAD_L = "pad_l"
+    const val PAD_R = "pad_r"
+    const val PAD_B = "pad_b"
+    /** 模糊音：打开的规则 id，逗号隔开 */
+    const val FUZZY = "fuzzy"
+    /** 翻译目标语言："auto" 或 ML Kit 语言代码 */
+    const val TRANS_TO = "trans_to"
+    /** 语音：0 普通话，1 四川话 */
+    const val VOICE_LANG = "voice_lang"
+    const val UPDATE_CHECKED = "update_checked"
+    /** 空格长按：0 光标模式，1 连续输入空格，2 开关语音 */
+    const val SPACE_LONG = "space_long"
+
+    val DEFAULT_NUM_SIDE = listOf("·", "/", "+", "-", "=", "%", "*", "#", ",", ":", "(", ")", "~", "_")
+    val DEFAULT_NUM_KEYS = listOf("@", ".", " ")
+
+    fun numSide(ctx: Context): List<String> =
+        of(ctx).getString(NUM_SIDE_KEY, null)?.split(' ')?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() } ?: DEFAULT_NUM_SIDE
+
+    /** 三个自定义键；保存时用 \u0001 隔开，空格键本身就是一个空格 */
+    fun numKeys(ctx: Context): List<String> {
+        val saved = of(ctx).getString(NUM_KEYS, null)?.split('\u0001')
+        return List(3) { i -> saved?.getOrNull(i)?.takeIf { it.isNotEmpty() } ?: DEFAULT_NUM_KEYS[i] }
+    }
+
+    fun opacity(ctx: Context) = of(ctx).getFloat(OPACITY, 1f).coerceIn(0.3f, 1f)
+
+    /** 模糊音规则：id 到说明 */
+    val FUZZY_RULES = listOf(
+        "z-zh" to "z = zh", "c-ch" to "c = ch", "s-sh" to "s = sh", "n-l" to "n = l", "f-h" to "f = h", "r-l" to "r = l",
+        "an-ang" to "an = ang", "en-eng" to "en = eng", "in-ing" to "in = ing", "ian-iang" to "ian = iang", "uan-uang" to "uan = uang",
+    )
+
+    fun fuzzy(ctx: Context): Set<String> =
+        of(ctx).getString(FUZZY, "")!!.split(',').filter { id -> FUZZY_RULES.any { it.first == id } }.toSet()
 
     /** 工具栏和菜单里可以放的功能 */
     val FEATURES = listOf(
@@ -71,7 +115,7 @@ object Prefs {
         else -> systemNight(ctx)
     }
 
-    fun skin(ctx: Context): Skin = theme(ctx).pick(night(ctx))
+    fun skin(ctx: Context): Skin = theme(ctx).pick(night(ctx)).styled(opacity(ctx), of(ctx).getBoolean(GLASS, false))
 
     fun tools(ctx: Context): List<String> {
         val raw = of(ctx).getString(TOOLS, null) ?: return DEFAULT_TOOLS
