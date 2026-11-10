@@ -13,7 +13,7 @@ object EditorDeletion {
     private val main = Handler(Looper.getMainLooper())
     private var pending: Runnable? = null
     fun cancel() { pending?.let(main::removeCallbacks); pending = null }
-    private fun remote(packageName: String?) = packageName == "com.netease.uuremote"
+    fun remote(packageName: String?) = packageName == "com.netease.uuremote"
 
     private fun key(c: InputConnection, code: Int, action: Int, meta: Int = 0): Boolean {
         val now = SystemClock.uptimeMillis()
@@ -24,6 +24,20 @@ object EditorDeletion {
     private fun tap(c: InputConnection, code: Int, meta: Int = 0) {
         key(c, code, KeyEvent.ACTION_DOWN, meta)
         key(c, code, KeyEvent.ACTION_UP, meta)
+    }
+    /** Update the caller's known tail as each event is sent, including cancellation. */
+    fun erase(c:InputConnection,count:Int,deleted:()->Unit,done:()->Unit) {
+        cancel()
+        var remaining=count
+        if(remaining<=0) {done();return}
+        val task=object:Runnable {
+            override fun run() {
+                if(pending!==this) return
+                repeat(minOf(16,remaining)) {tap(c,KeyEvent.KEYCODE_DEL);remaining--;deleted()}
+                if(remaining>0) main.postDelayed(this,16) else {pending=null;done()}
+            }
+        }
+        pending=task;task.run()
     }
 
     fun delete(c: InputConnection, packageName: String?) {

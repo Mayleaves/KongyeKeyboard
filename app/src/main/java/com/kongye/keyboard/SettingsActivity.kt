@@ -112,16 +112,24 @@ class SettingsActivity : ComponentActivity() {
     private var confirmAt = 0L
     private var confirmWhat = ""
     private val micRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick.intValue++ }
+    private val notificationRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick.intValue++ }
+    private var checkingUpdate=false
+    private val downloadState=mutableStateOf("")
+    private val downloadedApk=mutableStateOf<java.io.File?>(null)
+    private val downloading=mutableStateOf(false)
+    @Volatile private var updateDownloadCancelled=false
     /** 检查更新的状态：显示在“检查更新”那一行 */
     private val updateState = mutableStateOf("")
     private val release = mutableStateOf<UpdateChecker.Release?>(null)
 
     private fun checkUpdate(silent: Boolean) {
-        if (updateState.value == "检查中…") return
+        if (checkingUpdate) {if(!silent) updateState.value="检查中…";return}
+        checkingUpdate=true
         if (!silent) updateState.value = "检查中…"
         Thread {
             val r = runCatching { UpdateChecker.fetch() }
             runOnUiThread {
+                checkingUpdate=false
                 Prefs.of(this).edit().putLong(Prefs.UPDATE_CHECKED, System.currentTimeMillis()).apply()
                 r.onSuccess { rel ->
                     val newer = UpdateChecker.newer(rel.version, UpdateChecker.currentVersion(this))
@@ -130,6 +138,34 @@ class SettingsActivity : ComponentActivity() {
                 }.onFailure { e -> if (!silent) updateState.value = "检查失败：${e.message ?: "网络不通"}" }
             }
         }.start()
+    }
+
+    private fun downloadUpdate(rel:UpdateChecker.Release) {
+        if(downloading.value) return
+        downloading.value=true;downloadState.value="正在连接…";downloadedApk.value=null;updateDownloadCancelled=false
+        Thread {
+            val result=runCatching {AppUpdate.download(applicationContext,rel,{updateDownloadCancelled}) {bytes,total ->
+                runOnUiThread {downloadState.value=if(total>0) "下载中 ${bytes*100/total}%" else "已下载 ${bytes/1024/1024} MB"}
+            }}
+            runOnUiThread {
+                downloading.value=false
+                result.onSuccess {downloadedApk.value=it;downloadState.value="下载完成，已校验安装包"}
+                    .onFailure {downloadState.value=when {
+                        updateDownloadCancelled -> "下载已取消"
+                        it is java.net.SocketTimeoutException -> "下载超时，检查网络后重试"
+                        it is java.net.UnknownHostException -> "无法连接下载服务器，请检查网络"
+                        else -> it.message ?: "下载失败，请重试"
+                    }}
+            }
+        }.start()
+    }
+    private fun installUpdate() {
+        val file=downloadedApk.value ?: return
+        if(android.os.Build.VERSION.SDK_INT>=26 && !packageManager.canRequestPackageInstalls()) {
+            downloadState.value="请允许此应用安装更新，返回后点安装"
+            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:$packageName")));return
+        }
+        runCatching {startActivity(AppUpdate.installer(this,file))}.onFailure {downloadState.value="无法打开系统安装器，请重试"}
     }
 
     private fun openUrl(url: String) {
@@ -146,6 +182,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        updateDownloadCancelled=true
         Prefs.of(this).unregisterOnSharedPreferenceChangeListener(prefListener)
         super.onDestroy()
     }
@@ -158,6 +195,15 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun micGranted() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    private fun notificationsGranted()=getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled()
+    private fun requestNotifications() {
+        val prefs=Prefs.of(this)
+        if(android.os.Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED &&
+            (!prefs.getBoolean("notification_requested",false) || shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))) {
+            prefs.edit().putBoolean("notification_requested",true).apply()
+            notificationRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,packageName))
+    }
     private fun isEnabled() = getSystemService(InputMethodManager::class.java)?.enabledInputMethodList?.any { it.packageName == packageName } == true
     private fun isCurrent() = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)?.startsWith("$packageName/") == true
 
@@ -429,10 +475,22 @@ class SettingsActivity : ComponentActivity() {
             }
         }
 
-        // 只有没设置好的才提示，点一下去设置
+        // 前置步骤始终保留，显示完成状态，方便首次启用或重新选择。
+        val notifications=remember(tick) {notificationsGranted()}
+        Card(pal) {
+            BasicText("使用前准备",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=8.dp))
+            ActionRow(pal,"1. 启用输入法",if(enabled) "已启用空叶键盘" else "先在系统设置中启用空叶键盘",if(enabled) "已启用" else "去启用") {
+                startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            }
+            Line(pal)
+            ActionRow(pal,"2. 选择输入法",if(current) "当前使用空叶键盘" else "选择空叶键盘作为当前输入法",if(current) "已选择" else "去选择") {
+                if(enabled) getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
+                else startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            }
+            Line(pal)
+            ActionRow(pal,"3. 通知",if(notifications) "通知权限已开启" else "允许通知后完成此步骤",if(notifications) "已开启" else "去授权") {requestNotifications()}
+        }
         val todo = listOfNotNull(
-            if (!enabled) "启用空叶键盘" to { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) } else null,
-            if (enabled && !current) "设为当前输入法" to { getSystemService(InputMethodManager::class.java)?.showInputMethodPicker(); Unit } else null,
             if (!mic) "授权麦克风（语音输入用）" to { micRequest.launch(Manifest.permission.RECORD_AUDIO) } else null,
         )
         if (todo.isNotEmpty()) Card(pal) {
@@ -488,8 +546,10 @@ class SettingsActivity : ComponentActivity() {
             Item("其他", R.drawable.ic_clip, cTool, "剪贴板", "剪贴板 分类 置顶", null, null) { go(Page.CLIP) },
             Item("其他", R.drawable.ic_settings, cAbout, "使用技巧", "帮助 技巧 手写 翻译", null, null) { go(Page.TIPS) },
             Item("其他", R.drawable.ic_download, cAbout, "检查更新", "更新 版本", upd.ifEmpty { null }, if (upd.startsWith("有新版本")) pal.accent else null) {
+                go(Page.UPDATE)
                 checkUpdate(silent = false)
             },
+            Item("其他", R.drawable.ic_globe, cAbout, "GitHub", "开源 源码 仓库", null, null) {openUrl(UpdateChecker.REPOSITORY)},
         )
         val shown = items.filter { query.isBlank() || it.title.contains(query) || it.sub.contains(query) || it.section.contains(query) }
         for ((section, rows) in shown.groupBy { it.section }) {
@@ -498,12 +558,6 @@ class SettingsActivity : ComponentActivity() {
                 rows.forEachIndexed { i, it ->
                     if (i > 0) Line(pal, start = 58.dp)
                     NavRow(pal, it)
-                    if (it.title == "检查更新") release.value?.let { rel ->
-                        BasicText(rel.notes.trim().take(1500), style = TextStyle(color = pal.text2, fontSize = 13.sp, lineHeight = 19.sp), modifier = Modifier.padding(start = 58.dp, bottom = 8.dp))
-                        Row(Modifier.padding(start = 58.dp, bottom = 12.dp)) {
-                            Pill(pal, "下载 ${rel.tag}", false) { openUrl(rel.apkUrl ?: rel.pageUrl) }
-                        }
-                    }
                 }
             }
         }
@@ -1016,10 +1070,12 @@ class SettingsActivity : ComponentActivity() {
                 BasicText(rel.notes.trim().take(1500), style = TextStyle(color = pal.text2, fontSize = 13.sp, lineHeight = 19.sp), modifier = Modifier.padding(top = 4.dp))
             }
             Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (rel != null) Pill(pal, "下载 ${rel.tag}", true) { openUrl(rel.apkUrl ?: rel.pageUrl) }
+                if (rel != null && rel.apkUrl!=null && !downloading.value && downloadedApk.value==null) Pill(pal, "下载 ${rel.tag}", true) {downloadUpdate(rel)}
+                if(downloadedApk.value!=null) Pill(pal,"安装更新",true) {installUpdate()}
+                if(downloading.value) Pill(pal,"取消下载",false) {updateDownloadCancelled=true}
                 Pill(pal, "重新检查", rel == null) { checkUpdate(silent = false) }
-                Pill(pal, "打开发布页", false) { openUrl(UpdateChecker.RELEASES) }
             }
+            if(downloadState.value.isNotBlank()) BasicText(downloadState.value,style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(bottom=8.dp))
             BasicText("覆盖安装，设置和词库保留", style = TextStyle(color = pal.text2, fontSize = 12.5.sp), modifier = Modifier.padding(bottom = 8.dp))
         }
     }

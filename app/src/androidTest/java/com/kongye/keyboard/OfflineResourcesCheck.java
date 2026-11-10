@@ -50,6 +50,21 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("landscape-editor".equals(mode)) {
+                LandscapeEditorRegression.run(this);report("ALL COMPACT LANDSCAPE EDITOR CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("motion".equals(mode)) {
+                MotionRegression.run(this);report("ALL OPAQUE KEYBOARD TRANSITION CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("app-update-download".equals(mode)) {
+                UpdateRegression.download(this);report("ALL LIVE IN-APP APK DOWNLOAD CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("remote-history".equals(mode)) {
+                RemoteHistoryRegression.run(this);report("ALL UU INPUT HISTORY CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("app-update".equals(mode)) {
+                UpdateRegression.run(this);report("ALL IN-APP UPDATE VALIDATION CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
             if ("sink-editor".equals(mode)) {
                 SinkEditorRegression.run(this);report("ALL LOCAL CLIPBOARD EDITOR CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
             }

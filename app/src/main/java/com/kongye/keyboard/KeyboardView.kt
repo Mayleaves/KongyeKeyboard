@@ -3,6 +3,8 @@ package com.kongye.keyboard
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Bitmap
+import android.animation.ValueAnimator
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
@@ -49,6 +51,30 @@ class Icons(private val ctx: Context) {
 }
 
 class KeyboardView(context: Context) : View(context) {
+    private var oldNormalKeys: Bitmap? = null
+    private var languageAnimator: ValueAnimator? = null
+    private var languageProgress = 1f
+    private val transitionPaint = Paint()
+
+    /** Keep the board, toolbar and modifier keys opaque during language changes. */
+    fun transitionNormalKeys(change: () -> Unit) {
+        languageAnimator?.cancel();oldNormalKeys?.recycle();oldNormalKeys=null
+        if(!ValueAnimator.areAnimatorsEnabled() || width<=0 || height<=0 || visibility!=VISIBLE) {change();return}
+        val before=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888)
+        val canvas=Canvas(before)
+        rows.forEach {row -> row.keys.filter {it.look==Look.NORMAL}.forEach {drawKey(canvas,it,null)}}
+        change()
+        oldNormalKeys=before;languageProgress=0f
+        languageAnimator=ValueAnimator.ofFloat(0f,1f).apply {
+            duration=180
+            addUpdateListener {
+                languageProgress=it.animatedValue as Float
+                if(languageProgress>=1f) {oldNormalKeys?.recycle();oldNormalKeys=null}
+                invalidate()
+            }
+            start()
+        }
+    }
 
     interface Listener {
         fun onKey(key: Key)
@@ -228,7 +254,15 @@ class KeyboardView(context: Context) : View(context) {
         }
         val pressMap = HashMap<Key, Press>()
         for (p in presses.values) pressMap[p.key] = p
-        for (row in rows) for (k in row.keys) drawKey(c, k, pressMap[k])
+        val previous=oldNormalKeys
+        if(previous==null) {
+            for (row in rows) for (k in row.keys) drawKey(c, k, pressMap[k])
+        } else {
+            for(row in rows) for(k in row.keys) if(k.look==Look.NORMAL) drawKey(c,k,pressMap[k])
+            transitionPaint.alpha=(255*(1-languageProgress)).toInt()
+            c.drawBitmap(previous,0f,0f,transitionPaint)
+            for(row in rows) for(k in row.keys) if(k.look==Look.MOD) drawKey(c,k,pressMap[k])
+        }
         side?.let { drawSide(c, it) }
         for (p in presses.values) p.popup?.let { drawPopup(c, p, it) }
     }
@@ -316,7 +350,6 @@ class KeyboardView(context: Context) : View(context) {
                 val size = if (k.label.length > 2) 14f else if (r.width() > 60 * d) 24f else 20f
                 drawText(c, k.label, cx, cy, size, withAlpha(fg, (255 * (1 - prog)).toInt()))
                 drawHints(c, k, r, prog, dir, size)
-                if (k.longEmoji && k.hint == null) icons.draw(c, R.drawable.ic_emoji, r.right - 9 * d, r.top + 9 * d, 11f, s.hintFg)
             }
             Kind.SHIFT -> if (splitMode) icons.draw(c, R.drawable.ic_split, cx, cy, 22f, fg) else icons.draw(
                 c, when (shiftState) { 1 -> R.drawable.ic_shift_on; 2 -> R.drawable.ic_shift_lock; else -> R.drawable.ic_shift },
@@ -784,6 +817,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        languageAnimator?.cancel();oldNormalKeys?.recycle();oldNormalKeys=null
         super.onDetachedFromWindow()
         cancelAll()
     }

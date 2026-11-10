@@ -49,6 +49,12 @@ object SinkEditorRegression {
                 strip.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
                 strip.layout(0, 0, strip.measuredWidth, strip.measuredHeight)
                 check(strip.editor.width > 0 && strip.editor.height > 0 && !strip.editor.showSoftInputOnFocus)
+                strip.value="甲"
+                strip.insertAtCursor("乙")
+                strip.editAction("undo")
+                check(strip.value=="甲") {"Local undo did not restore the previous text"}
+                strip.editAction("redo")
+                check(strip.value=="甲乙") {"Local redo did not restore the edited text"}
                 strip.localEditing = false
                 check(strip.editor.visibility == View.GONE)
             } catch (t: Throwable) { failure = t }

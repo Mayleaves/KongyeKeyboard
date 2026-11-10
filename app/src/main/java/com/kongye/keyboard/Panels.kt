@@ -526,6 +526,7 @@ class TileGridView(context: Context, private val skin: Skin, private val items: 
  * 编辑面板（照截图 5）：中间圆形方向盘，四角段首/段尾/复制/粘贴，左列撤销/重做/剪切，右列删除/全选/换行。
  */
 class EditPanelView(context: Context, private val skin: Skin, var selecting: Boolean, private val onAction: (String) -> Unit) : View(context) {
+    private var compact=false
     private val d = resources.displayMetrics.density
     private val icons = Icons(context)
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -547,6 +548,25 @@ class EditPanelView(context: Context, private val skin: Skin, var selecting: Boo
     private var radius = 0f
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        compact=w>h*1.8f && resources.configuration.orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        if(compact) {
+            val gap=8*d
+            val contentW=min(w-24*d,720*d)
+            val left=(w-contentW)/2
+            val padW=min(144*d,h-16*d)
+            val groupW=(contentW-padW-2*16*d)/2
+            val cellW=(groupW-gap)/2
+            val rowH=(h-16*d-2*gap)/3
+            cx=w/2f;cy=h/2f;radius=min(64*d,(h-16*d)/2)
+            fun place(index:Int,right:Boolean,col:Int,row:Int,span:Int=1) {
+                val x=if(right) cx+padW/2+16*d else left
+                val y=8*d+row*(rowH+gap)
+                tiles[index].rect.set(x+col*(cellW+gap),y,x+col*(cellW+gap)+if(span==2) groupW else cellW,y+rowH)
+            }
+            place(0,false,0,0);place(1,false,1,0);place(3,false,0,1);place(2,false,1,1);place(5,false,0,2,2)
+            place(4,true,0,0);place(8,true,1,0);place(7,true,0,1);place(6,true,1,1);place(9,true,0,2,2)
+            return
+        }
         val pad = 8 * d
         val gap = 8 * d
         val colW = (w - 2 * pad) * 0.18f
@@ -571,6 +591,12 @@ class EditPanelView(context: Context, private val skin: Skin, var selecting: Boo
         for (t in tiles) {
             fill.color = if (pressed == t.id) skin.keyDown else if (t.mod) skin.modBg else skin.keyBg
             c.drawRoundRect(t.rect, rad, rad, fill)
+            if(compact) {
+                val x=t.rect.centerX();val y=t.rect.centerY()
+                icons.draw(c,t.icon,x-20*d,y,19f,if(t.mod) skin.modFg else skin.keyFg)
+                label(c,t.label,x+13*d,y+4*d)
+                continue
+            }
             // 四角的图标和字放在远离圆盘的外角
             val tx = when (t.id) { "home", "copy" -> t.rect.left + t.rect.width() * 0.25f; "end", "paste" -> t.rect.right - t.rect.width() * 0.25f; else -> t.rect.centerX() }
             val ty = when (t.id) {
@@ -594,16 +620,17 @@ class EditPanelView(context: Context, private val skin: Skin, var selecting: Boo
             }
         }
         val a = radius * 0.68f
-        icons.draw(c, R.drawable.ic_chevron_up, cx, cy - a, 26f, skin.keyFg)
-        icons.draw(c, R.drawable.ic_chevron_down, cx, cy + a, 26f, skin.keyFg)
-        icons.draw(c, R.drawable.ic_chevron_left, cx - a, cy, 26f, skin.keyFg)
-        icons.draw(c, R.drawable.ic_chevron_right, cx + a, cy, 26f, skin.keyFg)
+        val arrowSize=if(compact) 22f else 26f
+        icons.draw(c, R.drawable.ic_chevron_up, cx, cy - a, arrowSize, skin.keyFg)
+        icons.draw(c, R.drawable.ic_chevron_down, cx, cy + a, arrowSize, skin.keyFg)
+        icons.draw(c, R.drawable.ic_chevron_left, cx - a, cy, arrowSize, skin.keyFg)
+        icons.draw(c, R.drawable.ic_chevron_right, cx + a, cy, arrowSize, skin.keyFg)
         // 中间的“选择”
         val sr = RectF(cx - radius * 0.3f, cy - radius * 0.26f, cx + radius * 0.3f, cy + radius * 0.3f)
         fill.color = if (selecting) skin.accBg else if (pressed == "select") skin.keyDown else skin.keyBg
         c.drawRoundRect(sr, 12 * d, 12 * d, fill)
         val fg = if (selecting) skin.accFg else skin.keyFg
-        text.textSize = 22 * d
+        text.textSize = (if(compact) 18 else 22) * d
         text.typeface = Typeface.DEFAULT_BOLD
         text.color = fg
         c.drawText("Tт", cx, cy + 2 * d, text)

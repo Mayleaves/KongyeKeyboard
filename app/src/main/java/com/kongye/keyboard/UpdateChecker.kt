@@ -8,10 +8,11 @@ import java.net.URL
 /** 检查更新：读 GitHub 上最新的 Release，比较版本号 */
 object UpdateChecker {
     const val REPO = "Mayleaves/KongyeKeyboard"
+    const val REPOSITORY = "https://github.com/$REPO"
     const val RELEASES = "https://github.com/$REPO/releases"
     private const val API = "https://api.github.com/repos/$REPO/releases/latest"
 
-    class Release(val tag: String, val notes: String, val apkUrl: String?, val pageUrl: String) {
+    class Release(val tag: String, val notes: String, val apkUrl: String?, val pageUrl: String, val sha256: String? = null, val assetApiUrl:String?=null) {
         val version get() = tag.trimStart('v', 'V')
     }
 
@@ -32,11 +33,18 @@ object UpdateChecker {
             val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
             val assets = json.optJSONArray("assets")
             var apk: String? = null
+            var digest: String? = null
+            var assetApi: String? = null
             if (assets != null) for (i in 0 until assets.length()) {
                 val url = assets.getJSONObject(i).optString("browser_download_url")
-                if (url.endsWith(".apk", ignoreCase = true)) { apk = url; break }
+                if (url.endsWith(".apk", ignoreCase = true)) {
+                    apk = url
+                    digest=assets.getJSONObject(i).optString("digest").removePrefix("sha256:").takeIf {it.matches(Regex("[0-9a-fA-F]{64}"))}
+                    assetApi=assets.getJSONObject(i).optString("url").takeIf {it.isNotBlank()}
+                    break
+                }
             }
-            return Release(json.optString("tag_name"), json.optString("body"), apk, json.optString("html_url").ifEmpty { RELEASES })
+            return Release(json.optString("tag_name"), json.optString("body"), apk, json.optString("html_url").ifEmpty { RELEASES },digest,assetApi)
         } finally {
             conn.disconnect()
         }

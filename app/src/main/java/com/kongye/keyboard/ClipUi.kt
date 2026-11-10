@@ -439,6 +439,8 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
     var skin: Skin = Skins.KONGYE
     var icon = R.drawable.ic_search
     var hint = "搜索剪贴板"
+    var caption=""
+    private val captionHeight get()=if(localEditing && caption.isNotEmpty()) 18*d else 0f
     var multiline = false
         set(value) { if(field!=value) { field=value;requestLayout() } }
     private var changingEditor = false
@@ -631,18 +633,19 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         val lay = if(multiline) layoutFor(w) else null
-        val lines = if (lay != null) min(5, max(2, lay.lineCount)) else 1
+        val wide=resources.configuration.orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val lines = if (lay != null) min(if(wide) 2 else 5, max(if(wide) 1 else 2, lay.lineCount)) else 1
         val lh = 21 * d
-        val h = (lines * lh + 26 * d).toInt()
+        val h = (lines * lh + 26 * d+captionHeight).toInt()
         val viewportH = h - 22 * d
         maxScrollY = max(0f, (lay?.height ?: 0) - viewportH)
         scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScrollY)
         setMeasuredDimension(w, h)
-        if(localEditing) editor.measure(MeasureSpec.makeMeasureSpec(textWidth(w),MeasureSpec.EXACTLY),MeasureSpec.makeMeasureSpec((h-26*d).toInt(),MeasureSpec.EXACTLY))
+        if(localEditing) editor.measure(MeasureSpec.makeMeasureSpec(textWidth(w),MeasureSpec.EXACTLY),MeasureSpec.makeMeasureSpec((h-26*d-captionHeight).toInt(),MeasureSpec.EXACTLY))
     }
 
     override fun onLayout(changed:Boolean,left:Int,top:Int,right:Int,bottom:Int) {
-        if(localEditing) editor.layout((44*d).toInt(),(14*d).toInt(),(width-92*d).toInt(),(height-12*d).toInt())
+        if(localEditing) editor.layout((44*d).toInt(),(14*d+captionHeight).toInt(),(width-92*d).toInt(),(height-12*d).toInt())
     }
 
     override fun onDraw(c: Canvas) {
@@ -654,9 +657,13 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         stroke.color = withAlpha(skin.candFg, if (skin.dark) 30 else 18)
         c.drawRoundRect(r, 14 * d, 14 * d, stroke)
 
-        val iconCy = r.centerY()
+        val iconCy = if(localEditing && caption.isNotEmpty()) (r.top+captionHeight+r.bottom)/2 else r.centerY()
         icons.draw(c, icon, 26 * d, iconCy, 19f, skin.barFg)
         if(localEditing) {
+            if(caption.isNotEmpty()) {
+                tp.textSize=11*d;tp.color=skin.barFg
+                c.drawText(caption,44*d,22*d,tp)
+            }
             icons.draw(c,R.drawable.ic_done,width-66*d,iconCy,21f,skin.candHi)
             icons.draw(c,R.drawable.ic_close,width-32*d,iconCy,18f,skin.barFg)
             return

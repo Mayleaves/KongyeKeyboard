@@ -77,7 +77,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         appName = { pkg -> runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg,0)).toString() }.getOrDefault(pkg) }
     ) }
     private val vaultLock = object:android.content.BroadcastReceiver() {
-        override fun onReceive(context:android.content.Context?,intent:Intent?) { vault.reset() }
+        override fun onReceive(context:android.content.Context?,intent:Intent?) {
+            vault.reset()
+            if(sink==Sink.REMOTE_EDIT) {endSink();closePanel()}
+            remoteHistory.reset();EditorDeletion.cancel()
+        }
     }
     private fun browser(pkg:String):Boolean = pkg in setOf("com.android.chrome","com.microsoft.emmx","org.mozilla.firefox","com.heytap.browser","com.android.browser","com.mi.globalbrowser","com.sec.android.app.sbrowser") ||
         packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER),0).any { it.activityInfo.packageName==pkg }
@@ -85,7 +89,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private enum class Layer { LETTERS, NUM }
     private enum class Panel { NONE, EMOJI, CLIP, EDIT, SKIN, CANDS, MORE, ADJUST, ARRANGE, LAYOUT, SYMBOL, HAND, HAND_CANDS, VOICE, TOKENS, VAULT }
     /** 打字的去向：编辑框，或者剪贴板搜索、编辑、新建分类、翻译的输入条 */
-    private enum class Sink { NONE, SEARCH, EDIT, NEWCAT, CLIP_ADD, TRANSLATE, FAVORITE, VAULT_SEARCH }
+    private enum class Sink { NONE, SEARCH, EDIT, NEWCAT, CLIP_ADD, TRANSLATE, FAVORITE, VAULT_SEARCH, REMOTE_EDIT }
 
     /** 分几次选词时，已经选好但还没上屏的部分 */
     private class Pick(val w: String, val syl: List<String>, val keys: List<String>, val isRaw: Boolean)
@@ -131,6 +135,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private val sinkBuf = StringBuilder()
     private var sinkClip: Clip? = null
     private var sinkCategory = ""
+    private val remoteHistory=RemoteInputHistory()
+    private fun remoteEditor()=EditorDeletion.remote(currentInputEditorInfo?.packageName)
     private var clipTab = "全部"
     private var clipQuery = ""
     private var clipExpanded: Clip? = null
@@ -216,6 +222,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     override fun dump(fd: java.io.FileDescriptor?, out: java.io.PrintWriter?, args: Array<out String>?) {
         out?.println("VaultFill: ${vault.diagnosticState()} passwordField=$passwordField sink=$sink panel=$panel provider=${vaultGateway.owner()} failure=${vaultGateway.lastFailure}")
+        out?.println("RemoteInput: active=${remoteEditor()} knownCharacters=${remoteHistory.knownCharacters()}")
     }
 
     /**
@@ -282,7 +289,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         keyboard = KeyboardView(this).also { it.listener = this }
         panelHost = PanelHost(this).apply {
             visibility = View.GONE
-            heightOf = { keyboard.desiredHeight() }
+            heightOf = { if(landscapeEdit()) (168*resources.displayMetrics.density).toInt() else keyboard.desiredHeight() }
         }
         // 左下角：收起键盘
         bottomStrip = BottomStrip(this, onKeyboard = { requestHideSelf(0) }, onClip = { if (panel == Panel.CLIP) closePanel() else openPanel(Panel.CLIP) })
@@ -399,6 +406,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             return
         }
         val sameEditor=info.packageName==inputPackage && info.inputType==inputKind && info.fieldId==inputFieldId
+        if(!sameEditor || !restarting) remoteHistory.reset()
         val keepEdit=panel==Panel.EDIT && sameEditor && (restarting || SystemClock.uptimeMillis()-editMoveAt<1000)
         inputPackage=info.packageName;inputKind=info.inputType;inputFieldId=info.fieldId
         if(keepEdit) {
@@ -468,6 +476,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onFinishInput() {
+        remoteHistory.reset()
         super.onFinishInput()
         resetComposing()
     }
@@ -537,6 +546,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         floatBar.invalidate()
         val scale=a?.scale ?: Prefs.heightScale(this)
         keyboard.heightScale = scale
+        keyboard.visibility=when {panel==Panel.NONE || panel==Panel.ADJUST -> View.VISIBLE;landscapeEdit()->View.GONE;else->View.INVISIBLE}
+        panelHost.requestLayout()
         bar.uiScale=scale;bottomStrip.uiScale=scale;tab.uiScale=scale
         col.alpha=a?.opacity ?: Prefs.opacity(this)
         tab.alpha=col.alpha
@@ -649,7 +660,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     private var renderedKeys = ""
-    private fun render() {
+    private fun render(animateKeys:Boolean=true) {
         if (root == null) return
         val keys = "$layer/$zh/${Prefs.layout(this)}"
         val changed = renderedKeys.isNotEmpty() && renderedKeys != keys
@@ -659,7 +670,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         keyboard.splitMode = splitMode()
         keyboard.splitLayout = layer == Layer.LETTERS && (adj?.split ?: prefs.getBoolean(Prefs.SPLIT_LAYOUT, false))
         keyboard.setup(skin, rowsForLayer(), sideForLayer())
-        if (changed && keyboard.visibility == View.VISIBLE) NativeMotion.pulse(keyboard)
+        if (animateKeys && changed && keyboard.visibility == View.VISIBLE) NativeMotion.pulse(keyboard)
         renderBar()
     }
 
@@ -680,6 +691,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun renderBar() {
         if (root == null) return
+        val rowWidth=if(landscapeEdit()) minOf(resources.displayMetrics.widthPixels,(744*resources.displayMetrics.density).toInt()) else MATCH_PARENT
+        for(view in listOf(bar,sinkStrip)) {
+            val params=view.layoutParams as LinearLayout.LayoutParams
+            if(params.width!=rowWidth) {params.width=rowWidth;params.gravity=Gravity.CENTER_HORIZONTAL;view.layoutParams=params}
+        }
         val vaultActions = if(panel==Panel.NONE && sink==Sink.NONE) vault.actions() else emptyList()
         val sm = splitMode()
         if (keyboard.splitMode != sm) { keyboard.splitMode = sm; keyboard.invalidate() }
@@ -732,7 +748,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             return
         }
         checkpoint(typing = typing, group="latin")
-        if(ic()?.commitText(text, 1)==true) {
+        val committed=ic()?.commitText(text,1)==true
+        if(remoteEditor() && !passwordField) remoteHistory.inserted(text,typing)
+        if(committed) {
             if(externalInsertion) vault.pasted(text) else vault.typed(text)
         }
         Prefs.addTyped(this, text.count { it.isLetterOrDigit() })
@@ -870,6 +888,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if(passwordField) return
         if (sink != Sink.NONE) return
         if (seq.isNotEmpty() || picks.isNotEmpty()) { resetComposing(); composeOut(""); renderBar(); return }
+        if(remoteEditor()) {ic()?.let {if(!remoteHistory.undo(it)) message("没有可撤回的本次键盘输入")};return}
         if(editorCommand("UNDO")) return
         val s = undoStack.removeLastOrNull()
         if (s == null) { if (ic()?.performContextMenuAction(android.R.id.undo) != true) message("没有可以撤销的输入"); return }
@@ -880,6 +899,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun redo() {
         if(sink!=Sink.NONE && sinkStrip.localEditing) {sinkStrip.editAction("redo");return}
         if(passwordField) return
+        if(remoteEditor()) {ic()?.let {if(!remoteHistory.redo(it)) message("没有可重做的本次键盘输入")};return}
         if(editorCommand("REDO")) return
         val s = redoStack.removeLastOrNull()
         if (s == null) { if (ic()?.performContextMenuAction(android.R.id.redo) != true) message("没有可以重做的输入"); return }
@@ -1090,6 +1110,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         if(passwordField) vault.invalidateCapture()
         if (seq.isNotEmpty() || sink != Sink.NONE) return
+        if(remoteEditor()) {message("UU 未转发方向键，请用 UU 自带键盘移动光标");return}
         when {
             dx < 0 -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT)
             dx > 0 -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_RIGHT)
@@ -1109,11 +1130,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             checkpoint(typing = false)
             val ic = ic() ?: return
             ic.beginBatchEdit()
-            val cleared = EditorDeletion.clear(ic, currentInputEditorInfo?.packageName)
+            val cleared = if(remoteEditor() && !passwordField) remoteHistory.clear(ic) else EditorDeletion.clear(ic, currentInputEditorInfo?.packageName)
             ic.endBatchEdit()
             if (!cleared) {
                 assoc = emptyList()
-                message("UU 未提供完整待删文字，请在远端全选后删除")
+                message("没有可清空的本次键盘输入，请在远端全选后删除")
                 return
             }
         }
@@ -1212,7 +1233,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun deleteCommitted() {
         val connection=ic() ?: return
         connection.finishComposingText()
-        EditorDeletion.delete(connection, currentInputEditorInfo?.packageName)
+        if(remoteEditor() && !passwordField) remoteHistory.delete(connection)
+        else EditorDeletion.delete(connection, currentInputEditorInfo?.packageName)
         vault.backspace()
     }
 
@@ -1237,7 +1259,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun toggleLang() {
         if(passwordField && sink==Sink.NONE) return
-        NativeMotion.swap(root,col) { toggleLangNow() }
+        keyboard.transitionNormalKeys { toggleLangNow() }
     }
     private fun toggleLangNow() {
         if (seq.isNotEmpty()) commitRaw()
@@ -1246,7 +1268,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         shift = 0
         layer = Layer.LETTERS
         assoc = emptyList()
-        render()
+        render(animateKeys=false)
         updateAutoCaps()
     }
 
@@ -1263,6 +1285,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     private fun performEnter() {
+        if(remoteEditor()) {commitOut("\n");return}
         val info = currentInputEditorInfo
         val action = (info?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
         val noAction = info == null || (info.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0 ||
@@ -1361,7 +1384,13 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             "layout" -> openPanel(Panel.LAYOUT)
             "emoji" -> openPanel(Panel.EMOJI)
             "clip" -> openPanel(Panel.CLIP)
-            "edit" -> openPanel(Panel.EDIT)
+            "edit" -> {
+                if(remoteEditor() && !passwordField && sink==Sink.NONE) {
+                    if(seq.isNotEmpty()) finalizeComposing()
+                    startSink(Sink.REMOTE_EDIT,remoteHistory.currentText(),null)
+                    openPanel(Panel.EDIT)
+                } else openPanel(Panel.EDIT)
+            }
             "skin" -> openPanel(Panel.SKIN)
             "undo" -> undo()
             "redo" -> redo()
@@ -1749,14 +1778,15 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             sinkBuf.setLength(0); sinkStrip.value = ""; sinkStrip.composing = ""; sinkStrip.translatedPreview = ""; sinkStrip.refresh()
             resetComposing(); onSinkChanged(); renderBar()
         }
-        sinkStrip.multiline = mode == Sink.EDIT || mode == Sink.CLIP_ADD
-        sinkStrip.localEditing = mode == Sink.EDIT || mode == Sink.CLIP_ADD
+        sinkStrip.multiline = mode == Sink.EDIT || mode == Sink.CLIP_ADD || mode==Sink.REMOTE_EDIT
+        sinkStrip.localEditing = sinkStrip.multiline
+        sinkStrip.caption=if(mode==Sink.REMOTE_EDIT) "UU · 本次输入，点勾同步到远端" else ""
         sinkStrip.onBeforeSelection = {if(seq.isNotEmpty() || picks.isNotEmpty()) finalizeComposing()}
         sinkStrip.onEdited = {text ->
             sinkBuf.setLength(0);sinkBuf.append(text);onSinkChanged()
         }
-        sinkStrip.icon = when (mode) { Sink.EDIT, Sink.CLIP_ADD -> R.drawable.ic_edit; Sink.TRANSLATE -> R.drawable.ic_translate; Sink.NEWCAT -> R.drawable.ic_clip; Sink.FAVORITE -> R.drawable.ic_emoji; else -> R.drawable.ic_search }
-        sinkStrip.hint = when (mode) { Sink.VAULT_SEARCH -> "搜索密码空间（名称或账号）"; Sink.CLIP_ADD -> "添加到分类“$sinkCategory”"; Sink.EDIT -> "修改内容"; Sink.TRANSLATE -> "输入要翻译的中文或外文"; Sink.NEWCAT -> "新分类的名字"; Sink.FAVORITE -> "输入要收藏的表情或颜文字"; else -> "搜索剪贴板" }
+        sinkStrip.icon = when (mode) { Sink.EDIT, Sink.CLIP_ADD, Sink.REMOTE_EDIT -> R.drawable.ic_edit; Sink.TRANSLATE -> R.drawable.ic_translate; Sink.NEWCAT -> R.drawable.ic_clip; Sink.FAVORITE -> R.drawable.ic_emoji; else -> R.drawable.ic_search }
+        sinkStrip.hint = when (mode) { Sink.REMOTE_EDIT -> "先输入文字，再用编辑工具调整"; Sink.VAULT_SEARCH -> "搜索密码空间（名称或账号）"; Sink.CLIP_ADD -> "添加到分类“$sinkCategory”"; Sink.EDIT -> "修改内容"; Sink.TRANSLATE -> "输入要翻译的中文或外文"; Sink.NEWCAT -> "新分类的名字"; Sink.FAVORITE -> "输入要收藏的表情或颜文字"; else -> "搜索剪贴板" }
         sinkStrip.value = initial
         sinkStrip.composing = ""
         sinkStrip.showAnimated(true,animate=false)
@@ -1842,6 +1872,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun finishSink(after:Panel?=null) {
         NativeMotion.swap(root,col) {
+            if(after==null) closePanel(render=false,animate=false)
             endSink(animate=false)
             if(after==null) render() else openPanelNow(after)
         }
@@ -1850,6 +1881,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (seq.isNotEmpty()) finalizeComposing()
         val text = sinkBuf.toString()
         when (sink) {
+            Sink.REMOTE_EDIT -> {
+                if(!remoteEditor()) {message("输入目标已切换，请重新编辑");return}
+                if(text.length>10000) {message("本次编辑最多 10000 字符");return}
+                val connection=ic() ?: return
+                finishSink()
+                remoteHistory.replace(connection,text)
+                return
+            }
             Sink.FAVORITE -> {
                 val value=text.trim().replace("\u0001","")
                 if(value.isEmpty()) {message("先输入要收藏的内容");return}
@@ -1887,7 +1926,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     private fun sinkCancel() {
-        val wasVault = sink == Sink.VAULT_SEARCH
+        val wasVault = sink == Sink.VAULT_SEARCH || sink==Sink.REMOTE_EDIT
         val wasTranslate = sink == Sink.TRANSLATE
         val wasFavorite = sink == Sink.FAVORITE
         if (wasTranslate) ic()?.setComposingText("", 1)
@@ -1901,6 +1940,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if(p!=Panel.ADJUST && panel!=Panel.ADJUST) NativeMotion.swap(root,col) { openPanelNow(p) }
         else openPanelNow(p)
     }
+    private fun landscapeEdit()=panel==Panel.EDIT && !floating && resources.configuration.orientation==Configuration.ORIENTATION_LANDSCAPE
     private fun openPanelNow(p:Panel) {
         if (panel == Panel.ADJUST && p != Panel.ADJUST) closePanel(render=false)
         if (p != Panel.CANDS && seq.isNotEmpty()) finalizeComposing()
@@ -1910,7 +1950,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         assoc = emptyList()
         buildPanel(animate=p==Panel.ADJUST)
         // 调节高度时键盘还要看得见
-        keyboard.visibility = if (p == Panel.ADJUST) View.VISIBLE else View.INVISIBLE
+        keyboard.visibility = when {p==Panel.ADJUST -> View.VISIBLE;landscapeEdit()->View.GONE;else->View.INVISIBLE}
         panelHost.visibility = View.VISIBLE
         renderBar()
     }
@@ -2146,6 +2186,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if(passwordField) { vault.invalidateCapture(); if(id in setOf("copy","cut")) {message("密码不复制到剪贴板");return} }
         buzz()
         val ic = ic() ?: return
+        if(remoteEditor() && id in setOf("left","right","up","down","home","end","select","all","copy","cut")) {
+            message("UU 未转发此编辑操作，请用 UU 自带键盘或远端菜单");return
+        }
         if(id in listOf("left","right","up","down","home","end")) editMoveAt=SystemClock.uptimeMillis()
         if(selecting && id in listOf("left","right","up","down","home","end") && editorCommand("SELECT_MOVE",id)) return
         if(selecting && (id=="up" || id=="down")) {
@@ -2194,7 +2237,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 if (t.isNullOrEmpty()) message("剪贴板是空的") else { checkpoint(false); externalInsertion=true; try { commitOut(t) } finally { externalInsertion=false;vault.invalidateCapture() } }
             }
             "del" -> { checkpoint(true,"delete"); deleteCommitted() }
-            "enter" -> { checkpoint(false); ic.commitText("\n", 1) }
+            "enter" -> { checkpoint(false); commitOut("\n") }
         }
     }
 

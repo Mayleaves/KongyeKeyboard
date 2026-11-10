@@ -24,6 +24,11 @@
 -keep class com.kongye.keyboard.PinyinTab { *; }
 -keep class com.kongye.keyboard.PinyinTab$Preview { *; }
 -keep class com.kongye.keyboard.SinkStrip { *; }
+-keep class com.kongye.keyboard.RemoteInputHistory { *; }
+-keep class com.kongye.keyboard.AppUpdate { *; }
+-keep class com.kongye.keyboard.UpdateChecker** { *; }
+-keep class com.kongye.keyboard.NativeMotion { *; }
+-keep class com.kongye.keyboard.EditPanelView { *; }
 
 # Device regressions exercise the v2 password protocol state machine.
 -keep class com.kongye.keyboard.VaultFill** { *; }

@@ -28,12 +28,11 @@ object NativeMotion {
         val target=content.alpha
         host.addView(cover,FrameLayout.LayoutParams(before.width,before.height))
         swaps[content]=Triple(cover,before,target)
-        content.alpha=0f
+        content.alpha=target
         content.viewTreeObserver.addOnPreDrawListener(object:android.view.ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw():Boolean {
                 content.viewTreeObserver.removeOnPreDrawListener(this)
                 if(swaps[content]?.first!==cover) return true
-                content.animate().alpha(target).setDuration(220).withLayer().start()
                 cover.animate().alpha(0f).setDuration(220).withLayer().withEndAction {
                     host.removeView(cover);cover.setImageDrawable(null);before.recycle()
                     if(swaps[content]?.first===cover) swaps.remove(content)
@@ -47,26 +46,25 @@ object NativeMotion {
     fun change(view:View, update:()->Unit) {
         view.animate().cancel()
         if(!ValueAnimator.areAnimatorsEnabled()) {update();view.alpha=1f;return}
-        view.animate().alpha(.25f).setDuration(80).withEndAction {
-            update()
-            view.animate().alpha(1f).setDuration(160).setInterpolator(DecelerateInterpolator()).start()
-        }.start()
+        update()
+        val base=view.translationX
+        view.alpha=1f;view.translationX=base+6f*view.resources.displayMetrics.density
+        view.animate().translationX(base).setDuration(180).setInterpolator(DecelerateInterpolator()).start()
     }
     fun enter(view: View, distance: Float=7f) {
         if (!ValueAnimator.areAnimatorsEnabled()) return
         view.animate().cancel()
         val base=bases.getOrPut(view) { view.translationY }
-        view.alpha=.45f
+        view.alpha=1f
         view.translationY=base+distance*view.resources.displayMetrics.density
-        view.animate().alpha(1f).translationY(base).setDuration(200)
+        view.animate().translationY(base).setDuration(200)
             .setInterpolator(DecelerateInterpolator(1.5f)).withEndAction { bases.remove(view) }.start()
     }
     fun pulse(view: View) {
         if (!ValueAnimator.areAnimatorsEnabled()) return
         view.animate().cancel()
         bases.remove(view)?.let {view.translationY=it}
-        view.alpha=.65f
-        view.animate().alpha(1f).setDuration(170).start()
+        enter(view,3f)
     }
     fun snapshot(view: View): Bitmap? {
         if (!ValueAnimator.areAnimatorsEnabled() || view.width<=0 || view.height<=0) return null
