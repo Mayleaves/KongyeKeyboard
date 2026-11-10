@@ -82,7 +82,7 @@ class EmojiPanel(
             gravity = Gravity.CENTER_VERTICAL
             setPadding((10*d).toInt(), (4*d).toInt(), (10*d).toInt(), 0)
             addView(segmented(context, skin, listOf("Emoji", "颜文字", "收藏"), main) {
-                main = it; onTab(it); render(); NativeMotion.enter(pager)
+                NativeMotion.change(pager) { main = it; onTab(it); render() }
             }, lp(WRAP, WRAP))
             headerAction.gravity=Gravity.END or Gravity.CENTER_VERTICAL;headerAction.minHeight=(32*d).toInt()
             headerAction.setOnClickListener {if(main==2) onCustom()}
@@ -179,7 +179,7 @@ class ClipboardPanel(
     private val previewLineHeight = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 13.5f * resources.displayMetrics.scaledDensity
     }.fontMetricsInt.let { it.descent - it.ascent + 2 * d }
-    private val cardHeight = (10 * d + 3 * previewLineHeight + 78 * d).toInt()
+    private val cardHeight = (12 * d + 3 * previewLineHeight + 34 * d).toInt()
     private var activeTab = tab
     private val labels = LinkedHashMap<String, TextView>()
     private val tabScroll = HorizontalScrollView(context)
@@ -220,45 +220,33 @@ class ClipboardPanel(
             val active = t == activeTab
             val label = TextView(context).apply {
                 text = t
-                textSize = 13f
+                textSize = 14f
                 gravity = Gravity.CENTER
-                setTextColor(if (active) skin.accFg else skin.barFg)
-                typeface = Typeface.DEFAULT
-                background = if (active) roundBg(skin.accBg, 15 * d) else roundBg(withAlpha(skin.modBg, 110), 15 * d)
-                setPadding((12 * d).toInt(), (5 * d).toInt(), (12 * d).toInt(), (5 * d).toInt())
+                styleTab(this, active)
+                setPadding((10 * d).toInt(), 0, (10 * d).toInt(), 0)
                 setOnClickListener { selectTab(t) }
                 if (t !in ClipStore.FIXED_TABS) setOnLongClickListener { onTabLong(t); true }
             }
             labels[t] = label
-            tabs.addView(label, lp(WRAP, (32*d).toInt()).apply { marginEnd = (5 * d).toInt() })
+            tabs.addView(label, lp(WRAP, (36*d).toInt()))
         }
-        tabs.addView(TextView(context).apply {
-            text = "+ 分类"
-            textSize = 12.5f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(skin.candHi)
-            background = roundBg(withAlpha(skin.candHi, 28), 15 * d)
-            setPadding((11 * d).toInt(), (5 * d).toInt(), (11 * d).toInt(), (5 * d).toInt())
-            setOnClickListener { onNewCat() }
-        }, lp(WRAP, WRAP))
+        // 新建分类：一个小加号
+        tabs.addView(IconButton(context, R.drawable.ic_plus, skin.barFg, 18f) { onNewCat() }.apply {
+            contentDescription = "新建分类"
+        }, lp((34 * d).toInt(), (36 * d).toInt()))
         tabScroll.isHorizontalScrollBarEnabled = false
         tabScroll.addView(tabs)
-        head.addView(tabScroll, lp(0, (32*d).toInt(), 1f))
-        addContent = TextView(context).apply {
-            text = "+ 内容"; textSize = 12.5f; gravity = Gravity.CENTER
-            setTextColor(skin.candHi)
-            setPadding((8*d).toInt(), 0, (8*d).toInt(), 0)
+        head.addView(tabScroll, lp(0, (36*d).toInt(), 1f))
+        // 右边三个图标：往当前自定义分类里加内容、搜索、清空；都不加底色
+        addContent = IconButton(context, R.drawable.ic_edit, skin.barFg, 19f) { onNewContent(activeTab) }.apply {
             contentDescription = "向当前分类添加内容"
-            setOnClickListener { onNewContent(activeTab) }
-            visibility = if (activeTab in ClipStore.customTabs()) View.VISIBLE else View.INVISIBLE
+            visibility = if (activeTab in ClipStore.customTabs()) View.VISIBLE else View.GONE
         }
-        head.addView(addContent, lp(WRAP, (32*d).toInt()))
-        head.addView(IconButton(context, R.drawable.ic_search, skin.barFg, 19f) { onSearch() }.apply {
-            background = roundBg(withAlpha(skin.modBg, 140), 16 * d)
-        }, lp((32 * d).toInt(), (32 * d).toInt()).apply { marginStart = (4 * d).toInt(); marginEnd = (5 * d).toInt() })
-        head.addView(IconButton(context, R.drawable.ic_trash, skin.barFg, 19f) { onClear() }.apply {
-            background = roundBg(withAlpha(skin.modBg, 140), 16 * d)
-        }, lp((32 * d).toInt(), (32 * d).toInt()))
+        head.addView(addContent, lp((36 * d).toInt(), (36 * d).toInt()))
+        head.addView(IconButton(context, R.drawable.ic_search, skin.barFg, 20f) { onSearch() }.apply { contentDescription = "搜索" },
+            lp((36 * d).toInt(), (36 * d).toInt()))
+        head.addView(IconButton(context, R.drawable.ic_trash, skin.barFg, 20f) { onClear() }.apply { contentDescription = "清空" },
+            lp((36 * d).toInt(), (36 * d).toInt()))
         addView(head, lp(MATCH, WRAP))
         if (query.isNotEmpty()) {
             val q = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding((14 * d).toInt(), 0, (4 * d).toInt(), 0) }
@@ -277,15 +265,38 @@ class ClipboardPanel(
         positions[activeTab] = recordsScroll.scrollY
         activeTab = tab; query = ""; expanded = null; picking = null
         queryRow?.visibility = View.GONE
-        labels.forEach { (name, label) ->
-            val active = name == tab
-            label.setTextColor(if (active) skin.accFg else skin.barFg)
-            label.background = if (active) roundBg(skin.accBg, 15*d) else roundBg(withAlpha(skin.modBg,110),15*d)
-        }
-        addContent.visibility = if (tab in ClipStore.customTabs()) View.VISIBLE else View.INVISIBLE
+        labels.forEach { (name, label) -> styleTab(label, name == tab) }
+        addContent.visibility = if (tab in ClipStore.customTabs()) View.VISIBLE else View.GONE
         onTab(tab)
-        renderRecords()
-        restoreScroll(positions[tab] ?: 0)
+        NativeMotion.change(recordsScroll) { renderRecords(); restoreScroll(positions[activeTab] ?: 0) }
+    }
+
+    /** 分类标签：选中的是正文色加粗，下面一条短横线；没选中的是灰字 */
+    private fun styleTab(v: TextView, active: Boolean) {
+        v.setTextColor(if (active) skin.candFg else skin.barFg)
+        v.typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        v.background = if (!active) null else object : android.graphics.drawable.Drawable() {
+            private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = skin.candHi }
+            override fun draw(c: Canvas) {
+                val b = bounds
+                val w = 14 * d
+                c.drawRoundRect(RectF(b.exactCenterX() - w / 2, b.bottom - 4 * d, b.exactCenterX() + w / 2, b.bottom - 1.5f * d), 2 * d, 2 * d, p)
+            }
+            override fun setAlpha(alpha: Int) {}
+            override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+            @Deprecated("Deprecated in Java")
+            override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+        }
+    }
+
+    private fun showCat(clip: Clip) = clip.cat != null && clip.cat != "置顶" && clip.cat != activeTab
+
+    /** 右上角标签占的宽度，正文要让开 */
+    private fun tagWidth(clip: Clip): Float {
+        var w = 0f
+        if (clip.pinned) w += 16 * d
+        if (showCat(clip)) w += TextPaint().apply { textSize = 10.5f * resources.displayMetrics.scaledDensity }.measureText(clip.cat!!) + 14 * d
+        return if (w > 0) w + 2 * d else 0f
     }
 
     private fun renderRecords() {
@@ -294,7 +305,7 @@ class ClipboardPanel(
         val col = LinearLayout(context).apply { orientation = VERTICAL; setPadding((8 * d).toInt(), (2 * d).toInt(), (8 * d).toInt(), (10 * d).toInt()) }
         if (list.isEmpty()) {
             col.addView(TextView(context).apply {
-                text = if (ClipStore.items.isEmpty()) "历史记录最多 ${ClipStore.MAX} 条，置顶和自定义分类长期保存\n点卡片直接上屏 · 长按展开编辑与分词" else "该分类下暂无记录"
+                text = if (ClipStore.items.isEmpty()) "复制的内容会出现在这里" else "暂无记录"
                 setTextColor(skin.barFg)
                 textSize = 13f
                 gravity = Gravity.CENTER
@@ -315,25 +326,13 @@ class ClipboardPanel(
                 i += 2
             }
         }
-        if (list.isNotEmpty()) {
-            col.addView(TextView(context).apply {
-                text = "历史 ${ClipStore.historyCount()}/${ClipStore.MAX} 条 · 分类与置顶长期保存"
-                textSize = 11f
-                gravity = Gravity.CENTER
-                setTextColor(withAlpha(skin.barFg, 180))
-                setPadding(0, (10 * d).toInt(), 0, 0)
-            }, lp(MATCH, WRAP))
-        }
         recordsScroll.removeAllViews()
         recordsScroll.addView(col)
     }
 
     private fun card(clip: Clip): View {
         val card = android.widget.FrameLayout(context).apply {
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(skin.keyBg); cornerRadius = 14*d
-                setStroke(d.toInt().coerceAtLeast(1), withAlpha(skin.barFg, 35))
-            }
+            background = roundBg(skin.keyBg, 12 * d)
             clipChildren = true; clipToOutline = true
             minimumHeight = cardHeight
             setOnClickListener { if (expanded === clip) expand(null) else onPaste(clip) }
@@ -346,61 +345,63 @@ class ClipboardPanel(
                     android.widget.FrameLayout.LayoutParams(MATCH, cardHeight))
             }
         } else card.addView(TextView(context).apply {
-            text = clip.text; textSize = 13.5f; maxLines = 6; ellipsize = TextUtils.TruncateAt.END
+            text = clip.text; textSize = 13.5f; maxLines = 4; ellipsize = TextUtils.TruncateAt.END
             includeFontPadding = false
             setLineSpacing(2*d, 1f); setTextColor(skin.keyFg)
-            setPadding((11*d).toInt(), (10*d).toInt(), (11*d).toInt(), (10*d).toInt())
+            setPadding((12*d).toInt(), (12*d).toInt(), (12*d + tagWidth(clip)).toInt(), 0)
         }, android.widget.FrameLayout.LayoutParams(MATCH, cardHeight))
-        if (clip.pinned) card.addView(IconButton(context, R.drawable.ic_pin, skin.candHi, 14f) {}.apply {
-            contentDescription="已置顶"
-            isClickable=false; isFocusable=false
-        }, android.widget.FrameLayout.LayoutParams((22*d).toInt(),(22*d).toInt(),Gravity.TOP or Gravity.END).apply {
-            topMargin=(3*d).toInt(); rightMargin=(5*d).toInt()
-        })
-        if (clip.cat != null && clip.cat != "置顶") card.addView(TextView(context).apply {
-            text=clip.cat; textSize=10f; setTextColor(skin.barFg)
-            background=roundBg(skin.modBg,9*d)
-            gravity=Gravity.CENTER
-            setPadding((6*d).toInt(),0,(6*d).toInt(),0)
-        }, android.widget.FrameLayout.LayoutParams(WRAP,(18*d).toInt(),Gravity.TOP or Gravity.END).apply {
-            topMargin=(5*d).toInt(); rightMargin=((if(clip.pinned) 30 else 5)*d).toInt()
+        // 右上角：置顶图钉和分类小标签（当前就在这个分类里时不重复写）
+        if (clip.pinned || showCat(clip)) card.addView(LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            if (clip.pinned) addView(IconButton(context, R.drawable.ic_pin, skin.candHi, 12f) {}.apply {
+                contentDescription = "已置顶"; isClickable = false; isFocusable = false
+            }, lp((16 * d).toInt(), (16 * d).toInt()))
+            if (showCat(clip)) addView(TextView(context).apply {
+                text = clip.cat; textSize = 10.5f; setTextColor(skin.barFg); maxLines = 1
+                background = roundBg(skin.modBg, 8 * d)
+                setPadding((6 * d).toInt(), (1 * d).toInt(), (6 * d).toInt(), (1 * d).toInt())
+            }, lp(WRAP, WRAP).apply { marginStart = (2 * d).toInt() })
+        }, android.widget.FrameLayout.LayoutParams(WRAP, (20 * d).toInt(), Gravity.TOP or Gravity.END).apply {
+            topMargin = (8 * d).toInt(); rightMargin = (8 * d).toInt()
         })
         val tools = LinearLayout(context).apply {
-            orientation = VERTICAL
-            // 工具盖住第三行之后的文字，卡片高度和网格位置保持不变。
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            // 只盖住卡片最下面一条，上面的正文还能看到两三行
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(if(skin.dark) mix(skin.kbBg,Color.BLACK,.2f) or (0xFF shl 24) else mix(skin.kbBg,Color.WHITE,.6f) or (0xFF shl 24))
-                cornerRadii=floatArrayOf(0f,0f,0f,0f,10*d,10*d,10*d,10*d)
+                cornerRadii=floatArrayOf(0f,0f,0f,0f,12*d,12*d,12*d,12*d)
             }
-            setPadding((7*d).toInt(), (4*d).toInt(), (7*d).toInt(), (5*d).toInt())
+            setPadding((4*d).toInt(), 0, (4*d).toInt(), 0)
         }
         if (picking === clip) {
+            // 选分类：一行可以横滑的小标签
             val categories = listOf("无分类") + ClipStore.customTabs()
-            val cats = LinearLayout(context).apply { orientation = VERTICAL }
+            val cats = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             if (categories.size == 1) cats.addView(TextView(context).apply {
-                text = "先点顶部 + 分类"; textSize=11f; setTextColor(skin.barFg)
+                text = "先点顶部 + 新建分类"; textSize = 11f; setTextColor(skin.barFg)
             })
-            categories.forEach { cat -> cats.addView(actButton(cat, false) { onAction(clip, "cat:$cat") }, lp(MATCH, (30*d).toInt())) }
-            tools.addView(ScrollView(context).apply { addView(cats) }, lp(MATCH, (66*d).toInt()))
+            categories.forEach { cat -> cats.addView(actButton(cat, false) { onAction(clip, "cat:$cat") }, lp(WRAP, (28*d).toInt()).apply { marginEnd = (4*d).toInt() }) }
+            tools.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(cats) }, lp(MATCH, MATCH))
         } else {
             val acts = listOf(
                 Triple("pin", R.drawable.ic_pin, if (clip.pinned) "取消置顶" else "置顶"),
                 Triple("copy", R.drawable.ic_copy, "复制"), Triple("edit", R.drawable.ic_edit, "编辑"),
                 Triple("split", R.drawable.ic_split, "分词"), Triple("cat", R.drawable.ic_tag, "分类"), Triple("delete", R.drawable.ic_trash, "删除"))
-            acts.chunked(3).forEach { chunk ->
-                tools.addView(LinearLayout(context).apply {
-                    orientation = HORIZONTAL
-                    chunk.forEach { (id, icon, label) ->
-                        addView(IconButton(context, icon, if (id == "pin" && clip.pinned) skin.candHi else skin.modFg, 18f) { onAction(clip, id) }.apply {
-                            contentDescription=label; background=roundBg(skin.modBg, 8*d)
-                            isEnabled = clip.image == null || id !in listOf("edit", "split")
-                            alpha = if (isEnabled) 1f else .3f
-                        }, lp(0, (30*d).toInt(), 1f).apply { setMargins((2*d).toInt(), (2*d).toInt(), (2*d).toInt(), (2*d).toInt()) })
-                    }
-                }, lp(MATCH, (34*d).toInt()))
+            acts.forEach { (id, icon, label) ->
+                tools.addView(IconButton(context, icon, when {
+                    id == "pin" && clip.pinned -> skin.candHi
+                    id == "delete" -> Color.parseColor("#E5484D")
+                    else -> skin.modFg
+                }, 17f) { onAction(clip, id) }.apply {
+                    contentDescription = label
+                    isEnabled = clip.image == null || id !in listOf("edit", "split")
+                    alpha = if (isEnabled) 1f else .3f
+                }, lp(0, (34*d).toInt(), 1f))
             }
         }
-        card.addView(tools, android.widget.FrameLayout.LayoutParams(MATCH, (78*d).toInt(), Gravity.BOTTOM))
+        card.addView(tools, android.widget.FrameLayout.LayoutParams(MATCH, (40*d).toInt(), Gravity.BOTTOM))
         overlays[clip] = tools
         tools.visibility = if (expanded === clip) View.VISIBLE else View.INVISIBLE
         tools.alpha = if (expanded === clip) 1f else 0f

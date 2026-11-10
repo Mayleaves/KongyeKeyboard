@@ -100,7 +100,7 @@ private val DARK = Pal(Color(0xFF0F1013), Color(0xFF1A1B20), Color(0xFFF4F5F8), 
 
 private enum class Page(val title: String) {
     MAIN("空叶键盘 设置"), LAYOUT("键盘布局"), KEYS("按键与手势"), PINYIN("拼音"), LOOK("主题与外观"), HEIGHT("键盘高度"),
-    ARRANGE("工具栏与菜单"), CLIP("剪贴板"), TIPS("小技巧"), TRY("试一试"), NUMPAD("数字键盘"), UPDATE("检查更新")
+    ARRANGE("工具栏与菜单"), CLIP("剪贴板"), TIPS("小技巧"), TRY("试一试"), NUMPAD("数字键盘"), VAULT("密码填充"), UPDATE("检查更新")
 }
 
 /** 主页上的一行：可以被搜索 */
@@ -243,6 +243,7 @@ class SettingsActivity : ComponentActivity() {
                             Page.TIPS -> TipsPage(pal)
                             Page.TRY -> TryPage(pal)
                             Page.NUMPAD -> NumpadPage(pal, tick)
+                            Page.VAULT -> VaultPage(pal,tick)
                             Page.UPDATE -> UpdatePage(pal)
                             Page.MAIN -> Unit
                         }
@@ -412,80 +413,61 @@ class SettingsActivity : ComponentActivity() {
             if (System.currentTimeMillis() - p.getLong(Prefs.UPDATE_CHECKED, 0L) > 24 * 3600_000L) checkUpdate(silent = true)
         }
 
-        // 顶部品牌与状态卡片
-        Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
-                .background(pal.card)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(Color(0xFF181920)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Image(painterResource(R.drawable.ic_launcher_fg), null, Modifier.size(44.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        BasicText("空叶键盘", style = TextStyle(color = pal.ink, fontSize = 22.sp, fontWeight = FontWeight.Bold))
-                        Box(Modifier.clip(RoundedCornerShape(50)).background(pal.tile).padding(horizontal = 8.dp, vertical = 2.dp)) {
-                            BasicText("v$version", style = TextStyle(color = pal.text2, fontSize = 11.5.sp, fontWeight = FontWeight.Medium))
-                        }
-                    }
-                    Spacer(Modifier.height(2.dp))
-                    BasicText("轻快 · 离线手写与翻译 · 高度可定制", style = TextStyle(color = pal.text2, fontSize = 12.5.sp))
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    BasicText("$today", style = TextStyle(color = pal.ink, fontSize = 18.sp, fontWeight = FontWeight.Medium))
-                    BasicText("今日字数", style = TextStyle(color = pal.text2, fontSize = 11.sp))
-                }
+        // 顶部：图标、名字、版本、今日字数
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF181920)), contentAlignment = Alignment.Center) {
+                Image(painterResource(R.drawable.ic_launcher_fg), null, Modifier.size(36.dp))
             }
-
-            // 三个状态胶囊（启用 / 设为默认 / 麦克风）
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                @Composable
-                fun StatusChip(label: String, ready: Boolean, onClick: () -> Unit) {
-                    Row(
-                        Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
-                            .background(pal.tile)
-                            .clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        Box(Modifier.size(6.dp).clip(CircleShape).background(if (ready) pal.ok else pal.bad))
-                        Spacer(Modifier.width(6.dp))
-                        BasicText(label, style = TextStyle(color = if (ready) pal.ink else pal.bad, fontSize = 12.sp))
-                    }
-                }
-                StatusChip(if (enabled) "已启用" else "去启用", enabled) { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
-                StatusChip(if (current) "当前默认" else "切换键盘", current) { getSystemService(InputMethodManager::class.java)?.showInputMethodPicker() }
-                StatusChip(if (mic) "语音已授权" else "授权麦克风", mic) { if (!mic) micRequest.launch(Manifest.permission.RECORD_AUDIO) }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                BasicText("空叶键盘", style = TextStyle(color = pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold))
+                BasicText("v$version", style = TextStyle(color = pal.text2, fontSize = 12.sp))
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                BasicText("$today", style = TextStyle(color = pal.ink, fontSize = 18.sp, fontWeight = FontWeight.Medium))
+                BasicText("今日字数", style = TextStyle(color = pal.text2, fontSize = 11.sp))
             }
         }
 
-        // 搜索与快速试打栏
+        // 只有没设置好的才提示，点一下去设置
+        val todo = listOfNotNull(
+            if (!enabled) "启用空叶键盘" to { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) } else null,
+            if (enabled && !current) "设为当前输入法" to { getSystemService(InputMethodManager::class.java)?.showInputMethodPicker(); Unit } else null,
+            if (!mic) "授权麦克风（语音输入用）" to { micRequest.launch(Manifest.permission.RECORD_AUDIO) } else null,
+        )
+        if (todo.isNotEmpty()) Card(pal) {
+            todo.forEachIndexed { i, (label, action) ->
+                if (i > 0) Line(pal)
+                Row(Modifier.fillMaxWidth().clickable { action() }.padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(pal.bad))
+                    Spacer(Modifier.width(10.dp))
+                    BasicText(label, style = TextStyle(color = pal.ink, fontSize = 15.sp), modifier = Modifier.weight(1f))
+                    Image(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(18.dp), colorFilter = ColorFilter.tint(pal.text2))
+                }
+            }
+        }
+
+        // 搜索，右边是“试一试”
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(
                 Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(pal.card)
                     .padding(horizontal = 14.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Image(painterResource(R.drawable.ic_search), null, Modifier.size(19.dp), colorFilter = ColorFilter.tint(pal.text2))
+                Image(painterResource(R.drawable.ic_search), null, Modifier.size(18.dp), colorFilter = ColorFilter.tint(pal.text2))
                 Spacer(Modifier.width(10.dp))
                 BasicTextField(
                     value = query, onValueChange = { query = it }, singleLine = true,
                     textStyle = TextStyle(color = pal.ink, fontSize = 15.sp), cursorBrush = SolidColor(pal.accent),
                     modifier = Modifier.weight(1f),
-                    decorationBox = { inner -> Box { if (query.isEmpty()) BasicText("搜索设置项…", style = TextStyle(color = pal.text2, fontSize = 15.sp)); inner() } },
+                    decorationBox = { inner -> Box { if (query.isEmpty()) BasicText("搜索", style = TextStyle(color = pal.text2, fontSize = 15.sp)); inner() } },
                 )
             }
             Box(
-                Modifier.clip(RoundedCornerShape(18.dp)).background(pal.card).clickable { go(Page.TRY) }.padding(horizontal = 16.dp, vertical = 11.dp),
+                Modifier.size(44.dp).clip(RoundedCornerShape(18.dp)).background(pal.card).clickable { go(Page.TRY) },
                 contentAlignment = Alignment.Center,
             ) {
-                BasicText("试一试", style = TextStyle(color = pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium))
+                Image(painterResource(R.drawable.ic_kbd), "试一试", Modifier.size(20.dp), colorFilter = ColorFilter.tint(pal.ink))
             }
         }
 
@@ -494,17 +476,18 @@ class SettingsActivity : ComponentActivity() {
         val cTool = Color(0xFF0D9488)
         val cAbout = Color(0xFF7C3AED)
         val items = listOf(
-            Item("输入与手势", R.drawable.ic_kbd, cInput, "键盘布局", "中文 26 键、14 键、九键切换", mapOf("26" to "26 键", "14" to "14 键", "9" to "九键")[layout], null) { go(Page.LAYOUT) },
-            Item("输入与手势", R.drawable.ic_adjust, cInput, "按键与手势", "震动反馈、按键音、上下滑符号与空格长按", null, null) { go(Page.KEYS) },
-            Item("输入与手势", R.drawable.ic_translate, cInput, "拼音与词库", "简拼、模糊音、智能纠错、词频自学习", Prefs.fuzzy(this).size.takeIf { it > 0 }?.let { "模糊音 $it 项" }, null) { go(Page.PINYIN) },
-            Item("输入与手势", R.drawable.ic_symbol, cInput, "数字键盘定制", "可视化调整左侧符号列与右侧快捷按键", null, null) { go(Page.NUMPAD) },
-            Item("主题与外观", R.drawable.ic_palette, cLook, "主题与液态玻璃", "18 套纯色日夜配色、半透明玻璃与透明度", theme.name + if (p.getBoolean(Prefs.GLASS, false)) " · 液态玻璃" else "", null) { go(Page.LOOK) },
-            Item("主题与外观", R.drawable.ic_float, cLook, "键盘高度", "无级缩放键盘高度与预览", "${(scale * 100).roundToInt()}%", null) { go(Page.HEIGHT) },
-            Item("主题与外观", R.drawable.ic_float, cLook, "悬浮键盘", "自由拖动的小尺寸悬浮输入窗口", if (floating) "已开启" else "关闭", if (floating) pal.accent else null) { p.edit().putBoolean(Prefs.FLOAT, !floating).apply() },
-            Item("效率工具", R.drawable.ic_toolbar, cTool, "工具栏与菜单排序", "长按拖拽自定义顶部工具栏与更多面板", null, null) { go(Page.ARRANGE) },
-            Item("效率工具", R.drawable.ic_clip, cTool, "剪贴板管理", "历史 ${ClipStore.MAX} 条，置顶和自定义分类长期保存", "${ClipStore.items.size} 条", null) { go(Page.CLIP) },
-            Item("关于与帮助", R.drawable.ic_settings, cAbout, "使用技巧", "滑行输入、删除手势、分词与离线手写说明", null, null) { go(Page.TIPS) },
-            Item("关于与帮助", R.drawable.ic_download, cAbout, "检查更新", "当前 v$version · GitHub ${UpdateChecker.REPO}", upd.ifEmpty { null }, if (upd.startsWith("有新版本")) pal.accent else null) {
+            Item("输入", R.drawable.ic_kbd, cInput, "键盘布局", "26 键 14 键 九键", mapOf("26" to "26 键", "14" to "14 键", "9" to "九键")[layout], null) { go(Page.LAYOUT) },
+            Item("输入", R.drawable.ic_adjust, cInput, "按键与手势", "震动 按键音 上下滑 空格长按 删除", null, null) { go(Page.KEYS) },
+            Item("输入", R.drawable.ic_translate, cInput, "拼音", "简拼 模糊音 纠错 联想 记忆 词库", null, null) { go(Page.PINYIN) },
+            Item("输入", R.drawable.ic_symbol, cInput, "数字键盘", "符号列 快捷键", null, null) { go(Page.NUMPAD) },
+            Item("外观", R.drawable.ic_palette, cLook, "主题", "配色 深色 液态玻璃 透明度 皮肤", theme.name, null) { go(Page.LOOK) },
+            Item("外观", R.drawable.ic_float, cLook, "键盘高度", "高度 大小", "${(scale * 100).roundToInt()}%", null) { go(Page.HEIGHT) },
+            Item("外观", R.drawable.ic_float, cLook, "悬浮键盘", "悬浮 拖动", if (floating) "开" else "关", null) { p.edit().putBoolean(Prefs.FLOAT, !floating).apply() },
+            Item("其他", R.drawable.ic_key, cTool, "密码填充", "空叶文档 密码空间 登录 生成 保存", if(p.getBoolean(Prefs.VAULT,false)) "已开启" else "关闭", null) { go(Page.VAULT) },
+            Item("其他", R.drawable.ic_toolbar, cTool, "工具栏", "工具栏 菜单 排序", null, null) { go(Page.ARRANGE) },
+            Item("其他", R.drawable.ic_clip, cTool, "剪贴板", "剪贴板 分类 置顶", null, null) { go(Page.CLIP) },
+            Item("其他", R.drawable.ic_settings, cAbout, "使用技巧", "帮助 技巧 手写 翻译", null, null) { go(Page.TIPS) },
+            Item("其他", R.drawable.ic_download, cAbout, "检查更新", "更新 版本", upd.ifEmpty { null }, if (upd.startsWith("有新版本")) pal.accent else null) {
                 checkUpdate(silent = false)
             },
         )
@@ -573,9 +556,9 @@ class SettingsActivity : ComponentActivity() {
             Line(pal)
             ToggleRow(pal, "按键音", null, sound) { p.edit().putBoolean(Prefs.SOUND, it).apply() }
             Line(pal)
-            ToggleRow(pal, "上下滑输入符号", "按住字母往下滑输入右上角的符号，往上滑输入左下角的", swipe) { p.edit().putBoolean(Prefs.SWIPE, it).apply() }
+            ToggleRow(pal, "上下滑输入符号", "下滑右上角，上滑左下角", swipe) { p.edit().putBoolean(Prefs.SWIPE, it).apply() }
             Line(pal)
-            Tip(pal, "删除键", "往下滑清空整个输入框，往上滑撤销。撤销、重做和空叶文档一样：连续打字停顿不到 1 秒算一步，最多记 100 步。")
+            Tip(pal, "删除键", "下滑清空，上滑撤销")
             Line(pal)
             Column(Modifier.padding(vertical = 10.dp)) {
                 BasicText("空格长按", style = TextStyle(color = pal.ink, fontSize = 16.sp))
@@ -583,15 +566,11 @@ class SettingsActivity : ComponentActivity() {
                 Segment(pal, listOf("移动光标", "连续空格", "语音"), spaceLong) { p.edit().putInt(Prefs.SPACE_LONG, it).apply() }
                 Spacer(Modifier.height(6.dp))
                 BasicText(
-                    when (spaceLong) {
-                        1 -> "按住空格一直输入空格，松手停止。"
-                        2 -> "长按空格打开语音并开始说话，再长按一次停止。"
-                        else -> "长按进入光标模式，手指在屏幕任意位置上下左右滑。"
-                    } + "左右滑空格始终可以移动光标。",
-                    style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp),
+                    when (spaceLong) { 1 -> "按住一直输入空格"; 2 -> "长按开关语音"; else -> "长按后滑动移动光标" },
+                    style = TextStyle(color = pal.text2, fontSize = 12.5.sp),
                 )
             }
-            Tip(pal, "长按字母", "弹出这个键的小写、大写和符号，手指左右滑选，松手输入。")
+            Tip(pal, "长按字母", "左右滑选大小写和符号")
         }
     }
 
@@ -601,16 +580,16 @@ class SettingsActivity : ComponentActivity() {
         val r = remember(tick) { listOf(Prefs.ABBR, Prefs.ASSOC, Prefs.LEARN).associateWith { p.getBoolean(it, true) } }
         var forgetHint by remember { mutableStateOf("") }
         Card(pal) {
-            ToggleRow(pal, "简拼", "只打声母也能出词：zg → 中国", r[Prefs.ABBR]!!) { p.edit().putBoolean(Prefs.ABBR, it).apply() }
+            ToggleRow(pal, "简拼", "zg → 中国", r[Prefs.ABBR]!!) { p.edit().putBoolean(Prefs.ABBR, it).apply() }
             Line(pal)
-            ToggleRow(pal, "联想", "上屏后推荐接下来的词", r[Prefs.ASSOC]!!) { p.edit().putBoolean(Prefs.ASSOC, it).apply() }
+            ToggleRow(pal, "联想", null, r[Prefs.ASSOC]!!) { p.edit().putBoolean(Prefs.ASSOC, it).apply() }
             Line(pal)
-            ToggleRow(pal, "记住选词", "选过的词排到前面，分几次选出的整句记成新词；密码框里打的字不记录", r[Prefs.LEARN]!!) { p.edit().putBoolean(Prefs.LEARN, it).apply() }
+            ToggleRow(pal, "记住选词", "常打的词排前面，也能用简拼打出", r[Prefs.LEARN]!!) { p.edit().putBoolean(Prefs.LEARN, it).apply() }
             Line(pal)
-            Tip(pal, "纠错", "漏打、多打、点到邻键或颠倒字母时，候选里给出纠错词与拼音，并把差异标红；较长全拼最多纠正两处。")
+            Tip(pal, "纠错", "打错时给出正确的词，错的字母标红")
         }
         Card(pal) {
-            Tip(pal, "词库来源", "包含 amzxyz 的万象拼音十万条精选词，按 CC BY 4.0 使用。已去声调、去重、过滤无效音节，并合并词频。")
+            Tip(pal, "词库来源", "含 amzxyz 万象拼音精选词（CC BY 4.0）")
             ActionRow(pal, "万象拼音 · CC BY 4.0", "作者、原始项目与许可", "查看") {
                 startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/amzxyz/rime-wanxiang")))
             }
@@ -618,7 +597,7 @@ class SettingsActivity : ComponentActivity() {
         BasicText("模糊音", style = TextStyle(color = pal.text2, fontSize = 15.sp), modifier = Modifier.padding(start = 4.dp))
         Card(pal) {
             val on = remember(tick) { Prefs.fuzzy(this@SettingsActivity) }
-            BasicText("分不清的读音打开对应的一项，比如打开 z = zh 后，zi 也能出“只”。", style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp), modifier = Modifier.padding(vertical = 8.dp))
+            BasicText("例：开 z = zh，zi 也能出“只”", style = TextStyle(color = pal.text2, fontSize = 12.5.sp), modifier = Modifier.padding(vertical = 8.dp))
             Prefs.FUZZY_RULES.chunked(3).forEach { row ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { (id, label) ->
@@ -693,7 +672,7 @@ class SettingsActivity : ComponentActivity() {
                 Segment(pal, listOf("跟随系统", "浅色", "深色"), mode) { p.edit().putInt(Prefs.MODE, it).apply() }
             }
             Line(pal)
-            ToggleRow(pal, "液态玻璃", "在当前配色上增加半透明底与细描边，不改变配色，不使用渐变；每套配色都能开", glass) { p.edit().putBoolean(Prefs.GLASS, it).apply() }
+            ToggleRow(pal, "液态玻璃", null, glass) { p.edit().putBoolean(Prefs.GLASS, it).apply() }
             Line(pal)
             Column(Modifier.padding(vertical = 10.dp)) {
                 BasicText("键盘透明度 ${(opacity * 100).roundToInt()}%", style = TextStyle(color = pal.ink, fontSize = 16.sp))
@@ -702,7 +681,6 @@ class SettingsActivity : ComponentActivity() {
             }
         }
         BasicText("配色方案", style = TextStyle(color = pal.text2, fontSize = 15.sp), modifier = Modifier.padding(start = 4.dp))
-        BasicText("点一下就换。每套都有浅色和深色两个版本（卡片左半、右半），跟随系统时白天黑夜自动切换；动态配色跟着壁纸变。", style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp), modifier = Modifier.padding(start = 4.dp))
         Card(pal) {
             val labelFg = pal.ink.toArgb()
             val hi = pal.accent.toArgb()
@@ -755,7 +733,7 @@ class SettingsActivity : ComponentActivity() {
         val images = remember(tick, hint) { ClipStore.items.count { it.image != null } }
         Card(pal) {
             BasicText("共 $count 条（置顶 $pinned 条，图片 $images 张），普通历史最多 ${ClipStore.MAX} 条，满了淘汰最旧的历史；置顶和自定义分类长期保存。", style = TextStyle(color = pal.ink, fontSize = 15.sp, lineHeight = 22.sp))
-            BasicText("点键盘右下角的剪贴板图标打开。只记录用空叶键盘期间复制的内容，存在这台手机里。分类可以自己加：在剪贴板顶上点“＋分类”，进入自定义分类后点“＋内容”即可手动添加。", style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp), modifier = Modifier.padding(top = 6.dp))
+            BasicText("只保存在这台手机上", style = TextStyle(color = pal.text2, fontSize = 12.5.sp), modifier = Modifier.padding(top = 6.dp))
             Line(pal, top = 12.dp)
             ActionRow(pal, "清空历史（保留置顶和自定义分类）", hint.ifEmpty { null }, "清空") {
                 if (confirmed("clips")) { ClipStore.clearUnpinned(); hint = "已清空" } else hint = "再点一次“清空”确认"
@@ -1042,22 +1020,61 @@ class SettingsActivity : ComponentActivity() {
                 Pill(pal, "重新检查", rel == null) { checkUpdate(silent = false) }
                 Pill(pal, "打开发布页", false) { openUrl(UpdateChecker.RELEASES) }
             }
-            BasicText("下载后在系统里安装即可覆盖更新，设置和词库都会保留。", style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp), modifier = Modifier.padding(bottom = 8.dp))
+            BasicText("覆盖安装，设置和词库保留", style = TextStyle(color = pal.text2, fontSize = 12.5.sp), modifier = Modifier.padding(bottom = 8.dp))
+        }
+    }
+
+    @Composable
+    private fun VaultPage(pal:Pal,tick:Int) {
+        val prefs=Prefs.of(this)
+        val enabled=remember(tick) {prefs.getBoolean(Prefs.VAULT,false)}
+        val source=remember(tick) {VaultGateway(this).owner()}
+        var state by remember {mutableStateOf("")}
+        LaunchedEffect(enabled,source) {
+            if(!enabled) state="已关闭，不访问密码空间"
+            else Thread {
+                val status=VaultGateway(this@SettingsActivity).call("status",Bundle())
+                val label=when(status.getString("status")) {
+                    "ok" -> if(status.getBoolean("enabled")) "已连接空叶文档密码空间" else "请在空叶文档中允许键盘读取"
+                    "disabled" -> "请在空叶文档中允许键盘读取"
+                    "denied" -> "未获得密码空间权限，请确认两个应用签名一致"
+                    "not_found" -> "未安装对应空叶文档，或密码接口尚未就绪"
+                    else -> "密码空间暂不可用"
+                }
+                status.clear()
+                runOnUiThread {if(prefs.getBoolean(Prefs.VAULT,false)==enabled && VaultGateway(this@SettingsActivity).owner()==source) state=label}
+            }.start()
+        }
+        Card(pal) {
+            ToggleRow(pal,"密码填充","使用空叶文档中的密码空间",enabled) {prefs.edit().putBoolean(Prefs.VAULT,it).apply()}
+            BasicText(state,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=19.sp),modifier=Modifier.padding(vertical=8.dp))
+            BasicText("登录时点候选栏中的名称填充；未解锁会打开空叶文档验证。账号填完后尝试跳到密码框。新密码框可生成强密码，确认框在两分钟内可复用。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
+        }
+        Card(pal) {
+            BasicText("密码空间来源",style=TextStyle(color=pal.ink,fontSize=15.sp))
+            VaultGateway.PACKAGES.forEachIndexed {index,pkg ->
+                ActionRow(pal,listOf("正式版","测试 audit","测试 docktest","升级验证 fixture")[index],null,if(source==pkg) "已选择" else "选择") {
+                    prefs.edit().putString(Prefs.VAULT_PACKAGE,pkg).apply()
+                }
+            }
+        }
+        Card(pal) {
+            BasicText("输入的密码只暂存在内存，粘贴内容不记录；点击保存才写入空叶文档。关闭提示、锁屏或超时会清除暂存。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
+            BasicText("浏览器无法向键盘提供网站域名，网页登录请搜索密码空间。系统安全键盘可能替换第三方键盘，可在系统设置中关闭；银行等应用的自绘键盘不支持填充。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=8.dp))
         }
     }
 
     @Composable
     private fun TipsPage(pal: Pal) {
         Card(pal) {
-            Tip(pal, "上下滑输入符号", "按住字母往下滑，右上角的符号会移到中间，松手输入它；往上滑是左下角的。长按也输入右上角的。")
-            Tip(pal, "删除键", "往下滑清空整个输入框，往上滑撤销。")
-            Tip(pal, "分词", "打中文时大写键会变成“分词”，比如 xi 分词 an 出“西安”。")
-            Tip(pal, "移动光标", "在空格上左右滑；长按空格进入光标模式，可以上下左右移动。")
-            Tip(pal, "纠错", "打错一个字母时候选会给出正确的词，拼音里打错的字母标红。")
-            Tip(pal, "手写", "更多 → 手写。写完停笔半秒自动识别，候选带拼音。第一次用会下载约 20MB 的手写模型，之后识别在手机上完成，不联网。")
-            Tip(pal, "翻译", "更多 → 翻译。在上面的输入框打字，译文实时出现在聊天框里，点“完成”确定；点左边的语言可以选译成什么。第一次用要下载约 30MB 的翻译模型。")
-            Tip(pal, "拼音条", "打拼音时键盘左上角会伸出拼音条，点拼音中间的位置可以把光标移过去改错字母。")
-            Tip(pal, "工具栏", "点工具栏里的工具打开它，再点一次回到键盘。左上角“更多”里是其余的功能。")
+            Tip(pal, "上下滑", "下滑输入右上角符号，上滑输入左下角")
+            Tip(pal, "删除键", "下滑清空，上滑撤销")
+            Tip(pal, "分词", "打拼音时大写键变成分词：xi 分词 an → 西安")
+            Tip(pal, "移动光标", "左右滑空格，或长按空格后滑动")
+            Tip(pal, "拼音条", "点拼音中间，可以在那里改字母")
+            Tip(pal, "手写", "首次使用下载约 20MB 模型")
+            Tip(pal, "翻译", "译文直接出现在光标处，首次使用下载模型")
+            Tip(pal, "工具栏", "再点一次已打开的工具，回到键盘")
         }
     }
 }
@@ -1088,7 +1105,7 @@ private fun NavRow(pal: Pal, it: Item) {
         Column(Modifier.weight(1f)) {
             BasicText(it.title, style = TextStyle(color = pal.ink, fontSize = 16.sp))
             Spacer(Modifier.height(1.dp))
-            BasicText(it.sub, style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 17.sp))
+
         }
         Spacer(Modifier.width(8.dp))
         if (it.value != null) BasicText(it.value, style = TextStyle(color = it.valueColor ?: pal.text2, fontSize = 13.5.sp, fontWeight = FontWeight.Medium))

@@ -8,7 +8,15 @@
     <!-- 只用来第一次下载离线翻译模型 -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <uses-permission android:name="com.kongye.permission.VAULT" />
+
     <queries>
+        <provider android:authorities="com.kongye.docs.vault;com.kongye.docs.audit.vault;com.kongye.docs.docktest.vault;com.kongye.docs.upgradefixture.vault" />
+        <package android:name="com.kongye.docs" />
+        <package android:name="com.kongye.docs.audit" />
+        <package android:name="com.kongye.docs.docktest" />
+        <package android:name="com.kongye.docs.upgradefixture" />
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.APP_BROWSER" /></intent>
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>

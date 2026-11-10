@@ -43,6 +43,15 @@ object NativeMotion {
         })
         content.invalidate()
     }
+    /** A fixed-size content transition; no bitmap of a potentially very tall list. */
+    fun change(view:View, update:()->Unit) {
+        view.animate().cancel()
+        if(!ValueAnimator.areAnimatorsEnabled()) {update();view.alpha=1f;return}
+        view.animate().alpha(.25f).setDuration(80).withEndAction {
+            update()
+            view.animate().alpha(1f).setDuration(160).setInterpolator(DecelerateInterpolator()).start()
+        }.start()
+    }
     fun enter(view: View, distance: Float=7f) {
         if (!ValueAnimator.areAnimatorsEnabled()) return
         view.animate().cancel()

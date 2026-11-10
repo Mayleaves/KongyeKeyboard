@@ -54,6 +54,8 @@ object Prefs {
     const val TRANS_TO = "trans_to"
     /** 语音：0 普通话，1 四川话 */
     const val VOICE_LANG = "voice_lang"
+    const val VAULT = "vault_fill"
+    const val VAULT_PACKAGE = "vault_package"
     const val UPDATE_CHECKED = "update_checked"
     /** 空格长按：0 光标模式，1 连续输入空格，2 开关语音 */
     const val SPACE_LONG = "space_long"

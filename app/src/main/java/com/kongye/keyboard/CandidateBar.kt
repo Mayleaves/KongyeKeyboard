@@ -39,7 +39,7 @@ class CandidateBar(context: Context) : View(context) {
         fun onToolCursor(dir: Int) {}
     }
 
-    enum class Mode { TOOLS, CANDS, ASSOC, MESSAGE, CLIP_SUGGEST }
+    enum class Mode { TOOLS, CANDS, ASSOC, MESSAGE, CLIP_SUGGEST, ACTIONS }
 
     var onLongCandidate: (String?) -> Unit = {}
     var listener: Listener? = null
@@ -48,6 +48,8 @@ class CandidateBar(context: Context) : View(context) {
     var cursorMode: Boolean = false
         set(v) { if (field != v) { field = v; invalidate() } }
 
+    private var actionPick: (Int) -> Unit = {}
+    private var actionClose: () -> Unit = {}
     private var mode = Mode.TOOLS
     private var items: List<CandItem> = emptyList()
     private var starts = FloatArray(0)
@@ -95,9 +97,10 @@ class CandidateBar(context: Context) : View(context) {
         override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,Float>?)=size>512
     }
     private val pad get() = 12 * d
-    private val expandW get() = if (mode == Mode.CANDS || mode == Mode.ASSOC) 44 * d else 0f
+    private val expandW get() = if (mode == Mode.CANDS || mode == Mode.ASSOC || mode == Mode.ACTIONS) 44 * d else 0f
 
     fun showTools(t: List<String>, active: String? = null) {
+        contentDescription=null
         mode = Mode.TOOLS; tools = t; activeTool = active; onLongCandidate(null); invalidate()
     }
 
@@ -107,21 +110,33 @@ class CandidateBar(context: Context) : View(context) {
             items[i].w==visible[i].w && items[i].py==visible[i].py && items[i].mask.contentEquals(visible[i].mask)
         }
         if(same) return
+        contentDescription=null
         mode=Mode.CANDS;items=visible;this.expanded=expanded
         layoutItems();resetScroll();updateLongCandidate();invalidate()
         animate().cancel();alpha=1f
     }
 
     fun showAssoc(list: List<String>) {
+        contentDescription=null
         mode = Mode.ASSOC; items = list.map { CandItem(it) };onLongCandidate(null)
         layoutItems(); resetScroll(); invalidate()
     }
 
+    fun showActions(labels: List<String>, pick: (Int) -> Unit, close: () -> Unit) {
+        val same = mode == Mode.ACTIONS && items.map { it.w } == labels
+        contentDescription=labels.joinToString("；")
+        actionPick = pick; actionClose = close; mode = Mode.ACTIONS
+        items = labels.map { CandItem(it) }; onLongCandidate(null)
+        if (!same) { layoutItems(); resetScroll() }; invalidate()
+    }
+
     fun showMessage(msg: String) {
+        contentDescription=msg
         mode = Mode.MESSAGE; message = msg;onLongCandidate(null); invalidate()
     }
 
     fun showClipSuggestion(text: String) {
+        contentDescription=null
         mode = Mode.CLIP_SUGGEST;onLongCandidate(null); clipSuggest = text; clipPressedZone = 0; invalidate()
     }
 
@@ -166,7 +181,7 @@ class CandidateBar(context: Context) : View(context) {
         if (toolDrag) { drawToolDrag(c); return }
         when (mode) {
             Mode.TOOLS -> drawTools(c)
-            Mode.CANDS, Mode.ASSOC -> drawItems(c)
+            Mode.CANDS, Mode.ASSOC, Mode.ACTIONS -> drawItems(c)
             Mode.CLIP_SUGGEST -> drawClipSuggest(c)
             Mode.MESSAGE -> {
                 text.textSize = 13 * d
@@ -293,11 +308,11 @@ class CandidateBar(context: Context) : View(context) {
             fill.color = skin.kbBg
             c.drawRect(viewW, 0f, width.toFloat(), h, fill)
             val ic = when {
-                mode == Mode.ASSOC -> R.drawable.ic_close
+                mode == Mode.ASSOC || mode == Mode.ACTIONS -> R.drawable.ic_close
                 expanded -> R.drawable.ic_chevron_up
                 else -> R.drawable.ic_chevron_down
             }
-            icons.draw(c, ic, viewW + expandW / 2, h / 2, if (mode == Mode.ASSOC) 18f else 22f, skin.barFg)
+            icons.draw(c, ic, viewW + expandW / 2, h / 2, if (mode == Mode.ASSOC || mode == Mode.ACTIONS) 18f else 22f, skin.barFg)
         }
     }
 
@@ -308,7 +323,7 @@ class CandidateBar(context: Context) : View(context) {
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        val scrollable = mode == Mode.CANDS || mode == Mode.ASSOC
+        val scrollable = mode == Mode.CANDS || mode == Mode.ASSOC || mode == Mode.ACTIONS
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = e.x
@@ -408,6 +423,10 @@ class CandidateBar(context: Context) : View(context) {
             Mode.ASSOC -> {
                 if (x >= width - expandW) listener?.onDismissAssoc()
                 else indexAt(x + scrollPos).takeIf { it >= 0 }?.let { listener?.onAssoc(it) }
+            }
+            Mode.ACTIONS -> {
+                if (x >= width - expandW) actionClose()
+                else indexAt(x + scrollPos).takeIf { it >= 0 }?.let(actionPick)
             }
             Mode.CLIP_SUGGEST -> when {
                 x >= clipCloseX() -> listener?.onClipDismiss()

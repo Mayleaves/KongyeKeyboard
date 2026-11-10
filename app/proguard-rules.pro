@@ -23,3 +23,15 @@
 # Composition editor is exercised by the separate on-device regression APK.
 -keep class com.kongye.keyboard.PinyinTab { *; }
 -keep class com.kongye.keyboard.PinyinTab$Preview { *; }
+
+# Device regressions exercise the v2 password protocol state machine.
+-keep class com.kongye.keyboard.VaultFill** { *; }
+-keep class com.kongye.keyboard.VaultFields** { *; }
+-keep class com.kongye.keyboard.VaultGateway { *; }
+
+# The release-device Kotlin tests are compiled separately from the app: keep the
+# standard-library entry points they share, so R8 cannot specialize signatures.
+-keep class kotlin.collections.** { *; }
+-keep class kotlin.text.** { *; }
+-keep class kotlin.jvm.** { *; }
+-keep class kotlin.Unit { *; }

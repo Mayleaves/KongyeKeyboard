@@ -50,6 +50,25 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("vault-fixture-on".equals(mode) || "vault-fixture-off".equals(mode)) {
+                android.content.SharedPreferences prefs=ctx.getSharedPreferences("kongye",0);
+                android.content.SharedPreferences backup=ctx.getSharedPreferences("vault-ui-restore",0);
+                if ("vault-fixture-on".equals(mode)) {
+                    if(!backup.contains("saved")) backup.edit().putBoolean("saved",true).putBoolean("enabled",prefs.getBoolean("vault_fill",false)).putBoolean("hadSource",prefs.contains("vault_package")).putString("source",prefs.getString("vault_package",null)).commit();
+                    prefs.edit().putBoolean("vault_fill",true).putString("vault_package","com.kongye.docs.upgradefixture").commit();
+                } else if(backup.contains("saved")) {
+                    android.content.SharedPreferences.Editor edit=prefs.edit().putBoolean("vault_fill",backup.getBoolean("enabled",false));
+                    if(backup.getBoolean("hadSource",false)) edit.putString("vault_package",backup.getString("source",null)); else edit.remove("vault_package");
+                    edit.commit();backup.edit().clear().commit();
+                }
+                report("FIXTURE CONFIGURATION UPDATED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("vault-live".equals(mode)) {
+                VaultRegression.live(this);report("ALL CROSS-APP VAULT CONTRACT CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("vault".equals(mode)) {
+                VaultRegression.run(this);report("ALL VAULT PRIVACY AND FLOW REGRESSIONS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
             if ("composition".equals(mode)) {
                 checkComposition(ctx);
                 report("ALL COMPOSITION EDITOR CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;

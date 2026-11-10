@@ -11,6 +11,7 @@ OUT = os.path.join(os.path.dirname(__file__), '..', 'app', 'src', 'main', 'res',
 
 # 名字 → SVG 元素。fill="c" 表示实心（白色，可染色）；fill="#RRGGBB" 表示固定颜色
 ICONS = {
+    'key': '<path d="M14 7a5 5 0 1 0 0 10a5 5 0 0 0 0-10M9 12H2M3 12v4M6 12v3"/>',
     'shift': '<path d="M12 4.5 4.5 12H9v6.5h6V12h4.5z"/>',
     'shift_on': '<path fill="c" d="M12 4.5 4.5 12H9v6.5h6V12h4.5z"/>',
     'shift_lock': '<path fill="c" d="M12 3.5 4.5 11H9v5h6v-5h4.5z"/><path d="M8.5 20h7" stroke-width="2.2"/>',
@@ -47,6 +48,7 @@ ICONS = {
     'refresh': '<path d="M19 12a7 7 0 1 1-.94-3.5"/><path d="M18.06 4v4.5h-4.5"/>',
     'split': '<rect x="3.5" y="7" width="7" height="10" rx="1.5"/><rect x="13.5" y="7" width="7" height="10" rx="1.5"/><path d="M12 4v2M12 18v2"/>',
     'tag': '<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3-8.7 8.7z"/><path d="M8 8h.01" stroke-width="2.6"/>',
+    'plus': '<path d="M12 5.5v13M5.5 12h13"/>',
     'download': '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
     # 1.5.0：手写重写、收起键盘、分词插入
     'eraser': '<path d="m14.5 4.5 5 5-9 9H6l-2.5-2.5a1.5 1.5 0 0 1 0-2.1z"/><path d="m9.5 9.5 5 5M10.5 18.5H20"/>',
