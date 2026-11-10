@@ -12,7 +12,7 @@ import java.security.MessageDigest
 
 /** App-private APK download. Nothing in the update flow launches a web page. */
 object AppUpdate {
-    private const val MAX_BYTES=200L*1024*1024
+    private const val MAX_BYTES=1024L*1024*1024
     fun installer(context:Context,file:File):Intent = Intent(Intent.ACTION_VIEW).apply {
         setDataAndType(FileProvider.getUriForFile(context,"${context.packageName}.files",file),"application/vnd.android.package-archive")
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
