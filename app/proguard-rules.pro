@@ -23,6 +23,7 @@
 # Composition editor is exercised by the separate on-device regression APK.
 -keep class com.kongye.keyboard.PinyinTab { *; }
 -keep class com.kongye.keyboard.PinyinTab$Preview { *; }
+-keep class com.kongye.keyboard.SinkStrip { *; }
 
 # Device regressions exercise the v2 password protocol state machine.
 -keep class com.kongye.keyboard.VaultFill** { *; }

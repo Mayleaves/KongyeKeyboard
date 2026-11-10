@@ -50,6 +50,9 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("sink-editor".equals(mode)) {
+                SinkEditorRegression.run(this);report("ALL LOCAL CLIPBOARD EDITOR CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
             if ("vault-fixture-on".equals(mode) || "vault-fixture-off".equals(mode)) {
                 android.content.SharedPreferences prefs=ctx.getSharedPreferences("kongye",0);
                 android.content.SharedPreferences backup=ctx.getSharedPreferences("vault-ui-restore",0);

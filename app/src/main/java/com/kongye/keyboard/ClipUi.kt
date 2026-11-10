@@ -24,6 +24,10 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.FrameLayout
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.inputmethod.BaseInputConnection
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -425,7 +429,7 @@ class ClipboardPanel(
  * 剪贴板搜索、编辑，新建分类、翻译时出现在候选栏上方的输入条：键盘打的字进这里，不进编辑框。
  * 编辑时能显示多行（最多 5 行），搜索时一行。
  */
-class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCancel: () -> Unit) : View(context) {
+class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCancel: () -> Unit) : FrameLayout(context) {
     private val d = resources.displayMetrics.density
     private val icons = Icons(context)
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -437,8 +441,47 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
     var hint = "搜索剪贴板"
     var multiline = false
         set(value) { if(field!=value) { field=value;requestLayout() } }
+    private var changingEditor = false
+    /** Clipboard add/edit uses a real local editor, not the application's InputConnection. */
+    val editor = android.inputmethodservice.ExtractEditText(context).apply {
+        background = null
+        setPadding(0,0,0,0)
+        textSize = 15f
+        gravity = Gravity.TOP or Gravity.START
+        inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        showSoftInputOnFocus = false
+        importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        visibility = View.GONE
+    }
+    private val localConnection = object: BaseInputConnection(editor,true) {
+        override fun getEditable(): Editable = editor.text
+    }
+    var localEditing = false
+        set(value) {
+            field=value;editor.visibility=if(value) View.VISIBLE else View.GONE
+            if(!value) editor.clearFocus()
+            requestLayout()
+        }
+    var onEdited: (String) -> Unit = {}
+    var onBeforeSelection: () -> Unit = {}
     var value = ""
+        set(value) {
+            field=value
+            if(localEditing && !changingEditor) {
+                changingEditor=true
+                try { editor.setText(value);editor.setSelection(editor.length()) }
+                finally {changingEditor=false}
+            }
+        }
     var composing = ""
+        set(value) {
+            if(field==value) return
+            field=value
+            if(localEditing && !changingEditor) {
+                changingEditor=true
+                try {localConnection.setComposingText(value,1)} finally {changingEditor=false}
+            }
+        }
     /** 翻译模式：左边的语言按钮文字；null 表示普通输入条 */
     var chip: String? = null
     var translatedPreview = ""
@@ -446,6 +489,68 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
     var onChip: () -> Unit = {}
     var onMic: () -> Unit = {}
     var onClear: () -> Unit = {}
+
+    init {
+        setWillNotDraw(false)
+        addView(editor)
+        editor.addTextChangedListener(object: TextWatcher {
+            override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
+            override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) {}
+            override fun afterTextChanged(s:Editable?) {
+                if(localEditing && !changingEditor) publishEdit()
+            }
+        })
+        editor.setOnTouchListener {_,event ->
+            if(event.actionMasked==MotionEvent.ACTION_DOWN) {
+                onBeforeSelection()
+                editor.requestFocus()
+            }
+            false
+        }
+    }
+
+    private fun publishEdit() {
+        changingEditor=true
+        try {value=editor.text.toString();composing=""} finally {changingEditor=false}
+        onEdited(value);requestLayout()
+    }
+    fun insertAtCursor(text:String) {
+        changingEditor=true
+        try {localConnection.commitText(text,1);localConnection.finishComposingText()} finally {changingEditor=false}
+        publishEdit()
+    }
+    fun deleteAtCursor() {
+        val from=min(editor.selectionStart,editor.selectionEnd).coerceAtLeast(0)
+        val to=max(editor.selectionStart,editor.selectionEnd).coerceAtLeast(0)
+        changingEditor=true
+        try {
+            if(from!=to) editor.text.delete(from,to)
+            else if(from>0) editor.text.delete(Character.offsetByCodePoints(editor.text,from,-1),from)
+        } finally {changingEditor=false}
+        publishEdit()
+    }
+    fun editAction(id:String, selecting:Boolean=false) {
+        val menu=when(id) {
+            "all" -> android.R.id.selectAll; "copy" -> android.R.id.copy
+            "cut" -> android.R.id.cut; "paste" -> android.R.id.paste
+            "undo" -> android.R.id.undo; "redo" -> android.R.id.redo
+            else -> 0
+        }
+        if(menu!=0) {editor.onTextContextMenuItem(menu);return}
+        if(id=="del") {deleteAtCursor();return}
+        if(id=="enter") {insertAtCursor("\n");return}
+        val layout=editor.layout ?: return
+        val text=editor.text
+        when(id) {
+            "left" -> if(selecting) android.text.Selection.extendLeft(text,layout) else android.text.Selection.moveLeft(text,layout)
+            "right" -> if(selecting) android.text.Selection.extendRight(text,layout) else android.text.Selection.moveRight(text,layout)
+            "up" -> if(selecting) android.text.Selection.extendUp(text,layout) else android.text.Selection.moveUp(text,layout)
+            "down" -> if(selecting) android.text.Selection.extendDown(text,layout) else android.text.Selection.moveDown(text,layout)
+            "home" -> if(selecting) android.text.Selection.extendToLeftEdge(text,layout) else android.text.Selection.moveToLeftEdge(text,layout)
+            "end" -> if(selecting) android.text.Selection.extendToRightEdge(text,layout) else android.text.Selection.moveToRightEdge(text,layout)
+        }
+        editor.bringPointIntoView(editor.selectionEnd)
+    }
 
     private var scrollOffsetY = 0f
     private var maxScrollY = 0f
@@ -463,6 +568,12 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
     private val boxRight get() = width - 70 * d
 
     fun refresh() {
+        if(localEditing) {
+            editor.hint=hint
+            editor.setTextColor(skin.keyFg);editor.setHintTextColor(skin.barFg)
+            if(android.os.Build.VERSION.SDK_INT>=29) editor.textCursorDrawable?.setTint(skin.candHi)
+            requestLayout();invalidate();return
+        }
         val snap = value + "\u0000" + composing
         val textChanged = snap != lastTextSnapshot
         lastTextSnapshot = snap
@@ -484,6 +595,7 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         isEnabled=show
         if(!animate || !android.animation.ValueAnimator.areAnimatorsEnabled()) {
             visibility=if(show) View.VISIBLE else View.GONE
+            if(show && localEditing) editor.requestFocus()
             alpha=1f;translationY=0f;return
         }
         if(show) {
@@ -526,6 +638,11 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         maxScrollY = max(0f, (lay?.height ?: 0) - viewportH)
         scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScrollY)
         setMeasuredDimension(w, h)
+        if(localEditing) editor.measure(MeasureSpec.makeMeasureSpec(textWidth(w),MeasureSpec.EXACTLY),MeasureSpec.makeMeasureSpec((h-26*d).toInt(),MeasureSpec.EXACTLY))
+    }
+
+    override fun onLayout(changed:Boolean,left:Int,top:Int,right:Int,bottom:Int) {
+        if(localEditing) editor.layout((44*d).toInt(),(14*d).toInt(),(width-92*d).toInt(),(height-12*d).toInt())
     }
 
     override fun onDraw(c: Canvas) {
@@ -539,6 +656,11 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
 
         val iconCy = r.centerY()
         icons.draw(c, icon, 26 * d, iconCy, 19f, skin.barFg)
+        if(localEditing) {
+            icons.draw(c,R.drawable.ic_done,width-66*d,iconCy,21f,skin.candHi)
+            icons.draw(c,R.drawable.ic_close,width-32*d,iconCy,18f,skin.barFg)
+            return
+        }
         val lay = layoutFor(width)
         val left = 44 * d
         val top = r.top + 8 * d

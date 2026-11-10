@@ -130,6 +130,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var sink = Sink.NONE
     private val sinkBuf = StringBuilder()
     private var sinkClip: Clip? = null
+    private var sinkCategory = ""
     private var clipTab = "全部"
     private var clipQuery = ""
     private var clipExpanded: Clip? = null
@@ -722,6 +723,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun commitOut(text: String, typing: Boolean = false) {
         EditorDeletion.cancel()
         if (sink != Sink.NONE) {
+            if(sinkStrip.localEditing) {sinkStrip.insertAtCursor(text);return}
             sinkBuf.append(text)
             sinkStrip.value = sinkBuf.toString()
             sinkStrip.composing = ""
@@ -864,6 +866,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     private fun undo() {
+        if(sink!=Sink.NONE && sinkStrip.localEditing) {sinkStrip.editAction("undo");return}
         if(passwordField) return
         if (sink != Sink.NONE) return
         if (seq.isNotEmpty() || picks.isNotEmpty()) { resetComposing(); composeOut(""); renderBar(); return }
@@ -875,6 +878,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     private fun redo() {
+        if(sink!=Sink.NONE && sinkStrip.localEditing) {sinkStrip.editAction("redo");return}
         if(passwordField) return
         if(editorCommand("REDO")) return
         val s = redoStack.removeLastOrNull()
@@ -1079,6 +1083,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onCursorMove(dx: Int, dy: Int) {
+        if(sink!=Sink.NONE && sinkStrip.localEditing) {
+            if(seq.isNotEmpty()) finalizeComposing()
+            sinkStrip.editAction(when {dx<0->"left";dx>0->"right";dy<0->"up";else->"down"})
+            return
+        }
         if(passwordField) vault.invalidateCapture()
         if (seq.isNotEmpty() || sink != Sink.NONE) return
         when {
@@ -1185,6 +1194,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         assoc = emptyList()
         breakChain()
         if (sink != Sink.NONE) {
+            if(sinkStrip.localEditing) {
+                sinkStrip.deleteAtCursor();renderBar();updateAutoCaps();return
+            }
             if (sinkBuf.isNotEmpty()) sinkBuf.setLength(Character.offsetByCodePoints(sinkBuf, sinkBuf.length, -1))
             sinkStrip.value = sinkBuf.toString()
             sinkStrip.refresh()
@@ -1492,9 +1504,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 voicePartial = ""
                 if (leftover.isNotEmpty()) {
                     if (voiceToSink) {
-                        sinkBuf.append(leftover)
-                        sinkStrip.value = sinkBuf.toString()
-                        onSinkChanged()
+                        commitOut(leftover)
                     } else {
                         voiceText.append(leftover)
                     }
@@ -1514,9 +1524,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 voicePartial = ""
                 if (voiceToSink) {
                     if (text.isNotEmpty()) {
-                        sinkBuf.append(text)
-                        sinkStrip.value = sinkBuf.toString()
-                        onSinkChanged()
+                        commitOut(text)
                     }
                     voiceStatus = if (text.isNotEmpty()) "语音识别完成，正在翻译…" else "点麦克风继续说话"
                     updateVoice()
@@ -1571,7 +1579,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 if (!active()) return
                 voicePartial = ""
                 if (voiceToSink) {
-                    sinkBuf.append(text); sinkStrip.value = sinkBuf.toString(); onSinkChanged()
+                    commitOut(text)
                 } else voiceText.append(text)
                 updateVoice()
             }
@@ -1628,9 +1636,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (leftover.isNotEmpty()) {
             voicePartial = ""
             if (voiceToSink) {
-                sinkBuf.append(leftover)
-                sinkStrip.value = sinkBuf.toString()
-                onSinkChanged()
+                commitOut(leftover)
             } else {
                 voiceText.append(leftover)
             }
@@ -1720,10 +1726,15 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         NativeMotion.swap(root,col) {startSinkNow(mode,initial,clip)}
     }
     private fun startSinkNow(mode: Sink, initial: String, clip: Clip?) {
+        if(sink!=Sink.NONE) {
+            if(sink==Sink.TRANSLATE) ic()?.setComposingText("",1)
+            endSink(false)
+        }
         if (seq.isNotEmpty()) resetComposing()
         closePanel(render = false, animate=false)
         sink = mode
         sinkClip = clip
+        sinkCategory = if(mode==Sink.CLIP_ADD) clipTab else ""
         sinkBuf.setLength(0)
         sinkBuf.append(initial)
         langPicking = false
@@ -1739,8 +1750,13 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             resetComposing(); onSinkChanged(); renderBar()
         }
         sinkStrip.multiline = mode == Sink.EDIT || mode == Sink.CLIP_ADD
+        sinkStrip.localEditing = mode == Sink.EDIT || mode == Sink.CLIP_ADD
+        sinkStrip.onBeforeSelection = {if(seq.isNotEmpty() || picks.isNotEmpty()) finalizeComposing()}
+        sinkStrip.onEdited = {text ->
+            sinkBuf.setLength(0);sinkBuf.append(text);onSinkChanged()
+        }
         sinkStrip.icon = when (mode) { Sink.EDIT, Sink.CLIP_ADD -> R.drawable.ic_edit; Sink.TRANSLATE -> R.drawable.ic_translate; Sink.NEWCAT -> R.drawable.ic_clip; Sink.FAVORITE -> R.drawable.ic_emoji; else -> R.drawable.ic_search }
-        sinkStrip.hint = when (mode) { Sink.VAULT_SEARCH -> "搜索密码空间（名称或账号）"; Sink.CLIP_ADD -> "添加到分类“$clipTab”"; Sink.EDIT -> "修改内容"; Sink.TRANSLATE -> "输入要翻译的中文或外文"; Sink.NEWCAT -> "新分类的名字"; Sink.FAVORITE -> "输入要收藏的表情或颜文字"; else -> "搜索剪贴板" }
+        sinkStrip.hint = when (mode) { Sink.VAULT_SEARCH -> "搜索密码空间（名称或账号）"; Sink.CLIP_ADD -> "添加到分类“$sinkCategory”"; Sink.EDIT -> "修改内容"; Sink.TRANSLATE -> "输入要翻译的中文或外文"; Sink.NEWCAT -> "新分类的名字"; Sink.FAVORITE -> "输入要收藏的表情或颜文字"; else -> "搜索剪贴板" }
         sinkStrip.value = initial
         sinkStrip.composing = ""
         sinkStrip.showAnimated(true,animate=false)
@@ -1758,8 +1774,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (voiceToSink) { stopListening(); voiceToSink = false }
         sink = Sink.NONE
         sinkClip = null
+        sinkCategory = ""
         langPicking = false
-        if (::sinkStrip.isInitialized) sinkStrip.showAnimated(false, animate)
+        if (::sinkStrip.isInitialized) {sinkStrip.localEditing=false;sinkStrip.showAnimated(false, animate)}
         updateClipSearch()
     }
 
@@ -1847,7 +1864,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             }
             Sink.SEARCH -> clipQuery = text.trim()
             Sink.EDIT -> sinkClip?.let { ClipStore.update(it, text) }
-            Sink.CLIP_ADD -> ClipStore.addCustom(text, clipTab)
+            Sink.CLIP_ADD -> {
+                if(text.isBlank()) {message("先输入要添加的内容");return}
+                if(sinkCategory !in ClipStore.customTabs()) {message("这个分类已删除，请重新选择分类");return}
+                ClipStore.addCustom(text,sinkCategory);clipTab=sinkCategory
+            }
             Sink.NEWCAT -> { ClipStore.addCategory(text); if (text.isNotBlank()) clipTab = text.trim().take(8) }
             Sink.TRANSLATE -> {
                 // 完成：把译文确定下来（还没出来就用原文）
@@ -2114,6 +2135,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     // —————————— 编辑面板 ——————————
 
     private fun editAction(id: String) {
+        if(sink!=Sink.NONE && sinkStrip.localEditing) {
+            buzz()
+            if(seq.isNotEmpty()) finalizeComposing()
+            if(id=="select") {
+                selecting=!selecting;editView?.selecting=selecting;editView?.invalidate()
+            } else sinkStrip.editAction(id,selecting)
+            return
+        }
         if(passwordField) { vault.invalidateCapture(); if(id in setOf("copy","cut")) {message("密码不复制到剪贴板");return} }
         buzz()
         val ic = ic() ?: return
