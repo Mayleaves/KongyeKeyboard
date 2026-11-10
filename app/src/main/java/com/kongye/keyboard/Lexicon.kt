@@ -55,7 +55,7 @@ object Lexicon {
             val prefix=sorted[i].p.substring(0,length)
             prefixRanges[prefix]=prefixRanges[prefix]?.let {it.first..i} ?: i..i
         }
-        corrector = PinyinCorrection(sorted.filter {it.w.length >= 2}.map {it.p})
+        corrector = PinyinCorrection(sorted.map {it.p})
         candidateCache.clear()
     }
     private val exact = HashMap<String, ArrayList<Entry>>()
@@ -260,6 +260,7 @@ object Lexicon {
         }
         val combos=beam.filter {it.second>0}.map {it.first}
         val fz = ArrayList<Cand>()
+        val completeFuzzy=HashSet<Cand>()
         for (combo in combos) {
             val varBounds = IntArray(combo.size + 1).also { b -> combo.forEachIndexed { i, x -> b[i + 1] = b[i] + x.length } }
             val v = combo.joinToString("")
@@ -271,18 +272,21 @@ object Lexicon {
                 if (c.sentence || c.abbr || c.fix) continue
                 val j = varBounds.indexOf(c.n)
                 if (j <= 0) continue
-                fz.add(Cand(c.w, origBounds[j], e, c.score - 3f*combo.indices.count {combo[it]!=syl[it]}, fuzzy = true))
+                val candidate=Cand(c.w,origBounds[j],e,c.score-3f*combo.indices.count {combo[it]!=syl[it]},fuzzy=true)
+                fz.add(candidate)
+                if(candidate.n==n && e.p.length==c.n) completeFuzzy.add(candidate)
             }
         }
         if (fz.isEmpty()) return base
         fz.sortByDescending { it.score }
         // 整个输入都对上的词（原读音和模糊读音）放一起按分数排最前；拼出来的整句只在没有模糊整词时保留
         val baseFull = base.filter { it.n == n && !it.abbr && !it.fix && !it.sentence && it.e != null && it.e.p.length == n }
-        val fzFull = fz.filter { it.n == n }
+        val fzFull = fz.filter { it in completeFuzzy }
         val full = (baseFull + fzFull).sortedByDescending { it.score }
         val sentences = if (fzFull.isEmpty()) base.filter { it.sentence } else emptyList()
-        val rest = base.filterNot { it in baseFull || it.sentence }
-        val merged = sentences + full.take(8) + rest.take(4) + fz.filter { it.n != n }.take(12) + rest.drop(4) + full.drop(8)
+        val fixes=base.filter {it.fix}
+        val rest = base.filterNot { it in baseFull || it.sentence || it.fix }
+        val merged = full.take(8) + fixes.take(6) + sentences + rest.take(4) + fz.filterNot {it in completeFuzzy}.take(12) + rest.drop(4) + full.drop(8)
         val seen = HashSet<String>()
         return merged.filter { seen.add(it.w) }
     }
@@ -319,7 +323,7 @@ object Lexicon {
                 if(a.none { it.e != null && it.e.p.length == n && !it.abbr }) sentence(s)?.let { a.add(it) }
                 // A typo can itself spell a real word; retain that exact word first,
                 // but still offer nearby alternatives instead of hiding correction.
-                if (fuzzy && n >= 4) c.addAll(corrections(s))
+                if (fuzzy && n >= 3) c.addAll(corrections(s))
             }
         } else {
             // 14 键、九键：一个键多个字母，按首键的每个字母在有序表里扫一段
@@ -396,8 +400,8 @@ object Lexicon {
         val out=ArrayList<Cand>()
         for (match in corrector?.lookup(s).orEmpty()) {
             for (e in exact[match.spelling].orEmpty().take(10)) {
-                if (e.w.length<2) continue
-                out.add(Cand(e.w,s.length,e,e.sc+boost(e)-match.penalty,
+                val singlePenalty=if(e.w.length==1 && match.penalty>7f) 18f else 0f
+                out.add(Cand(e.w,s.length,e,e.sc+boost(e)-match.penalty-singlePenalty,
                     py=e.syl.joinToString(" "),mask=spaced(match.mask,e.syl)))
             }
         }

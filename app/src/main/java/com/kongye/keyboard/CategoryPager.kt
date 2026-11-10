@@ -27,6 +27,7 @@ class CategoryPager(context:Context):FrameLayout(context) {
     private var animator:ValueAnimator?=null
     private var queued:Int?=null
     private var velocity:VelocityTracker?=null
+    var onProgress: ((Int,Int,Float)->Unit)? = null
     private val cache=LinkedHashMap<Int,View>()
     fun pages(count:Int,selected:Int,factory:(Int)->View,onSelected:(Int)->Unit) {
         animator?.cancel();animator=null;queued=null
@@ -71,6 +72,7 @@ class CategoryPager(context:Context):FrameLayout(context) {
     private fun position(x:Float) {
         offset=x;current?.translationX=x
         neighbor?.translationX=x+(if(next>selected) width else -width)
+        onProgress?.invoke(selected,if(next>=0) next else selected,if(next>=0) (abs(x)/width.coerceAtLeast(1)).coerceIn(0f,1f) else 0f)
     }
     private fun settle(commit:Boolean,speed:Float) {
         val end=if(commit) (if(next>selected) -width else width).toFloat() else 0f

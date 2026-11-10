@@ -371,7 +371,7 @@ fun segmented(context: Context, skin: Skin, options: List<String>, index: Int, o
 }
 
 /** 换皮肤面板：深浅模式 + 配色网格 */
-class SkinPanel(context: Context, skin: Skin, themes: List<Theme>, selected: String, mode: Int, onMode: (Int) -> Unit, onPick: (Theme) -> Unit) : LinearLayout(context) {
+class SkinPanel(context: Context, skin: Skin, themes: List<Theme>, selected: String, mode: Int, onMode: (Int) -> Unit, onPick: (Theme) -> Unit, glass:Boolean=false,onGlass:(Boolean)->Unit={}) : LinearLayout(context) {
     init {
         orientation = VERTICAL
         val head = LinearLayout(context).apply {
@@ -383,6 +383,12 @@ class SkinPanel(context: Context, skin: Skin, themes: List<Theme>, selected: Str
         head.addView(TextView(context).apply { text = "深色模式"; textSize = 14f; setTextColor(skin.candFg) }, lp(0, WRAP, 1f))
         head.addView(segmented(context, skin, listOf("跟随系统", "浅色", "深色"), mode, onMode), lp(WRAP, WRAP))
         addView(head, lp(MATCH, WRAP))
+        addView(LinearLayout(context).apply {
+            orientation=HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
+            setPadding((12*resources.displayMetrics.density).toInt(),0,(12*resources.displayMetrics.density).toInt(),0)
+            addView(TextView(context).apply {text="液态玻璃";textSize=14f;setTextColor(skin.candFg)},lp(0,WRAP,1f))
+            addView(ToggleView(context,skin,glass,onGlass),lp((48*resources.displayMetrics.density).toInt(),(34*resources.displayMetrics.density).toInt()))
+        },lp(MATCH,WRAP))
         val grid = ThemeGridView(context, themes, selected, skin.candFg, skin.candHi, withAlpha(skin.candFg, 40), 3, onPick)
         addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(grid) }, lp(MATCH, 0, 1f))
     }

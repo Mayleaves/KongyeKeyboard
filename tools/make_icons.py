@@ -42,6 +42,8 @@ ICONS = {
     'symbol': '<circle cx="7.5" cy="7.5" r="2.5"/><circle cx="16.5" cy="16.5" r="2.5"/><path d="M18.5 5.5 5.5 18.5"/>',
     'back': '<path d="M19.5 12h-15M10.5 6l-6 6 6 6"/>',
     'space': '<path d="M4 10v4.5h16V10"/>',
+    'reset': '<path d="M9 5.7a7 7 0 1 0 6.2-.1"/><path fill="c" d="M9 2v7l4-3.5z"/>',
+    'split_layout': '<path fill="c" d="M3 4h5v2H3zM3 8h5v2H3zM3 12h5v2H3zM3 16h5v2H3zM3 20h5v1H3zM11 4h10v17H11z"/>',
     'refresh': '<path d="M19 12a7 7 0 1 1-.94-3.5"/><path d="M18.06 4v4.5h-4.5"/>',
     'split': '<rect x="3.5" y="7" width="7" height="10" rx="1.5"/><rect x="13.5" y="7" width="7" height="10" rx="1.5"/><path d="M12 4v2M12 18v2"/>',
     'tag': '<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3-8.7 8.7z"/><path d="M8 8h.01" stroke-width="2.6"/>',

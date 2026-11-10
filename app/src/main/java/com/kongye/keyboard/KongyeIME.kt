@@ -304,6 +304,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private var inputPackage: String? = null
     private var inputKind = 0
+    private var inputFieldId = 0
+    private var restoringHistoryUntil = 0L
     private var editMoveAt = 0L
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
@@ -312,9 +314,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             root?.post { adjustOverlay?.bringToFront(); positionAdjustment() }
             return
         }
-        val sameEditor=info.packageName==inputPackage && info.inputType==inputKind
+        val sameEditor=info.packageName==inputPackage && info.inputType==inputKind && info.fieldId==inputFieldId
         val keepEdit=panel==Panel.EDIT && sameEditor && (restarting || SystemClock.uptimeMillis()-editMoveAt<1000)
-        inputPackage=info.packageName;inputKind=info.inputType
+        inputPackage=info.packageName;inputKind=info.inputType;inputFieldId=info.fieldId
         if(keepEdit) {
             resetComposing();assoc=emptyList();renderBar();return
         }
@@ -323,7 +325,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         assoc = emptyList()
         selecting = false
         if (sink != Sink.NONE) endSink()
-        if (!restarting) { undoStack.clear(); redoStack.clear() }
+        if (!restarting && !(sameEditor && SystemClock.uptimeMillis()<restoringHistoryUntil)) { undoStack.clear(); redoStack.clear(); lastTypingAt=0L; lastTypingGroup="" }
         val cls = info.inputType and InputType.TYPE_MASK_CLASS
         val variation = info.inputType and InputType.TYPE_MASK_VARIATION
         val password = cls == InputType.TYPE_CLASS_TEXT && variation in setOf(
@@ -612,7 +614,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun ic(): InputConnection? = currentInputConnection
 
-    private fun commitOut(text: String) {
+    private fun commitOut(text: String, typing: Boolean = false) {
         if (sink != Sink.NONE) {
             sinkBuf.append(text)
             sinkStrip.value = sinkBuf.toString()
@@ -621,7 +623,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             onSinkChanged()
             return
         }
-        checkpoint(typing = true)
+        checkpoint(typing = typing, group="latin")
         ic()?.commitText(text, 1)
         Prefs.addTyped(this, text.count { it.isLetterOrDigit() })
     }
@@ -637,7 +639,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     // —————————— 拼音条 ——————————
 
-    private fun tabDisplay() = Lexicon.display(seq.toList(), if(candidatesPending) null else cands.firstOrNull())
+    private fun tabDisplay() = Lexicon.display(seq.toList(), null)
 
     private fun renderTab() {
         if (!::tab.isInitialized) return
@@ -696,6 +698,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private val undoStack = ArrayDeque<Snap>()
     private val redoStack = ArrayDeque<Snap>()
     private var lastTypingAt = 0L
+    private var lastTypingGroup = ""
 
     private fun snap(): Snap? {
         val ic = ic() ?: return null
@@ -712,21 +715,23 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         return ic()?.performPrivateCommand("com.kongye.input.$action",data)==true
     }
 
-    private fun checkpoint(typing: Boolean) {
+    private fun checkpoint(typing: Boolean, group: String = "typing") {
         if (sink != Sink.NONE || currentInputEditorInfo?.extras?.getInt("com.kongye.input.EDITOR_PROTOCOL",0)==1) return
         val now = SystemClock.uptimeMillis()
-        if (typing && now - lastTypingAt <= 1000) { lastTypingAt = now; return }
+        if (typing && group==lastTypingGroup && now - lastTypingAt <= 700) { lastTypingAt = now; return }
         snap()?.let { s ->
             if (undoStack.lastOrNull() != s) undoStack.addLast(s)
             while (undoStack.size > 100) undoStack.removeFirst()
         }
         redoStack.clear()
         lastTypingAt = if (typing) now else 0L
+        lastTypingGroup = if(typing) group else ""
     }
 
     private fun restore(s: Snap) {
         val ic = ic() ?: return
         val cur = snap() ?: return
+        restoringHistoryUntil=SystemClock.uptimeMillis()+1000
         ic.beginBatchEdit()
         ic.finishComposingText()
         // Keep the unchanged prefix/suffix (including editor sentinel characters).
@@ -790,18 +795,15 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         candidatesPending=true
         val immediate=pending+Lexicon.display(keys,null)
         composeOut(immediate)
-        renderTab()
         candidateTask?.cancel(false)
         candidateTask=candidateWorker.submit {
             val result=runCatching {Lexicon.candidates(keys,abbr)}.getOrElse {
                 android.util.Log.e("KongyeIME","Candidate query failed",it)
                 listOf(Cand(keys.joinToString("") {it.take(1)},keys.count {it!="'"},null,0f))
             }
-            main.post {
-                if(revision!=candidateRevision || seq.toList()!=keys) return@post
+            bar.postOnAnimation {
+                if(revision!=candidateRevision || seq.toList()!=keys) return@postOnAnimation
                 cands=result;candidatesPending=false
-                val display=pending+Lexicon.display(keys,result.firstOrNull())
-                if(display!=immediate) composeOut(display)
                 renderBar()
                 if(panel==Panel.CANDS) buildPanel()
             }
@@ -992,7 +994,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (!zh || layer != Layer.LETTERS || shift > 0) {
             if (seq.isNotEmpty()) finalizeComposing()
             assoc = emptyList()
-            commitOut(if (shift > 0) ch.uppercase() else ch)
+            commitOut(if (shift > 0) ch.uppercase() else ch, typing=true)
             if (shift == 1) { shift = 0; keyboard.shiftState = 0; keyboard.invalidate() }
             renderBar()
             return
@@ -1064,7 +1066,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             sinkStrip.refresh()
             onSinkChanged()
         } else {
-            checkpoint(typing = true)
+            checkpoint(typing = true, group="delete")
             deleteCommitted()
         }
         renderBar()
@@ -1837,6 +1839,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 this, skin, Themes.all(this), Prefs.theme(this).id, p.getInt(Prefs.MODE, 0),
                 onMode = { p.edit().putInt(Prefs.MODE, it).apply() },
                 onPick = { p.edit().putString(Prefs.THEME, it.id).apply() },
+                glass=p.getBoolean(Prefs.GLASS,false),onGlass={p.edit().putBoolean(Prefs.GLASS,it).apply()},
             )
             Panel.MORE -> scroll(TileGridView(this, skin, Prefs.menu(this).map { Triple(it, Prefs.NAMES[it] ?: it, Prefs.ICONS[it] ?: R.drawable.ic_settings) }) { runFeature(it) })
             Panel.ARRANGE -> scroll(ArrangeView(this, skin, Prefs.tools(this), Prefs.menu(this)) { t, m -> Prefs.saveArrangement(this, t, m) })
@@ -1997,7 +2000,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 val t = runCatching { clipboard?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() }.getOrNull()
                 if (t.isNullOrEmpty()) message("剪贴板是空的") else { checkpoint(false); commitOut(t) }
             }
-            "del" -> { checkpoint(true); deleteCommitted() }
+            "del" -> { checkpoint(true,"delete"); deleteCommitted() }
             "enter" -> { checkpoint(false); ic.commitText("\n", 1) }
         }
     }

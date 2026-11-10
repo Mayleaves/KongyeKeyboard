@@ -30,7 +30,7 @@ internal class PinyinCorrection(words: Collection<String>) {
     data class Match(val spelling: String, val penalty: Float, val mask: BooleanArray)
 
     fun lookup(input: String): List<Match> {
-        if (input.length !in 4..32) return emptyList()
+        if (input.length !in 3..32) return emptyList()
         val ids = HashSet<Int>()
         for (key in deletes(input.take(7))) {
             val h = hash(key)

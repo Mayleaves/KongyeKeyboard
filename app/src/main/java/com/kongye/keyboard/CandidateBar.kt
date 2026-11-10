@@ -106,10 +106,9 @@ class CandidateBar(context: Context) : View(context) {
             items[i].w==visible[i].w && items[i].py==visible[i].py && items[i].mask.contentEquals(visible[i].mask)
         }
         if(same) return
-        val entering=mode!=Mode.CANDS
         mode=Mode.CANDS;items=visible;this.expanded=expanded
         layoutItems();resetScroll();invalidate()
-        if(entering) NativeMotion.pulse(this)
+        animate().cancel();alpha=1f
     }
 
     fun showAssoc(list: List<String>) {

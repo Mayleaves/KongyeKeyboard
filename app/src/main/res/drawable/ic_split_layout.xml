@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 由 tools/make_icons.py 生成，不要手改 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M3 4h5v2H3zM3 8h5v2H3zM3 12h5v2H3zM3 16h5v2H3zM3 20h5v1H3zM11 4h10v17H11z"/>
+</vector>

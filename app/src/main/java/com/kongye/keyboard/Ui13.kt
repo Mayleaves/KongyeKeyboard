@@ -245,7 +245,6 @@ class SymbolBoard(
     private val d = resources.displayMetrics.density
     private var curCat = startCat
     private val pager = CategoryPager(context)
-    private val tabViews = ArrayList<TextView>()
 
     init {
         orientation = VERTICAL
@@ -269,48 +268,19 @@ class SymbolBoard(
         // 左下角返回键用箭头符号代替“中文/英文”文字
         modKey(null, R.drawable.ic_back, 1.25f, onBack)
         modKey("123", 0, 1.25f, onNum)
-        val tabs = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val scroller = HorizontalScrollView(context).apply {
-            isHorizontalScrollBarEnabled = false
-            background = roundBg(skin.modBg, skin.radius * d)
+        val tabs=CategoryLabels(initialCats.map {it.first},curCat) {pager.select(it)}
+        val scroller=HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled=false
+            background=roundBg(skin.modBg,skin.radius*d)
         }
-        fun updateTabs(selected: Int, animateScroll: Boolean) {
-            tabViews.forEachIndexed { idx, tv ->
-                val on = idx == selected
-                tv.setTextColor(if (on) skin.candFg else skin.barFg)
-                tv.typeface = if (on) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                tv.background = if (on) roundBg(withAlpha(skin.candFg, 22), skin.radius * d) else null
-                tv.invalidate()
-            }
-            tabs.getChildAt(selected)?.let { child ->
-                val targetX = (child.left - (scroller.width - child.width) / 2).coerceAtLeast(0)
-                if (animateScroll) scroller.smoothScrollTo(targetX, 0) else scroller.scrollTo(targetX, 0)
-            }
+        fun centered(index:Int):Float {
+            val center=tabs.centerOf(index)
+            return (center-scroller.width/2f).coerceIn(0f,(tabs.width-scroller.width).coerceAtLeast(0).toFloat())
         }
-        initialCats.forEachIndexed { i, (name, _) ->
-            // 输入法使用原生 View 自绘，不依赖 AppCompat 的主题着色替换。
-            @SuppressLint("AppCompatCustomView")
-            val tv = object : TextView(context) {
-                private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-                override fun onDraw(c: Canvas) {
-                    super.onDraw(c)
-                    if (i != curCat) return
-                    p.color = skin.candHi
-                    val w = 20 * d
-                    c.drawRoundRect(RectF(width / 2f - w / 2, height - 4 * d, width / 2f + w / 2, height - 2 * d), d, d, p)
-                }
-            }.apply {
-                text = name
-                textSize = 15.5f
-                gravity = Gravity.CENTER
-                setPadding((15 * d).toInt(), 0, (15 * d).toInt(), 0)
-                setOnClickListener {
-                    if (curCat == i) return@setOnClickListener
-                    pager.select(i)
-                }
-            }
-            tabViews.add(tv)
-            tabs.addView(tv, lp(WRAP, keyH))
+        pager.onProgress={from,to,fraction ->
+            tabs.progress(from,to,fraction)
+            val target=centered(from)+(centered(to)-centered(from))*fraction
+            scroller.scrollTo(kotlin.math.round(target).toInt(),0)
         }
         scroller.addView(tabs)
         bottom.addView(scroller, lp(0, keyH, 4.6f).apply { marginEnd = (5 * d).toInt() })
@@ -318,8 +288,48 @@ class SymbolBoard(
         addView(bottom, lp(MATCH, WRAP))
         pager.pages(initialCats.size, curCat, { index ->
             ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(SymGrid(catsProvider().getOrNull(index)?.second.orEmpty())) }
-        }) { index -> curCat = index; onCat(index); updateTabs(index, true) }
-        scroller.post { updateTabs(curCat, animateScroll = false) }
+        }) { index -> curCat=index;onCat(index);tabs.progress(index,index,0f) }
+        scroller.post {scroller.scrollTo(kotlin.math.round(centered(curCat)).toInt(),0)}
+    }
+
+    /** Fixed label widths; the pill, underline and scrolling share the page's progress. */
+    private inner class CategoryLabels(names:List<String>,selected:Int,onPick:(Int)->Unit):LinearLayout(context) {
+        private val fill=Paint(Paint.ANTI_ALIAS_FLAG)
+        private var from=selected
+        private var to=selected
+        private var fraction=0f
+        init {
+            orientation=HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setWillNotDraw(false)
+            val measure=Paint(Paint.ANTI_ALIAS_FLAG).apply {textSize=15.5f*d;typeface=Typeface.DEFAULT_BOLD}
+            names.forEachIndexed {i,name ->
+                addView(TextView(context).apply {
+                    text=name;textSize=15.5f;gravity=Gravity.CENTER
+                    setTextColor(if(i==selected) skin.candFg else skin.barFg)
+                    setOnClickListener {onPick(i)}
+                },lp(kotlin.math.ceil(measure.measureText(name)+30*d).toInt(),(44*d).toInt()))
+            }
+        }
+        fun centerOf(index:Int):Float=getChildAt(index)?.let {(it.left+it.right)/2f} ?: 0f
+        fun progress(start:Int,end:Int,value:Float) {
+            from=start;to=end;fraction=value
+            for(i in 0 until childCount) {
+                val weight=when {from==to -> if(i==from) 1f else 0f;i==from -> 1f-fraction;i==to -> fraction;else -> 0f}
+                (getChildAt(i) as TextView).setTextColor(mix(skin.barFg,skin.candFg,weight))
+            }
+            invalidate()
+        }
+        override fun onDraw(c:Canvas) {
+            super.onDraw(c)
+            val start=getChildAt(from) ?: return
+            val end=getChildAt(to) ?: return
+            val left=start.left+(end.left-start.left)*fraction
+            val right=start.right+(end.right-start.right)*fraction
+            fill.color=withAlpha(skin.candFg,22)
+            c.drawRoundRect(RectF(left,0f,right,height.toFloat()),skin.radius*d,skin.radius*d,fill)
+            fill.color=skin.candHi
+            val center=(left+right)/2f
+            c.drawRoundRect(RectF(center-10*d,height-4*d,center+10*d,height-2*d),d,d,fill)
+        }
     }
 
     private inner class SymGrid(var items: List<String>) : View(context) {
@@ -415,7 +425,7 @@ class AdjustOverlay(
     onReset: () -> Unit, onDone: () -> Unit,
 ) : FrameLayout(context) {
     private val d = resources.displayMetrics.density
-    private val gray = if (skin.dark) android.graphics.Color.parseColor("#E4313338") else android.graphics.Color.parseColor("#F0E8E8EB")
+    private val gray = if (skin.dark) android.graphics.Color.parseColor("#313338") else android.graphics.Color.parseColor("#E8E8EB")
     private val ink = if (skin.dark) android.graphics.Color.parseColor("#E7E8EA") else android.graphics.Color.parseColor("#4B4E50")
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.STROKE; strokeWidth=3*d; strokeCap=Paint.Cap.ROUND; color=ink }
     private val card = LinearLayout(context)
@@ -433,24 +443,41 @@ class AdjustOverlay(
                 a.opacity=1f-it; refresh(); onLive()
             }), lp(0, (38*d).toInt(), 1f))
             label.setTextColor(ink); label.textSize=13f; label.gravity=Gravity.CENTER
-            addView(label, lp((94*d).toInt(), WRAP))
+            addView(label, lp((112*d).toInt(), WRAP))
         }, lp(MATCH, WRAP))
+        card.addView(LinearLayout(context).apply {
+            gravity=Gravity.CENTER_VERTICAL
+            addView(SliderView(context, skin.copy(candHi=ink), a.padB.toFloat(), 0f, 48f, {
+                val next=kotlin.math.round(it).toInt()
+                if(a.padB!=next) {a.padB=next;refresh();onLive()}
+            }),lp(0,(38*d).toInt(),1f))
+            blankLabel.setTextColor(ink);blankLabel.textSize=13f;blankLabel.gravity=Gravity.CENTER
+            addView(blankLabel,lp((112*d).toInt(),WRAP))
+        },lp(MATCH,WRAP))
         val buttons=LinearLayout(context).apply { orientation=LinearLayout.HORIZONTAL; setPadding(0,(9*d).toInt(),0,0) }
-        fun button(title: String, active: Boolean=false, action: () -> Unit) {
-            buttons.addView(TextView(context).apply {
-                text=title; textSize=14f; gravity=Gravity.CENTER
-                setTextColor(if(active) android.graphics.Color.WHITE else ink)
-                background=roundBg(if(active) ink else withAlpha(ink, 20), 12*d)
-                setOnClickListener { action() }
-            }, lp(0,(48*d).toInt(),1f).apply { setMargins((2*d).toInt(),0,(2*d).toInt(),0) })
+        fun styleButton(view:LinearLayout,active:Boolean) {
+            val fg=if(active) android.graphics.Color.WHITE else ink
+            view.background=roundBg(if(active) ink else mix(gray,ink,.08f),12*d)
+            (view.getChildAt(0) as ImageView).setColorFilter(fg)
+            (view.getChildAt(1) as TextView).setTextColor(fg)
         }
-        button("↺ 重置", action=onReset)
-        button("↗ 悬浮", floating, onFloating)
-        button("分体", a.split) { a.split=!a.split; onLive(); (buttons.getChildAt(2) as TextView).apply {
-            background=roundBg(if(a.split) ink else withAlpha(ink,20),12*d)
-            setTextColor(if(a.split) android.graphics.Color.WHITE else ink)
-        } }
-        button("✓ 确认", action=onDone)
+        fun button(title:String,icon:Int,active:Boolean=false,action:()->Unit):LinearLayout {
+            val button=LinearLayout(context).apply {
+                orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER
+                addView(ImageView(context).apply {setImageResource(icon)},lp((18*d).toInt(),(18*d).toInt()))
+                addView(TextView(context).apply {text=title;textSize=14f;gravity=Gravity.CENTER},lp(WRAP,WRAP).apply {leftMargin=(4*d).toInt()})
+                setOnClickListener {action()}
+            }
+            styleButton(button,active)
+            buttons.addView(button,lp(0,(48*d).toInt(),1f).apply {setMargins((2*d).toInt(),0,(2*d).toInt(),0)})
+            return button
+        }
+        button("重置",R.drawable.ic_reset,action=onReset)
+        button("悬浮",R.drawable.ic_float,floating,onFloating)
+        button("分体",R.drawable.ic_split_layout,a.split) {
+            a.split=!a.split;onLive();styleButton(buttons.getChildAt(2) as LinearLayout,a.split)
+        }
+        button("确认",R.drawable.ic_done,action=onDone)
         card.addView(buttons, lp(MATCH,WRAP))
         addView(card, LayoutParams(MATCH,WRAP,Gravity.CENTER).apply { leftMargin=(34*d).toInt(); rightMargin=(34*d).toInt() })
         addView(Handle { _,dy,start -> resize(start, 0f, dy, vertical=-1) },
@@ -471,20 +498,6 @@ class AdjustOverlay(
         for(right in listOf(false,true)) for(bottom in listOf(false,true)) addView(Handle { dx,dy,start ->
             resize(start, dx, dy, if(right) 1 else -1, if(bottom) 1 else -1)
         }, LayoutParams((28*d).toInt(),(28*d).toInt(),(if(right) Gravity.END else Gravity.START) or (if(bottom) Gravity.BOTTOM else Gravity.TOP)))
-        // 独立调底部留白，顶部高度手柄只改 scale。
-        val blank=LinearLayout(context).apply {
-            orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
-            background=roundBg(if(skin.dark) android.graphics.Color.parseColor("#45474B") else android.graphics.Color.parseColor("#D3D3D8"),10*d)
-        }
-        fun blankButton(title:String,delta:Int)=TextView(context).apply {
-            text=title;textSize=23f;gravity=Gravity.CENTER;setTextColor(ink)
-            repeatOnHold { a.padB=(a.padB+delta).coerceIn(0,48);refresh();onLive() }
-        }
-        blank.addView(blankButton("−",-1),lp((36*d).toInt(),MATCH))
-        blankLabel.textSize=13f;blankLabel.gravity=Gravity.CENTER;blankLabel.setTextColor(ink)
-        blank.addView(blankLabel,lp(0,MATCH,1f))
-        blank.addView(blankButton("+",1),lp((36*d).toInt(),MATCH))
-        addView(blank,LayoutParams((210*d).toInt(),(34*d).toInt(),Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {bottomMargin=(32*d).toInt()})
         refresh()
     }
     private fun resize(start: Adjust, dx: Float, dy: Float, horizontal: Int=0, vertical: Int=0) {
@@ -507,7 +520,7 @@ class AdjustOverlay(
         }
         onLive()
     }
-    private fun refresh() { label.text="透明度 ${((1-a.opacity)*100).toInt()}%"; blankLabel.text="↕ 底部留白 ${a.padB} dp"; invalidate() }
+    private fun refresh() { label.text="透明度 ${((1-a.opacity)*100).toInt()}%"; blankLabel.text="底部留白 ${a.padB} dp"; invalidate() }
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent)=true
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {

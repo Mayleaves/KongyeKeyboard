@@ -262,18 +262,20 @@ class SettingsActivity : ComponentActivity() {
     /** 开屏动画：立体键帽弹起 + 朱红叶片舒展 + 四颗迷你按键依次律动点亮 */
     @Composable
     private fun SplashScreen(pal: Pal, onDone: () -> Unit) {
-        val capScale = remember { Animatable(0.55f) }
+        val capScale = remember { Animatable(0.88f) }
         val leafRot = remember { Animatable(-28f) }
         val textAlpha = remember { Animatable(0f) }
         val waveProg = remember { Animatable(0f) }
         val exitAlpha = remember { Animatable(1f) }
         // 退场：先让图标和文字淡出，再让底色淡出，避免 Logo 和后面的设置页叠在一起
-        val contentAlpha = remember { Animatable(1f) }
+        val contentAlpha = remember { Animatable(0f) }
+        var dismiss by remember { mutableStateOf(false) }
         val version = remember { UpdateChecker.currentVersion(this) }
 
         LaunchedEffect(Unit) {
+            launch { contentAlpha.animateTo(1f,tween(520,easing=FastOutSlowInEasing)) }
             launch {
-                capScale.animateTo(1f, spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessLow))
+                capScale.animateTo(1f,tween(800,easing=FastOutSlowInEasing))
             }
             launch {
                 leafRot.animateTo(0f, tween(850, easing = FastOutSlowInEasing))
@@ -287,14 +289,18 @@ class SettingsActivity : ComponentActivity() {
                 waveProg.animateTo(1f, tween(1050, easing = FastOutSlowInEasing))
             }
             delay(2000)
-            contentAlpha.animateTo(0f, tween(260))
-            exitAlpha.animateTo(0f, tween(300))
+            dismiss=true
+        }
+        LaunchedEffect(dismiss) {
+            if(!dismiss) return@LaunchedEffect
+            contentAlpha.animateTo(0f,tween(420,easing=FastOutSlowInEasing))
+            exitAlpha.animateTo(0f,tween(420,easing=FastOutSlowInEasing))
             onDone()
         }
 
         Box(
             Modifier.fillMaxSize()
-                .alpha(exitAlpha.value)
+                .graphicsLayer { alpha=exitAlpha.value }
                 .background(pal.bg)
                 .background(
                     Brush.radialGradient(
@@ -302,11 +308,11 @@ class SettingsActivity : ComponentActivity() {
                         radius = 900f,
                     ),
                 )
-                .clickable { onDone() },
+                .clickable { dismiss=true },
             contentAlignment = Alignment.Center,
         ) {
             Column(
-                Modifier.alpha(contentAlpha.value),
+                Modifier.graphicsLayer {alpha=contentAlpha.value},
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {

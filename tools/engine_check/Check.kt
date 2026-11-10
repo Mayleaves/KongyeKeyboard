@@ -19,6 +19,9 @@ fun main(args: Array<String>) {
         if (!ok) fail++
         println("${if (ok) "ok  " else "FAIL"} $input → ${c.take(6).joinToString(" ") { it.w }}  [$d]  ${us}µs")
     }
+    expect("nain", "年")
+    expect("sih", "是")
+    expect("jain", "建")
     expect("nihao", "你好", "ni'hao")
     expect("kongye", "空叶", "kong'ye")
     expect("jianpan", "键盘", "jian'pan")
@@ -79,6 +82,10 @@ fun main(args: Array<String>) {
     // 关掉模糊音后 lihao 不应再出你好
     if (Lexicon.candidates("lihao").take(5).any { it.w == "你好" }) fail++
     // 记忆：全拼打过的“夏星月”，之后简拼 xxy 排第一
+    Lexicon.fuzzyRules=setOf("z-zh","c-ch","s-sh","n-l","f-h","r-l","an-ang","en-eng","in-ing","ian-iang","uan-uang")
+    expect("nain","年")
+    expect("nihao","你好")
+    Lexicon.fuzzyRules=emptySet()
     val beforeLearning=Lexicon.candidates("xxy")
     Lexicon.learnPhrase("夏星月", listOf("xia", "xing", "yue"))
     val mem = Lexicon.candidates("xxy")

@@ -54,7 +54,7 @@ public final class OfflineResourcesCheck extends Instrumentation {
                 long start=android.os.SystemClock.elapsedRealtime();
                 Lexicon.INSTANCE.loadFrom(ctx.getAssets().open("lexicon.txt"),null);
                 report("PASS engine cold load ms: "+(android.os.SystemClock.elapsedRealtime()-start));
-                for(String[] sample:new String[][]{{"zhrmbang","真棒"},{"zhenbng","真棒"},{"zhenbgang","真棒"},{"nihoa","你好"},{"mihao","你好"},{"nhao","你好"},{"nihaoo","你好"}}) {
+                for(String[] sample:new String[][]{{"nain","年"},{"sih","是"},{"zhrmbang","真棒"},{"zhenbng","真棒"},{"zhenbgang","真棒"},{"nihoa","你好"},{"mihao","你好"},{"nhao","你好"},{"nihaoo","你好"}}) {
                     long query=System.nanoTime();
                     java.util.List<Cand> found=Lexicon.INSTANCE.candidates(sample[0],true);
                     require(!found.isEmpty() && found.get(0).getW().equals(sample[1]),"Wrong correction: "+sample[0]);
@@ -63,6 +63,9 @@ public final class OfflineResourcesCheck extends Instrumentation {
                     report("PASS "+sample[0]+" → "+sample[1]+" in "+((System.nanoTime()-query)/1000)+" us");
                 }
                 require(Lexicon.INSTANCE.candidates("u",true).get(0).getW().equals("u"),"Invalid syllable returned Han characters");
+                Lexicon.INSTANCE.setFuzzyRules(new java.util.HashSet<>(java.util.Arrays.asList(ctx.getSharedPreferences("kongye",Context.MODE_PRIVATE).getString("fuzzy","").split(","))));
+                require(Lexicon.INSTANCE.candidates("nain",true).get(0).getW().equals("年"),"Fuzzy completion displaced transpose correction");
+                report("PASS nain → 年 with the phone's fuzzy preferences");
                 report("ALL DEVICE ENGINE CHECKS PASSED");
                 finish(Activity.RESULT_OK,new Bundle());return;
             }
