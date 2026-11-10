@@ -50,6 +50,10 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("composition".equals(mode)) {
+                checkComposition(ctx);
+                report("ALL COMPOSITION EDITOR CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
             if ("engine".equals(mode)) {
                 long start=android.os.SystemClock.elapsedRealtime();
                 Lexicon.INSTANCE.loadFrom(ctx.getAssets().open("lexicon.txt"),null);
@@ -149,6 +153,63 @@ public final class OfflineResourcesCheck extends Instrumentation {
         } catch (Throwable error) {
             Bundle bundle = new Bundle(); bundle.putString("stream", "FAILED: " + android.util.Log.getStackTraceString(error) + "\n"); finish(Activity.RESULT_CANCELED, bundle);
         }
+    }
+
+    private void checkComposition(Context ctx) throws Exception {
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure=new java.util.concurrent.atomic.AtomicReference<>();
+        runOnMainSync(() -> {
+            try {
+                final int[] selected={-1};
+                final PinyinTab.Preview[] preview={null};
+                PinyinTab view=new PinyinTab(ctx,index -> {selected[0]=index;return Unit.INSTANCE;});
+                view.setOnPreview(value -> {preview[0]=value;return Unit.INSTANCE;});
+                float d=ctx.getResources().getDisplayMetrics().density;
+                String spelling="ni'hao";
+                view.set(spelling,-1);measureComposition(view,ctx);
+                int shortHeight=view.getHeight();
+                touchComposition(view,android.view.MotionEvent.ACTION_DOWN,18*d,12*d);
+                touchComposition(view,android.view.MotionEvent.ACTION_UP,18*d,12*d);
+                measureComposition(view,ctx);
+                require(view.getExpanded() && view.getHeight()>shortHeight,"Tap did not expand spelling");
+                android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(view.getWidth(),view.getHeight(),android.graphics.Bitmap.Config.ARGB_8888);
+                view.draw(new android.graphics.Canvas(bitmap));
+                int orange=android.graphics.Color.rgb(240,73,44);int count=0;
+                for(int y=0;y<bitmap.getHeight();y++) for(int x=0;x<bitmap.getWidth();x++) if(bitmap.getPixel(x,y)==orange) count++;
+                require(count>20,"Expanded caret must use Kongye theme accent");bitmap.recycle();
+                touchComposition(view,android.view.MotionEvent.ACTION_DOWN,view.getWidth()-15*d,13*d);
+                touchComposition(view,android.view.MotionEvent.ACTION_UP,view.getWidth()-15*d,13*d);
+                measureComposition(view,ctx);
+                require(!view.getExpanded() && selected[0]==spelling.length(),"Collapse must return caret to input tail");
+                bitmap=android.graphics.Bitmap.createBitmap(view.getWidth(),view.getHeight(),android.graphics.Bitmap.Config.ARGB_8888);
+                view.draw(new android.graphics.Canvas(bitmap));count=0;
+                for(int y=0;y<bitmap.getHeight();y++) for(int x=0;x<bitmap.getWidth();x++) if(bitmap.getPixel(x,y)==orange) count++;
+                require(count==0,"Collapsed spelling must not draw an accent caret");bitmap.recycle();
+                String longText="ni'hao'jin'tian'tian'qi'bu'cuo'wo'men'yi'qi'qu'gong'yuan'san'bu'ran'hou'chi'wan'fan";
+                view.set(longText,-1);measureComposition(view,ctx);
+                int compactWidth=view.getWidth();
+                touchComposition(view,android.view.MotionEvent.ACTION_DOWN,15*d,12*d);
+                touchComposition(view,android.view.MotionEvent.ACTION_UP,15*d,12*d);
+                measureComposition(view,ctx);
+                require(view.getWidth()>compactWidth && view.getHeight()>shortHeight*2,"Long spelling should expand and wrap");
+                touchComposition(view,android.view.MotionEvent.ACTION_DOWN,30*d,35*d);
+                touchComposition(view,android.view.MotionEvent.ACTION_MOVE,130*d,35*d);
+                require(selected[0]>=0 && preview[0]!=null && !preview[0].getLine().isEmpty(),"Drag must select spelling and publish magnified text");
+                touchComposition(view,android.view.MotionEvent.ACTION_UP,130*d,35*d);
+                require(preview[0]==null,"Lens must dismiss after dragging");
+                view.reset();require(!view.getExpanded(),"Reset must close expanded spelling");
+            } catch(Throwable error) {failure.set(error);}
+        });
+        if(failure.get()!=null) throw new Exception("Composition editor regression",failure.get());
+        report("PASS theme caret, compact tail, wrapped long spelling and drag magnification lifecycle");
+    }
+    private static void measureComposition(PinyinTab view,Context ctx) {
+        view.measure(android.view.View.MeasureSpec.makeMeasureSpec(ctx.getResources().getDisplayMetrics().widthPixels,android.view.View.MeasureSpec.AT_MOST),android.view.View.MeasureSpec.makeMeasureSpec(0,android.view.View.MeasureSpec.UNSPECIFIED));
+        view.layout(0,0,view.getMeasuredWidth(),view.getMeasuredHeight());
+    }
+    private static void touchComposition(PinyinTab view,int action,float x,float y) {
+        long now=android.os.SystemClock.uptimeMillis();
+        android.view.MotionEvent e=android.view.MotionEvent.obtain(now,now,action,x,y,0);
+        view.onTouchEvent(e);e.recycle();
     }
 
     private void checkVoiceStart(Context ctx) throws Exception {

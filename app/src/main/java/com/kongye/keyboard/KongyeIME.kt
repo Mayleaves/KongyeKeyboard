@@ -70,6 +70,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private lateinit var keyboard: KeyboardView
     private lateinit var panelHost: PanelHost
     private lateinit var bottomStrip: BottomStrip
+    private lateinit var candidatePreview: android.widget.TextView
+    private lateinit var pinyinLens: PinyinLens
+    private var longCandidate: String? = null
     private lateinit var tab: PinyinTab
     private lateinit var clipSearch: FrameLayout
     private var voiceBoard: VoiceBoard? = null
@@ -257,6 +260,32 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         r.addView(col, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
         tab = PinyinTab(this) { onTabCaret(it) }.apply { visibility = View.GONE }
         r.addView(tab, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.START))
+        candidatePreview=android.widget.TextView(this).apply {
+            textSize=17f;setPadding((8*resources.displayMetrics.density).toInt(),(5*resources.displayMetrics.density).toInt(),(8*resources.displayMetrics.density).toInt(),(5*resources.displayMetrics.density).toInt())
+            maxLines=12;ellipsize=android.text.TextUtils.TruncateAt.END
+            importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            visibility=View.GONE
+        }
+        r.addView(candidatePreview,FrameLayout.LayoutParams((resources.displayMetrics.widthPixels*.48f).toInt(),WRAP_CONTENT))
+        candidatePreview.addOnLayoutChangeListener {_,_,_,_,_,_,_,_,_->positionCandidatePreview()}
+        bar.onLongCandidate={value ->
+            if(longCandidate!=value) {
+                longCandidate=value;candidatePreview.text=value.orEmpty();positionCandidatePreview()
+            }
+        }
+        pinyinLens=PinyinLens(this).apply {visibility=View.GONE;importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO}
+        r.addView(pinyinLens,FrameLayout.LayoutParams(WRAP_CONTENT,WRAP_CONTENT))
+        tab.onExpanded={r.post {positionTab();positionCandidatePreview()} }
+        tab.onPreview={value ->
+            pinyinLens.preview=value
+            pinyinLens.visibility=if(value==null) View.GONE else View.VISIBLE
+            if(value!=null) {
+                val size=86*resources.displayMetrics.density
+                pinyinLens.x=(tab.x+value.x-size/2f).coerceIn(0f,(r.width-size).coerceAtLeast(0f))
+                pinyinLens.y=(tab.y+value.y-size-12*resources.displayMetrics.density).coerceAtLeast(0f)
+                pinyinLens.bringToFront()
+            }
+        }
         // 拼音条出现、消失时，液态玻璃下的窗口高度要跟着变
         tab.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom -> if (blurOn() && (bottom - top) != (oldBottom - oldTop)) r.requestLayout() }
         col.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionTab(); positionAdjustment() }
@@ -298,8 +327,23 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     /** 拼音条贴在键盘左上角的上面 */
     private fun positionTab() {
         if (!::tab.isInitialized) return
-        tab.x = col.x + col.paddingLeft + 8 * resources.displayMetrics.density
-        tab.y = col.y - tab.height + 1
+        val r=root ?: return
+        tab.x=(col.x+col.paddingLeft+8*resources.displayMetrics.density).coerceIn(0f,(r.width-tab.width).toFloat().coerceAtLeast(0f))
+        tab.y = (col.y-tab.height+1).coerceAtLeast(0f)
+        positionCandidatePreview()
+    }
+
+    private fun positionCandidatePreview() {
+        if(!::candidatePreview.isInitialized || !::tab.isInitialized) return
+        val show=!longCandidate.isNullOrEmpty() && tab.visibility==View.VISIBLE && !tab.expanded
+        candidatePreview.visibility=if(show) View.VISIBLE else View.GONE
+        if(!show) return
+        val r=root ?: return
+        val desired=(col.width*.48f).toInt().coerceAtLeast((96*resources.displayMetrics.density).toInt())
+        val lp=candidatePreview.layoutParams as FrameLayout.LayoutParams
+        if(lp.width!=desired) {lp.width=desired;candidatePreview.layoutParams=lp}
+        candidatePreview.x=(col.x+col.width-desired-4*resources.displayMetrics.density).coerceIn(0f,(r.width-desired).toFloat().coerceAtLeast(0f))
+        candidatePreview.y=(col.y-candidatePreview.height).coerceAtLeast(0f)
     }
 
     private var inputPackage: String? = null
@@ -430,6 +474,13 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         sinkStrip.skin = skin
         bottomStrip.skin = skin
         tab.skin = skin
+        candidatePreview.setTextColor(skin.candFg)
+        candidatePreview.background=GradientDrawable().apply {
+            setColor(if(skin.dark) skin.popBg else android.graphics.Color.WHITE)
+            cornerRadius=10*resources.displayMetrics.density
+            setStroke((resources.displayMetrics.density*.7f).toInt().coerceAtLeast(1),withAlpha(skin.barFg,80))
+        }
+        pinyinLens.skin=skin
         floatBar.invalidate()
         val scale=a?.scale ?: Prefs.heightScale(this)
         keyboard.heightScale = scale
@@ -644,11 +695,12 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun renderTab() {
         if (!::tab.isInitialized) return
         val show = (seq.isNotEmpty() || picks.isNotEmpty()) && sink == Sink.NONE
-        if (!show) { if (tab.visibility != View.GONE) tab.visibility = View.GONE; return }
+        if (!show) { if (tab.visibility != View.GONE) tab.visibility = View.GONE;candidatePreview.visibility=View.GONE;pinyinLens.visibility=View.GONE; return }
         if (pyCaret >= seq.size) pyCaret = -1
         val text = pendingText() + tabDisplay()
         tab.set(text, if (pyCaret < 0) -1 else displayIndexOf(pyCaret))
         if (tab.visibility != View.VISIBLE) tab.visibility = View.VISIBLE
+        positionCandidatePreview()
     }
 
     /** 拼音条上第 b 个位置对应 seq 的哪个下标（拼音里每个字母对应一个键，' 是分隔） */
@@ -999,7 +1051,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             renderBar()
             return
         }
-        if (seq.size >= 40) return
+        if (seq.size >= 128) return
         insertKey(k.letters)
         assoc = emptyList()
         refreshComposing()

@@ -41,6 +41,7 @@ class CandidateBar(context: Context) : View(context) {
 
     enum class Mode { TOOLS, CANDS, ASSOC, MESSAGE, CLIP_SUGGEST }
 
+    var onLongCandidate: (String?) -> Unit = {}
     var listener: Listener? = null
     var skin: Skin = Skins.KONGYE
         set(v) { field = v; invalidate() }
@@ -97,7 +98,7 @@ class CandidateBar(context: Context) : View(context) {
     private val expandW get() = if (mode == Mode.CANDS || mode == Mode.ASSOC) 44 * d else 0f
 
     fun showTools(t: List<String>, active: String? = null) {
-        mode = Mode.TOOLS; tools = t; activeTool = active; invalidate()
+        mode = Mode.TOOLS; tools = t; activeTool = active; onLongCandidate(null); invalidate()
     }
 
     fun showCandidates(list: List<CandItem>, expanded: Boolean) {
@@ -107,21 +108,21 @@ class CandidateBar(context: Context) : View(context) {
         }
         if(same) return
         mode=Mode.CANDS;items=visible;this.expanded=expanded
-        layoutItems();resetScroll();invalidate()
+        layoutItems();resetScroll();updateLongCandidate();invalidate()
         animate().cancel();alpha=1f
     }
 
     fun showAssoc(list: List<String>) {
-        mode = Mode.ASSOC; items = list.map { CandItem(it) }
+        mode = Mode.ASSOC; items = list.map { CandItem(it) };onLongCandidate(null)
         layoutItems(); resetScroll(); invalidate()
     }
 
     fun showMessage(msg: String) {
-        mode = Mode.MESSAGE; message = msg; invalidate()
+        mode = Mode.MESSAGE; message = msg;onLongCandidate(null); invalidate()
     }
 
     fun showClipSuggestion(text: String) {
-        mode = Mode.CLIP_SUGGEST; clipSuggest = text; clipPressedZone = 0; invalidate()
+        mode = Mode.CLIP_SUGGEST;onLongCandidate(null); clipSuggest = text; clipPressedZone = 0; invalidate()
     }
 
     private fun resetScroll() {
@@ -144,6 +145,15 @@ class CandidateBar(context: Context) : View(context) {
             x += w
         }
         contentW = x + 4 * d
+    }
+
+    private fun updateLongCandidate() {
+        text.textSize=17*d
+        val word=items.firstOrNull()?.w
+        onLongCandidate(word?.takeIf {mode==Mode.CANDS && width>0 && text.measureText(it)>(width-expandW-2*pad)*.65f})
+    }
+    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int) {
+        super.onSizeChanged(w,h,oldw,oldh);updateLongCandidate()
     }
 
     private fun maxScroll() = max(0f, contentW - (width - expandW))

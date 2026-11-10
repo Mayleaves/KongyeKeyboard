@@ -19,3 +19,7 @@
 -keep class * extends androidx.work.ListenableWorker { <init>(android.content.Context, androidx.work.WorkerParameters); }
 -keep class * extends androidx.work.InputMerger { <init>(); }
 -keep class androidx.work.impl.** { *; }
+
+# Composition editor is exercised by the separate on-device regression APK.
+-keep class com.kongye.keyboard.PinyinTab { *; }
+-keep class com.kongye.keyboard.PinyinTab$Preview { *; }
