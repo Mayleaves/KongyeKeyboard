@@ -22,7 +22,7 @@ try {
     $android = 'D:/Program/Android/Sdk/platforms/android-37.0/android.jar'
     $out = Join-Path (Get-Location) 'build/engine-check'
     New-Item -ItemType Directory -Path $out -Force | Out-Null
-    & $java -cp $cp org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -classpath "$std;$android" -d $out -jvm-target 17 app/src/main/java/com/kongye/keyboard/Lexicon.kt app/src/main/java/com/kongye/keyboard/HandwritingCandidates.kt tools/engine_check/Check.kt
+    & $java -cp $cp org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -classpath "$std;$android" -d $out -jvm-target 17 app/src/main/java/com/kongye/keyboard/Lexicon.kt app/src/main/java/com/kongye/keyboard/PinyinCorrection.kt app/src/main/java/com/kongye/keyboard/HandwritingCandidates.kt tools/engine_check/Check.kt
     if ($LASTEXITCODE -ne 0) { throw 'Kotlin compilation failed' }
     & $java '-Dfile.encoding=UTF-8' '-Dstdout.encoding=UTF-8' -cp "$out;$std" CheckKt app/src/main/assets/lexicon.txt
     if ($LASTEXITCODE -ne 0) { throw 'Engine checks failed' }

@@ -32,7 +32,9 @@ import kotlin.math.sin
  * 点拼音里的某个位置，光标就停在那里，接着打字或删除都在光标处改。
  */
 class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(context) {
-    private val d = resources.displayMetrics.density
+    var uiScale = 1f
+        set(v) {if(field!=v) {field=v;requestLayout();invalidate()} }
+    private val d get() = resources.displayMetrics.density * uiScale
     var skin: Skin = Skins.KONGYE
         set(v) { field = v; invalidate() }
     private var text = ""
@@ -453,8 +455,8 @@ class AdjustOverlay(
         addView(card, LayoutParams(MATCH,WRAP,Gravity.CENTER).apply { leftMargin=(34*d).toInt(); rightMargin=(34*d).toInt() })
         addView(Handle { _,dy,start -> resize(start, 0f, dy, vertical=-1) },
             LayoutParams((86*d).toInt(),(25*d).toInt(),Gravity.TOP or Gravity.CENTER_HORIZONTAL))
-        addView(TextView(context).apply {
-            text=if(floating) "✥ 拖动移动" else "↕ 高度  ↔ 宽度"
+        if(floating) addView(TextView(context).apply {
+            text="✥ 拖动移动"
             textSize=11f; gravity=Gravity.CENTER; setTextColor(ink); background=roundBg(gray,10*d)
         }, LayoutParams((112*d).toInt(),(22*d).toInt(),Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin=(44*d).toInt() })
         if(floating) addView(Handle { dx,dy,start ->

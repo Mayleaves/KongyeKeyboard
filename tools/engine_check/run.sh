@@ -20,5 +20,5 @@ OUT="${TMPDIR:-/tmp}/ky_engine_check"
 mkdir -p "$OUT"
 "$JAVA_HOME/bin/java" -cp "$CP" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   -no-stdlib -classpath "$STD;$ANDROID" -d "$OUT" -jvm-target 17 \
-  app/src/main/java/com/kongye/keyboard/Lexicon.kt app/src/main/java/com/kongye/keyboard/HandwritingCandidates.kt tools/engine_check/Check.kt
+  app/src/main/java/com/kongye/keyboard/Lexicon.kt app/src/main/java/com/kongye/keyboard/PinyinCorrection.kt app/src/main/java/com/kongye/keyboard/HandwritingCandidates.kt tools/engine_check/Check.kt
 "$JAVA_HOME/bin/java" -cp "$OUT;$STD" CheckKt app/src/main/assets/lexicon.txt

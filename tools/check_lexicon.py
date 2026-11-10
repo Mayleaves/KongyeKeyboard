@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix='ky-lexicon-', dir=root / 'build') as tm
         ])
     db.close()
     subprocess.run([sys.executable, '-X', 'utf8', '-I', str(root / 'tools/build_lexicon.py'),
-                    str(db_path), str(out_path), '--chars', '9000', '--words', '60000'], check=True)
+                    str(db_path), str(out_path), '--wanxiang', '', '--chars', '9000', '--words', '60000'], check=True)
     generated = out_path.read_text(encoding='utf8').splitlines()
     entries = [line.split() for line in generated[1:]]
     assert all(set(row[0].split("'")) <= allowed for row in entries)

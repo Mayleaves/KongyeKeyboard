@@ -273,22 +273,22 @@ class SettingsActivity : ComponentActivity() {
 
         LaunchedEffect(Unit) {
             launch {
-                capScale.animateTo(1f, spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow))
+                capScale.animateTo(1f, spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessLow))
             }
             launch {
-                leafRot.animateTo(0f, tween(520, easing = FastOutSlowInEasing))
+                leafRot.animateTo(0f, tween(850, easing = FastOutSlowInEasing))
             }
             launch {
-                delay(120)
-                textAlpha.animateTo(1f, tween(380))
+                delay(220)
+                textAlpha.animateTo(1f, tween(580))
             }
             launch {
-                delay(160)
-                waveProg.animateTo(1f, tween(680, easing = FastOutSlowInEasing))
+                delay(300)
+                waveProg.animateTo(1f, tween(1050, easing = FastOutSlowInEasing))
             }
-            delay(1080)
-            contentAlpha.animateTo(0f, tween(160))
-            exitAlpha.animateTo(0f, tween(200))
+            delay(2000)
+            contentAlpha.animateTo(0f, tween(260))
+            exitAlpha.animateTo(0f, tween(300))
             onDone()
         }
 
@@ -595,7 +595,13 @@ class SettingsActivity : ComponentActivity() {
             Line(pal)
             ToggleRow(pal, "记住选词", "选过的词排到前面，分几次选出的整句记成新词；密码框里打的字不记录", r[Prefs.LEARN]!!) { p.edit().putBoolean(Prefs.LEARN, it).apply() }
             Line(pal)
-            Tip(pal, "纠错", "打错一个字母时，候选里会给出正确的词，后面带拼音，打错的字母标红。")
+            Tip(pal, "纠错", "漏打、多打、点到邻键或颠倒字母时，候选里给出纠错词与拼音，并把差异标红；较长全拼最多纠正两处。")
+        }
+        Card(pal) {
+            Tip(pal, "词库来源", "包含 amzxyz 的万象拼音十万条精选词，按 CC BY 4.0 使用。已去声调、去重、过滤无效音节，并合并词频。")
+            ActionRow(pal, "万象拼音 · CC BY 4.0", "作者、原始项目与许可", "查看") {
+                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/amzxyz/rime-wanxiang")))
+            }
         }
         BasicText("模糊音", style = TextStyle(color = pal.text2, fontSize = 15.sp), modifier = Modifier.padding(start = 4.dp))
         Card(pal) {
@@ -629,7 +635,7 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun Preview(pal: Pal, tick: Int, scaleOverride: Float? = null) {
-        val skin = remember(tick) { Prefs.skin(this) }
+        val skin = remember(tick) { Prefs.theme(this).pick(Prefs.night(this)).styled(1f,Prefs.of(this).getBoolean(Prefs.GLASS,false)) }
         val layout = remember(tick) { Prefs.layout(this) }
         val previewBoxMod = Modifier.fillMaxWidth()
 
@@ -644,9 +650,10 @@ class SettingsActivity : ComponentActivity() {
                         }
                     },
                     update = { ll ->
+                        ll.alpha=Prefs.opacity(this@SettingsActivity)
                         ll.background = if (skin.bg2 != 0) android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(skin.kbBg, skin.bg2))
                         else android.graphics.drawable.ColorDrawable(skin.kbBg)
-                        (ll.getChildAt(0) as CandidateBar).apply { this.skin = skin; showTools(listOf("more") + Prefs.tools(this@SettingsActivity)) }
+                        (ll.getChildAt(0) as CandidateBar).apply { this.skin = skin;uiScale=scaleOverride ?: Prefs.heightScale(this@SettingsActivity); showTools(listOf("more") + Prefs.tools(this@SettingsActivity)) }
                         (ll.getChildAt(1) as KeyboardView).apply {
                             heightScale = scaleOverride ?: Prefs.heightScale(this@SettingsActivity)
                             zh = true

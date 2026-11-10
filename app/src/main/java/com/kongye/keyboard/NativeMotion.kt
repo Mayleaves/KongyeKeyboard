@@ -11,6 +11,38 @@ import android.widget.ImageView
 /** 只在用户切换页面时过渡；设置刷新和每帧拖动不重播动画。 */
 object NativeMotion {
     private val bases=java.util.WeakHashMap<View,Float>()
+    private val swaps=java.util.WeakHashMap<View,Triple<ImageView,Bitmap,Float>>()
+    /** One layout change, then a compositor crossfade of the complete keyboard. */
+    fun swap(host: FrameLayout?, content: View, change: () -> Unit) {
+        swaps.remove(content)?.let {(cover, bitmap, target) -> cover.animate().cancel();host?.removeView(cover);cover.setImageDrawable(null);bitmap.recycle();content.alpha=target}
+        val before=snapshot(content)
+        if(host==null || before==null) {change();return}
+        content.animate().cancel()
+        val oldAlpha=content.alpha
+        val cover=ImageView(host.context).apply {
+            setImageBitmap(before);scaleType=ImageView.ScaleType.FIT_XY
+            alpha=oldAlpha;x=content.x;y=content.y
+            importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        change()
+        val target=content.alpha
+        host.addView(cover,FrameLayout.LayoutParams(before.width,before.height))
+        swaps[content]=Triple(cover,before,target)
+        content.alpha=0f
+        content.viewTreeObserver.addOnPreDrawListener(object:android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw():Boolean {
+                content.viewTreeObserver.removeOnPreDrawListener(this)
+                if(swaps[content]?.first!==cover) return true
+                content.animate().alpha(target).setDuration(220).withLayer().start()
+                cover.animate().alpha(0f).setDuration(220).withLayer().withEndAction {
+                    host.removeView(cover);cover.setImageDrawable(null);before.recycle()
+                    if(swaps[content]?.first===cover) swaps.remove(content)
+                }.start()
+                return true
+            }
+        })
+        content.invalidate()
+    }
     fun enter(view: View, distance: Float=7f) {
         if (!ValueAnimator.areAnimatorsEnabled()) return
         view.animate().cancel()
@@ -22,7 +54,9 @@ object NativeMotion {
     }
     fun pulse(view: View) {
         if (!ValueAnimator.areAnimatorsEnabled()) return
-        view.animate().cancel(); view.alpha=.65f
+        view.animate().cancel()
+        bases.remove(view)?.let {view.translationY=it}
+        view.alpha=.65f
         view.animate().alpha(1f).setDuration(170).start()
     }
     fun snapshot(view: View): Bitmap? {

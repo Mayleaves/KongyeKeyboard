@@ -64,11 +64,13 @@ class EmojiPanel(
     private val onEmoji: (String) -> Unit,
     private val onFav: (String) -> Unit,
     private val onTab: (Int) -> Unit,
+    private val onCustom: () -> Unit = {},
     private val onDel: () -> Unit,
 ) : LinearLayout(context) {
     private val d = resources.displayMetrics.density
     private val pager = CategoryPager(context)
     private val subRow = LinearLayout(context)
+    private val headerAction=TextView(context)
     private val tabs = ArrayList<TextView>()
     private var main = startTab
     private var emoji = if (recent.isEmpty()) 1 else 0
@@ -82,10 +84,9 @@ class EmojiPanel(
             addView(segmented(context, skin, listOf("Emoji", "颜文字", "收藏"), main) {
                 main = it; onTab(it); render(); NativeMotion.enter(pager)
             }, lp(WRAP, WRAP))
-            addView(TextView(context).apply {
-                text = "左右滑换分类 · 长按收藏"; textSize = 11.5f
-                gravity = Gravity.END; setTextColor(skin.barFg)
-            }, lp(0, WRAP, 1f))
+            headerAction.gravity=Gravity.END or Gravity.CENTER_VERTICAL;headerAction.minHeight=(32*d).toInt()
+            headerAction.setOnClickListener {if(main==2) onCustom()}
+            addView(headerAction,lp(0,WRAP,1f))
         }, lp(MATCH, WRAP))
         addView(pager, lp(MATCH, 0, 1f))
         subRow.orientation = HORIZONTAL; subRow.gravity = Gravity.CENTER_VERTICAL
@@ -113,7 +114,7 @@ class EmojiPanel(
         return ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             if (data.isNotEmpty()) addView(grid) else addView(TextView(context).apply {
-                text = if (main == 2) "在 Emoji 或颜文字里长按收藏" else "暂无最近使用的表情"
+                text = if (main == 2) "点右上角自定义添加，或在 Emoji、颜文字里长按收藏" else "暂无最近使用的表情"
                 gravity = Gravity.CENTER; textSize = 13f; setTextColor(skin.barFg)
                 setPadding(0, (30*d).toInt(), 0, 0)
             })
@@ -128,6 +129,9 @@ class EmojiPanel(
     }
 
     private fun render() {
+        headerAction.text=if(main==2) "+ 自定义" else "左右滑换分类 · 长按收藏"
+        headerAction.textSize=if(main==2) 14f else 11.5f
+        headerAction.setTextColor(if(main==2) skin.candHi else skin.barFg)
         tabs.clear(); subRow.removeAllViews()
         val labels = when (main) { 0 -> EmojiData.EMOJI_TABS; 1 -> Kaomoji.CATS.map { it.first }; else -> listOf("收藏") }
         val selected = when (main) { 0 -> emoji; 1 -> kao; else -> 0 }
@@ -317,7 +321,10 @@ class ClipboardPanel(
         val tools = LinearLayout(context).apply {
             orientation = VERTICAL
             // 工具盖住第三行之后的文字，卡片高度和网格位置保持不变。
-            background = roundBg(if (skin.dark) mix(skin.kbBg, Color.BLACK, .2f) or (0xFF shl 24) else mix(skin.kbBg, Color.WHITE, .6f) or (0xFF shl 24), 10*d)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if(skin.dark) mix(skin.kbBg,Color.BLACK,.2f) or (0xFF shl 24) else mix(skin.kbBg,Color.WHITE,.6f) or (0xFF shl 24))
+                cornerRadii=floatArrayOf(0f,0f,0f,0f,10*d,10*d,10*d,10*d)
+            }
             setPadding((7*d).toInt(), (4*d).toInt(), (7*d).toInt(), (5*d).toInt())
         }
         if (picking === clip) {

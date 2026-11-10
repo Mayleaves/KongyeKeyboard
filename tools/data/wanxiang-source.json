@@ -1,0 +1,15 @@
+{
+  "author": "amzxyz",
+  "project": "万象拼音 / rime-wanxiang",
+  "repository": "https://github.com/amzxyz/rime-wanxiang",
+  "commit": "c6c4d962c692e3e88dadaf2a8b1769856ca7ed46",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "sources_sha256": {
+    "jichu.dict.yaml": "149ba97e72e93024ff12696bddf66b722b6b8277063fe2fd928ac2e2700667ab",
+    "duoyin.dict.yaml": "f89a50949e93ac60746aa3058f67bc3a6bbd4a9a5c2d43652df0cb2ae973d555"
+  },
+  "entries": 100000,
+  "changes": "Merge basic/polyphonic dictionaries; remove tones; keep 2–8 Han characters; deduplicate; select highest-frequency entries. APK builder validates syllables and converts frequencies to log scores.",
+  "output_sha256": "3d2fc9b5af17546f8041864fd88f50b62b02cf47ce8faf70962926d1a35e6e87"
+}

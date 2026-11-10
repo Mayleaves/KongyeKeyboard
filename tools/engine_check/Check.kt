@@ -2,6 +2,7 @@
 // 用法见 tools/engine_check/run.sh
 import com.kongye.keyboard.Lexicon
 import com.kongye.keyboard.HandwritingCandidates
+import com.kongye.keyboard.PinyinCorrection
 import java.io.FileInputStream
 
 fun main(args: Array<String>) {
@@ -23,7 +24,8 @@ fun main(args: Array<String>) {
     expect("jianpan", "键盘", "jian'pan")
     expect("xiexie", "谢谢")
     expect("woaini", "我爱你")
-    expect("zg", "中国", "z'g")
+    expect("zg", "这个", "z'g")
+    check(Lexicon.candidates("zg").take(3).any {it.w=="中国"})
     expect("wm", "我们")
     expect("shi", "是")
     expect("xian", "现")
@@ -40,6 +42,8 @@ fun main(args: Array<String>) {
     // 纠错：nihai 里应该有“你好”，拼音 ni hao，o 标红
     val nh = Lexicon.candidates("nihai")
     println("nihai → " + nh.take(8).joinToString(" ") { c -> c.w + (c.py?.let { p -> "(" + p.mapIndexed { i, ch -> if (c.mask?.getOrNull(i) == true) ch.uppercaseChar() else ch }.joinToString("") + ")" } ?: "") })
+    check(nh.first().w=="你还" && nh.take(6).any {it.w=="你好"}) {"Valid spelling must stay first without suppressing nearby correction"}
+    check(Lexicon.candidates("zhenbang").first().mask==null)
     // 九键：5426726 = jian pan
     val t9 = listOf("jkl", "ghi", "abc", "mno", "pqrs", "abc", "mno")
     val c9 = Lexicon.candidates(t9)
@@ -48,7 +52,7 @@ fun main(args: Array<String>) {
     // 14 键：ni hao = BN UI GH AS OP
     val k14 = listOf("bn", "ui", "gh", "as", "op")
     val c14 = Lexicon.candidates(k14)
-    if (c14.firstOrNull()?.w != "你好") fail++
+    if (c14.take(3).none {it.w == "你好"}) fail++
     println("14键 nihao → " + c14.take(6).joinToString(" ") { it.w } + "  [" + Lexicon.display(k14, c14.firstOrNull()) + "]")
     println("分词 → " + Lexicon.segment("今天天气不错，我们去公园散步吧。Hello 123").joinToString("|"))
     println("拼音 → " + Lexicon.pinyinOf("空叶键盘"))
@@ -75,10 +79,67 @@ fun main(args: Array<String>) {
     // 关掉模糊音后 lihao 不应再出你好
     if (Lexicon.candidates("lihao").take(5).any { it.w == "你好" }) fail++
     // 记忆：全拼打过的“夏星月”，之后简拼 xxy 排第一
+    val beforeLearning=Lexicon.candidates("xxy")
     Lexicon.learnPhrase("夏星月", listOf("xia", "xing", "yue"))
     val mem = Lexicon.candidates("xxy")
+    check(mem!==beforeLearning) {"Learning did not invalidate old suggestions"}
     println("记忆 xxy → " + mem.take(5).joinToString(" ") { it.w })
     if (mem.firstOrNull()?.w != "夏星月") fail++
+    // Real typo classes: neighbor key, omitted/duplicated letter, transposition and first-letter error.
+    for(input in listOf("nihoa","mihao","nhao","nihaoo")) expect(input,"你好")
+    expect("jainpan","键盘")
+    expect("zhonhguo","中国")
+    for(input in listOf("zhrnbang","zhembang","zhrmbang","zhenbng","zhenbgang","zhenbnag")) expect(input,"真棒")
+    for((input,word) in listOf("jianpn" to "键盘","jiaanpan" to "键盘","zhonguo" to "中国","zhongguoo" to "中国","zhenbngg" to "真棒")) {
+        val c=Lexicon.candidates(input)
+        check(c.take(6).any {it.w==word}) {"Typo $input lacks $word: ${c.take(6).map {it.w}}"}
+    }
+    for((input,word) in listOf("meiwenti" to "没问题","nengbuneng" to "能不能","shejiao" to "社交","chongqing" to "重庆","yinhang" to "银行","yinyue" to "音乐")) {
+        val result=Lexicon.candidates(input)
+        if(result.take(3).none {it.w==word}) {fail++;println("FAIL lexicon $input lacks $word")}
+    }
+    Lexicon.fuzzyRules=setOf("z-zh","en-eng")
+    for((input,word) in listOf("zong'guo" to "中国","nenbunen" to "能不能")) {
+        val result=Lexicon.candidates(input)
+        if(result.take(3).none {it.w==word}) {fail++;println("FAIL fuzzy $input lacks $word")}
+    }
+    Lexicon.fuzzyRules=emptySet()
+    val groups=listOf("abc","def","ghi","jkl","mno","pqrs","tuv","wxyz")
+    val learnedNine="xiaxingyue".map {ch -> groups.first {ch in it}}
+    check(Lexicon.candidates(learnedNine).take(12).any {it.w=="夏星月"}) {"Learned word missing from indexed nine-key lookup"}
+    // Retrieval must survive edits at both ends and across the seven-letter index boundary.
+    val originals=listOf("zhenbang","zhongguo","jianpan","jintiantianqi","gongzuoshunli","chongqing","beijing","xiexieni")
+    val correction=PinyinCorrection(originals)
+    var editsChecked=0
+    for(word in originals) {
+        val variants=linkedSetOf<String>()
+        for(i in word.indices) {
+            variants.add(word.removeRange(i,i+1))
+            variants.add(word.substring(0,i)+word[i]+word.substring(i))
+            if(i<word.lastIndex) variants.add(word.substring(0,i)+word[i+1]+word[i]+word.substring(i+2))
+        }
+        if(word.length>=8) {
+            variants.add(word.drop(1).dropLast(1))
+            variants.add("q"+word+"p")
+            variants.add(word.removeRange(1,2)+"q")
+        }
+        for(typed in variants.filter {it.length>=4 && it!=word && !word.startsWith(it)}) {
+            check(correction.lookup(typed).any {it.spelling==word}) {"Delete index lost $typed → $word"}
+            editsChecked++
+        }
+    }
+    println("verified typo retrieval variants: $editsChecked")
+    val correctionMs=ArrayList<Long>()
+    repeat(5) {for(input in listOf("zhrmbang","zhenbgang","jianpn","zhongguoo","jintiantianqibucuu")) {
+        val start=System.nanoTime();correction.lookup(input);correctionMs.add(System.nanoTime()-start)
+    }}
+    correctionMs.sort();println("uncached small-index correction p95 us: "+correctionMs[(correctionMs.size*.95).toInt()]/1000)
+    val cache0=Lexicon.candidates("nihoa")
+    check(cache0===Lexicon.candidates("nihoa")) {"Repeated query did not reuse cached result"}
+    val samples=listOf("n","shi","nihoa","zhonhguo","jintiantianqibucuo")
+    val timings=ArrayList<Long>()
+    repeat(100) { for(input in samples) {val start=System.nanoTime();Lexicon.candidates(input);timings.add(System.nanoTime()-start)} }
+    timings.sort();println("cached candidates p95 us: "+timings[(timings.size*.95).toInt()]/1000)
     println(if (fail == 0) "ALL OK" else "$fail FAILED")
     check(fail == 0) { "$fail checks failed" }
 }

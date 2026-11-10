@@ -34,7 +34,8 @@ fun withAlpha(c: Int, a: Int) = Color.argb(a, Color.red(c), Color.green(c), Colo
 /** 图标缓存与绘制，键盘、候选栏和面板共用 */
 class Icons(private val ctx: Context) {
     private val cache = HashMap<Int, Drawable>()
-    private val d = ctx.resources.displayMetrics.density
+    var scale = 1f
+    private val d get() = ctx.resources.displayMetrics.density * scale
 
     fun draw(c: Canvas, id: Int, cx: Float, cy: Float, sizeDp: Float, tint: Int?) {
         val dr = cache.getOrPut(id) { ctx.getDrawable(id)!!.mutate() }
@@ -74,7 +75,7 @@ class KeyboardView(context: Context) : View(context) {
     var swipeEnabled = true
     var enterIcon = R.drawable.ic_enter
     var heightScale = 1f
-        set(v) { if (v != field) { field = v; requestLayout() } }
+        set(v) { if (v != field) { field = v; icons.scale=v; requestLayout(); invalidate() } }
     var longMs = 360L
     /** 空格长按：0 光标模式，1 连续输入空格，2 开关语音 */
     var spaceLong = 0
@@ -92,7 +93,7 @@ class KeyboardView(context: Context) : View(context) {
     var splitLayout = false
     private var cursorMode = false
 
-    private val d = resources.displayMetrics.density
+    private val d get() = resources.displayMetrics.density * heightScale
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private val icons = Icons(context)
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -106,7 +107,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private val padTop get() = 6 * d
     private val padBottom get() = 6 * d
-    private fun rowH() = skin.keyH * d * heightScale
+    private fun rowH() = skin.keyH * d
 
     fun setup(skin: Skin, rows: List<Row>, side: List<String>? = null) {
         val relayout = rows.size != this.rows.size || skin.keyH != this.skin.keyH || skin.rowGap != this.skin.rowGap
@@ -116,13 +117,15 @@ class KeyboardView(context: Context) : View(context) {
         this.side = side
         // 光标模式中编辑器重启输入（比如空叶文档光标跨段换了输入框）会重新 setup：
         // 保住按着的空格和光标模式，不然手指还没松开就退出了
-        val keep = if (cursorMode) presses.values.firstOrNull { it.key.kind == Kind.SPACE } else null
-        val space = keep?.let { rows.flatMap { r -> r.keys }.firstOrNull { it.kind == Kind.SPACE } }
-        cancelAll()
-        if (keep != null && space != null) {
-            keep.key = space
-            presses[keep.id] = keep
-            cursorMode = true
+        val keep = presses.values.firstOrNull {
+            cursorMode && it.key.kind==Kind.SPACE || it.key.kind==Kind.DEL && it.swipe==0
+        }
+        val replacement=keep?.let {old -> rows.flatMap {it.keys}.firstOrNull {it.kind==old.key.kind}}
+        val activeRepeat=if(keep?.key?.kind==Kind.DEL && replacement!=null) repeatTask else null
+        cancelAll(activeRepeat)
+        if(keep!=null && replacement!=null) {
+            keep.key=replacement;presses[keep.id]=keep
+            if(replacement.kind==Kind.SPACE) cursorMode=true
         }
         if (relayout) requestLayout()
         layoutKeys()
@@ -511,14 +514,14 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
-    private fun cancelAll() {
+    private fun cancelAll(retainRepeat: Runnable?=null) {
         longTask?.let { handler.removeCallbacks(it) }
-        repeatTask?.let { handler.removeCallbacks(it) }
+        repeatTask?.takeIf {it!==retainRepeat}?.let { handler.removeCallbacks(it) }
         removeCallbacks(delReleaseAnim)
         delReleaseProg = 0f
         delReleaseDir = 0
         longTask = null
-        repeatTask = null
+        repeatTask = retainRepeat
         presses.clear()
         if (cursorMode) {
             cursorMode = false
@@ -602,9 +605,10 @@ class KeyboardView(context: Context) : View(context) {
             // 删除在抬手时才删一个：留出判断上下滑的时间；按住 0.42 秒后开始连删
             val task = object : Runnable {
                 override fun run() {
+                    if(presses[p.id]!==p || p.swipe!=0) return
                     p.fired = true
-                    listener?.onKey(k)
-                    handler.postDelayed(this, 55)
+                    listener?.onKey(p.key)
+                    if(presses[p.id]===p && repeatTask===this) handler.postDelayed(this,55)
                 }
             }
             repeatTask = task
@@ -785,7 +789,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     companion object {
-        private val RED = Color.parseColor("#E63946")
+        private val RED = Color.parseColor("#B32635")
         private val BLUE = Color.parseColor("#2166AC")
     }
 }

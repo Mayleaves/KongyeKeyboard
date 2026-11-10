@@ -42,6 +42,22 @@ object Lexicon {
         private set
 
     private var sorted: Array<Entry> = emptyArray()
+    private val prefixRanges=HashMap<String,IntRange>()
+    private var rangeEntries:Array<Entry> = emptyArray()
+    private val rangeExtras=ArrayList<Entry>()
+    private var corrector: PinyinCorrection? = null
+    private val candidateCache=object:LinkedHashMap<String,List<Cand>>(96,.75f,true) {
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,List<Cand>>?)=size>96
+    }
+    private fun rebuildRanges() {
+        prefixRanges.clear();rangeEntries=sorted;rangeExtras.clear()
+        for(i in sorted.indices) for(length in 1..min(3,sorted[i].p.length)) {
+            val prefix=sorted[i].p.substring(0,length)
+            prefixRanges[prefix]=prefixRanges[prefix]?.let {it.first..i} ?: i..i
+        }
+        corrector = PinyinCorrection(sorted.filter {it.w.length >= 2}.map {it.p})
+        candidateCache.clear()
+    }
     private val exact = HashMap<String, ArrayList<Entry>>()
     private val initials = HashMap<String, ArrayList<Entry>>()
     private val byHead = HashMap<Char, ArrayList<Entry>>()
@@ -120,6 +136,7 @@ object Lexicon {
                 v.sortWith(bySc)
                 if (v.size > 800) byHead[k] = ArrayList(v.subList(0, 800))
             }
+            rebuildRanges()
             ready = true
         }
     }
@@ -213,40 +230,48 @@ object Lexicon {
         return out
     }
 
+    @Synchronized
     fun candidates(keys: List<String>, abbr: Boolean = true, fuzzy: Boolean = true): List<Cand> {
-        val base = core(keys, abbr, fuzzy)
-        val rules = fuzzyRules
-        if (rules.isEmpty() || !ready) return base
-        val (sets, marks) = split(keys)
-        if (marks.isNotEmpty() || sets.isEmpty() || sets.any { it.length != 1 }) return base
-        return withFuzzy(sets, base, abbr, rules)
+        val rules=fuzzyRules
+        val cacheKey=keys.joinToString("|")+"/$abbr/$fuzzy/"+rules.sorted().joinToString(",")
+        candidateCache[cacheKey]?.let {return it}
+        val base=core(keys,abbr,fuzzy)
+        val (sets,marks)=split(keys)
+        val result=if(rules.isEmpty() || !ready || sets.isEmpty() || sets.any {it.length!=1}) base
+            else withFuzzy(sets,base,abbr,rules,marks)
+        if(ready) candidateCache[cacheKey]=result
+        return result
     }
 
     /** 模糊音：把输入切成音节，每个音节换成能对应的读音，拼出几种别的输入再查，结果按原输入的长度折算 */
-    private fun withFuzzy(sets: List<String>, base: List<Cand>, abbr: Boolean, rules: Set<String>): List<Cand> {
+    private fun withFuzzy(sets: List<String>, base: List<Cand>, abbr: Boolean, rules: Set<String>, marks: List<Int>): List<Cand> {
         val n = sets.size
-        val syl = decode(sets)
+        val cuts=listOf(0)+marks.filter {it in 1 until n}+n
+        val syl=cuts.zipWithNext().flatMap {(a,b)->decode(sets.subList(a,b))}
         if (syl.joinToString("").length != n) return base
         val alts = syl.mapIndexed { i, x -> syllableVariants(x, i == syl.lastIndex, rules) }
         if (alts.all { it.size <= 1 }) return base
         val origBounds = IntArray(syl.size + 1).also { b -> syl.forEachIndexed { i, x -> b[i + 1] = b[i] + x.length } }
-        val combos = ArrayList<List<String>>()
-        fun build(i: Int, acc: List<String>) {
-            if (combos.size >= 24) return
-            if (i == alts.size) { if (acc != syl) combos.add(acc); return }
-            for (v in alts[i]) build(i + 1, acc + v)
+        var beam=listOf(syl to 0)
+        for(i in alts.indices) {
+            beam=beam.flatMap { (value,cost) -> alts[i].map { alt ->
+                value.toMutableList().apply {this[i]=alt}.toList() to (cost+if(alt==syl[i]) 0 else 1)
+            }}.filter {it.second<=3}.sortedBy {it.second}.take(65)
         }
-        build(0, emptyList())
+        val combos=beam.filter {it.second>0}.map {it.first}
         val fz = ArrayList<Cand>()
         for (combo in combos) {
             val varBounds = IntArray(combo.size + 1).also { b -> combo.forEachIndexed { i, x -> b[i + 1] = b[i] + x.length } }
             val v = combo.joinToString("")
-            for (c in core(v.map { it.toString() }, abbr, fuzzy = false).take(40)) {
+            val variantMarks=marks.mapNotNull {mark->origBounds.indexOf(mark).takeIf {it>=0}?.let {varBounds[it]}}
+            val variantKeys=ArrayList<String>()
+            v.forEachIndexed {index,ch -> if(index in variantMarks) variantKeys.add("'");variantKeys.add(ch.toString())}
+            for (c in core(variantKeys, abbr, fuzzy = false).take(40)) {
                 val e = c.e ?: continue
                 if (c.sentence || c.abbr || c.fix) continue
                 val j = varBounds.indexOf(c.n)
                 if (j <= 0) continue
-                fz.add(Cand(c.w, origBounds[j], e, c.score - 5f, fuzzy = true))
+                fz.add(Cand(c.w, origBounds[j], e, c.score - 3f*combo.indices.count {combo[it]!=syl[it]}, fuzzy = true))
             }
         }
         if (fz.isEmpty()) return base
@@ -290,36 +315,51 @@ object Lexicon {
                 }
             }
             // 没有正好对上的字词时：拼一个整句候选（你+还），再给纠错候选
-            if (marks.isEmpty() && n >= 3 && a.none { it.e != null && it.e.p.length == n && !it.abbr }) {
-                sentence(s)?.let { a.add(it) }
+            if (marks.isEmpty() && n >= 3) {
+                if(a.none { it.e != null && it.e.p.length == n && !it.abbr }) sentence(s)?.let { a.add(it) }
+                // A typo can itself spell a real word; retain that exact word first,
+                // but still offer nearby alternatives instead of hiding correction.
                 if (fuzzy && n >= 4) c.addAll(corrections(s))
             }
         } else {
             // 14 键、九键：一个键多个字母，按首键的每个字母在有序表里扫一段
-            for (ch in sets[0]) {
-                var i = lowerBound(ch.toString())
-                while (i < sorted.size && sorted[i].p[0] == ch) {
-                    val e = sorted[i]
-                    val l = e.p.length
-                    if (l >= n) {
-                        if (fitsSets(e.p, sets, n) && fitsMarks(e, n, marks)) a.add(Cand(e.w, n, e, e.sc + boost(e) + if (l == n) 6f else -(l - n) * 0.8f))
-                    } else if (fitsSets(e.p, sets, l) && fitsMarks(e, l, marks)) {
-                        b.add(Cand(e.w, l, e, e.sc + boost(e) + l * 16f))
-                    }
-                    i++
+            val prefixes=ArrayList<String>()
+            fun buildPrefix(index:Int,prefix:String) {
+                if(index==min(3,n)) {prefixes.add(prefix);return}
+                for(ch in sets[index]) if(prefixRanges.containsKey(prefix+ch)) buildPrefix(index+1,prefix+ch)
+            }
+            buildPrefix(0,"")
+            for(prefix in prefixes) for(i in (prefixRanges[prefix] ?: IntRange.EMPTY)) {
+                val e=rangeEntries[i];val l=e.p.length
+                if(l>=n) {
+                    if(fitsSets(e.p,sets,n) && fitsMarks(e,n,marks)) a.add(Cand(e.w,n,e,e.sc+boost(e)+if(l==n) 6f else -(l-n)*.8f))
+                } else if(fitsSets(e.p,sets,l) && fitsMarks(e,l,marks)) b.add(Cand(e.w,l,e,e.sc+boost(e)+l*16f))
+            }
+            for(e in rangeExtras) {
+                val l=e.p.length
+                if(l>=n && fitsSets(e.p,sets,n) && fitsMarks(e,n,marks)) a.add(Cand(e.w,n,e,e.sc+boost(e)+if(l==n) 6f else -(l-n)*.8f))
+                else if(l<n && fitsSets(e.p,sets,l) && fitsMarks(e,l,marks)) b.add(Cand(e.w,l,e,e.sc+boost(e)+l*16f))
+            }
+            // Entries shorter than the indexed prefix are valid partial candidates.
+            if(n>1) for(length in 1 until min(3,n)) {
+                fun short(index:Int,prefix:String) {
+                    if(index==length) {exact[prefix]?.take(40)?.forEach {e -> if(fitsMarks(e,length,marks)) b.add(Cand(e.w,length,e,e.sc+boost(e)+length*16f))};return}
+                    for(ch in sets[index]) short(index+1,prefix+ch)
                 }
+                short(0,"")
             }
         }
-        a.sortByDescending { it.score }
+        a.sortWith(compareByDescending<Cand> { if(n==1 && it.e?.w?.length==1) 1 else 0 }.thenByDescending {it.score})
         b.sortByDescending { it.score }
         c.sortByDescending { it.score }
         val out = ArrayList<Cand>()
         val seen = HashSet<String>()
         // 纠错的排在完全匹配的前几个之后
-        val head = a.take(150)
-        for (x in head.take(3)) if (seen.add(x.w)) out.add(x)
-        for (x in c.take(6)) if (seen.add(x.w)) out.add(x)
-        for (x in head.drop(3)) if (seen.add(x.w)) out.add(x)
+        val exactWords=a.filter {it.e!=null && it.e.p.length==n && !it.abbr && !it.sentence}
+        val remaining=a.filterNot {it in exactWords}.take(150)
+        for(x in exactWords) if(seen.add(x.w)) out.add(x)
+        for(x in c.take(6)) if(seen.add(x.w)) out.add(x)
+        for(x in remaining) if(seen.add(x.w)) out.add(x)
         for (x in b.take(100)) if (seen.add(x.w)) out.add(x)
         if (out.isEmpty()) out.add(Cand(decode(sets).joinToString(""), n, null, 0f))
         return out
@@ -351,47 +391,17 @@ object Lexicon {
         return Cand(entry.w, s.length, entry, 200f, sentence = true)
     }
 
-    /**
-     * 纠错：拼音和输入只差一个字母（替换、多一个、少一个）的常用词；
-     * mask 标出拼音里和输入不一样的那个字母
-     */
+    /** 候选召回与有权重的编辑距离分开：漏打、多打、邻键及颠倒，长词最多两处。 */
     private fun corrections(s: String): List<Cand> {
-        val out = ArrayList<Cand>()
-        val n = s.length
-        var i = lowerBound(s.substring(0, 1))
-        val first = s[0]
-        while (i < sorted.size && sorted[i].p[0] == first) {
-            val e = sorted[i++]
-            val p = e.p
-            if (e.w.length < 2 || abs(p.length - n) > 1 || p == s || p.startsWith(s)) continue
-            val bad = oneEdit(s, p) ?: continue
-            val mask = BooleanArray(p.length)
-            for (j in bad) if (j in mask.indices) mask[j] = true
-            out.add(Cand(e.w, n, e, e.sc + boost(e) - 4f, py = e.syl.joinToString(" "), mask = spaced(mask, e.syl)))
+        val out=ArrayList<Cand>()
+        for (match in corrector?.lookup(s).orEmpty()) {
+            for (e in exact[match.spelling].orEmpty().take(10)) {
+                if (e.w.length<2) continue
+                out.add(Cand(e.w,s.length,e,e.sc+boost(e)-match.penalty,
+                    py=e.syl.joinToString(" "),mask=spaced(match.mask,e.syl)))
+            }
         }
-        return out.sortedByDescending { it.score }.take(12)
-    }
-
-    /** 差一个字母时返回拼音里不一样的位置，否则 null */
-    private fun oneEdit(s: String, p: String): List<Int>? {
-        if (s.length == p.length) {
-            var diff = -1
-            for (j in s.indices) if (s[j] != p[j]) { if (diff >= 0) return null; diff = j }
-            return if (diff >= 0) listOf(diff) else null
-        }
-        if (p.length == s.length + 1) {
-            // 拼音多一个字母：漏打了
-            var j = 0
-            while (j < s.length && s[j] == p[j]) j++
-            return if (s.substring(j) == p.substring(j + 1)) listOf(j) else null
-        }
-        if (p.length == s.length - 1) {
-            // 多打了一个字母：标出拼音里多打位置后的那个字母
-            var j = 0
-            while (j < p.length && s[j] == p[j]) j++
-            return if (s.substring(j + 1) == p.substring(j)) listOf(min(j, p.length - 1)) else null
-        }
-        return null
+        return out.sortedByDescending {it.score}.distinctBy {it.w}.take(12)
     }
 
     /** 把按字母的 mask 展开成带空格的拼音（音节间一个空格）的 mask */
@@ -509,12 +519,15 @@ object Lexicon {
         return out
     }
 
+    @Synchronized
     fun recordPick(e: Entry) {
+        candidateCache.clear()
         userFreq[e.key] = (userFreq[e.key] ?: 0) + 1
         dirty = true
     }
 
     /** 分几次选出来的一整句，记成一个新词 */
+    @Synchronized
     fun learnPhrase(w: String, syl: List<String>) {
         if (!ready || w.length < 2 || w.length > 8 || syl.size != w.length) return
         val p = syl.joinToString("")
@@ -527,6 +540,9 @@ object Lexicon {
         byHead.getOrPut(e.w[0]) { ArrayList(8) }.add(0, e)
         val i = lowerBound(p)
         sorted = (sorted.copyOfRange(0, i) + e + sorted.copyOfRange(i, sorted.size))
+        rangeExtras.add(e)
+        corrector?.learn(p)
+        candidateCache.clear()
         userFreq[e.key] = 1
         dirty = true
     }
@@ -547,7 +563,9 @@ object Lexicon {
     }
 
     /** 清除学习记录（选词次数和自造词） */
+    @Synchronized
     fun clearUser(ctx: Context) {
+        candidateCache.clear()
         synchronized(this) {
             if (ready && userWords.isNotEmpty()) {
                 val gone = userWords.toHashSet()
@@ -555,6 +573,7 @@ object Lexicon {
                 initials.values.forEach { it.removeAll(gone) }
                 byHead.values.forEach { it.removeAll(gone) }
                 sorted = sorted.filter { it !in gone }.toTypedArray()
+                rebuildRanges()
             }
             userWords.clear()
             userFreq.clear()

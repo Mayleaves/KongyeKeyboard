@@ -60,7 +60,9 @@ class CandidateBar(context: Context) : View(context) {
     private var contentW = 0f
     private var scrollPos = 0f
 
-    private val d = resources.displayMetrics.density
+    var uiScale = 1f
+        set(v) { if(field!=v) {field=v;icons.scale=v;measuredItems.clear();layoutItems();requestLayout();invalidate() } }
+    private val d get() = resources.displayMetrics.density * uiScale
     private val icons = Icons(context)
     private val scroller = OverScroller(context)
     private var vt: VelocityTracker? = null
@@ -88,6 +90,9 @@ class CandidateBar(context: Context) : View(context) {
     private val rect = RectF()
     private val red = Color.parseColor("#E5484D")
 
+    private val measuredItems=object:LinkedHashMap<String,Float>(512,.75f,true) {
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,Float>?)=size>512
+    }
     private val pad get() = 12 * d
     private val expandW get() = if (mode == Mode.CANDS || mode == Mode.ASSOC) 44 * d else 0f
 
@@ -96,8 +101,15 @@ class CandidateBar(context: Context) : View(context) {
     }
 
     fun showCandidates(list: List<CandItem>, expanded: Boolean) {
-        mode = Mode.CANDS; items = list; this.expanded = expanded
-        layoutItems(); resetScroll(); invalidate()
+        val visible=list
+        val same=mode==Mode.CANDS && this.expanded==expanded && items.size==visible.size && items.indices.all { i ->
+            items[i].w==visible[i].w && items[i].py==visible[i].py && items[i].mask.contentEquals(visible[i].mask)
+        }
+        if(same) return
+        val entering=mode!=Mode.CANDS
+        mode=Mode.CANDS;items=visible;this.expanded=expanded
+        layoutItems();resetScroll();invalidate()
+        if(entering) NativeMotion.pulse(this)
     }
 
     fun showAssoc(list: List<String>) {
@@ -126,8 +138,8 @@ class CandidateBar(context: Context) : View(context) {
         var x = 4 * d
         for ((i, it) in items.withIndex()) {
             text.typeface = Typeface.DEFAULT
-            var w = text.measureText(it.w) + 2 * pad
-            if (it.py != null) w += 4 * d + small.measureText(it.py)
+            val key=it.w+"\u0000"+it.py.orEmpty()
+            val w=measuredItems.getOrPut(key) {text.measureText(it.w)+2*pad+(it.py?.let {py->4*d+small.measureText(py)} ?: 0f)}
             starts[i] = x
             widths[i] = w
             x += w

@@ -15,6 +15,7 @@ import argparse
 import math
 import sqlite3
 import unicodedata
+from pathlib import Path
 
 from pypinyin import lazy_pinyin
 
@@ -22,6 +23,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('db')
 ap.add_argument('out')
 ap.add_argument('--chars', type=int, default=4200, help='取字频最高的这么多字')
+ap.add_argument('--wanxiang', default=str(Path(__file__).with_name('data') / 'wanxiang-common.tsv'), help='CC BY 4.0 万象精选词库，空字符串禁用')
 ap.add_argument('--words', type=int, default=9000, help='取词频最高的这么多 2～4 字词')
 args = ap.parse_args()
 
@@ -106,17 +108,56 @@ for c, f, py in rows:
 valid_syl = STANDARD_SYLLABLES
 
 # —— 词 ——
-words, have = [], {}
+COMMON_READINGS = {
+    '重庆': "chong'qing", '银行': "yin'hang", '行为': "xing'wei", '行走': "xing'zou",
+    '音乐': "yin'yue", '快乐': "kuai'le", '长大': "zhang'da", '长城': "chang'cheng", '长春': "chang'chun",
+    '重复': "chong'fu", '重新': "chong'xin", '重要': "zhong'yao", '重量': "zhong'liang",
+    '调节': "tiao'jie", '调整': "tiao'zheng", '调度': "diao'du", '了解': "liao'jie", '觉得': "jue'de",
+}
+words, have, word_keys = [], {}, set()
 for w, f, py in db.execute('SELECT w, f, py FROM ci WHERE f > 0 ORDER BY f DESC'):
     if len(words) >= args.words:
         break
-    if not (2 <= len(w) <= 4) or not all(is_han(ch) for ch in w) or not py:
+    if not (2 <= len(w) <= 8) or not all(is_han(ch) for ch in w) or not py:
         continue
-    parts = [toneless(p) for p in py.split()]
+    parts = COMMON_READINGS[w].split("'") if w in COMMON_READINGS else [toneless(p) for p in py.split()]
     if len(parts) != len(w) or not all(p in valid_syl for p in parts):
         continue
-    have[w] = len(words)
-    words.append(["'".join(parts), w, score(f)])
+    key=(w,"'".join(parts))
+    if key in word_keys:
+        continue
+    word_keys.add(key)
+    have.setdefault(w,len(words))
+    words.append([key[1], w, score(f)])
+
+words_by_key = {(row[1], row[0]): [row] for row in words}
+
+# —— GitHub 万象精选：采用已校对读音和现代语料词频，保留独立署名与快照清单 ——
+upstream_count = 0
+if args.wanxiang:
+    path = Path(args.wanxiang)
+    if not path.is_file():
+        raise SystemExit(f'Missing pinned dictionary: {path}')
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if line.startswith('#'):
+            continue
+        w, p, frequency = line.split('\t')
+        parts = p.split("'")
+        if len(parts) != len(w) or not all(x in valid_syl for x in parts):
+            continue
+        p = COMMON_READINGS.get(w, p)
+        key = w, p
+        sc = score(int(frequency))
+        if key in word_keys:
+            for row in words_by_key.get(key, []):
+                row[2] = max(row[2], sc)
+        else:
+            row = [p, w, sc]
+            have.setdefault(w, len(words))
+            words.append(row)
+            word_keys.add(key)
+            words_by_key[key] = [row]
+        upstream_count += 1
 
 # —— 聊天常用词与键盘相关词：jieba 词频偏新闻语料，这些词排不进前列，单独补上 ——
 EXTRA = {
@@ -128,17 +169,29 @@ EXTRA = {
          '猫咪 落叶 红叶 一叶知秋 打字 手写 语音 表情 符号 数字 换行 发送 搜索 剪贴板 主题 布局 试试 试一下 '
          '还不错 太好了 真好看 换一套 选这套 好喜欢 键帽 分体'),
 }
-extra = []
+EXTRA[62] += (' 不好意思 没问题 怎么回事 没想到 已经好了 应该可以 什么时候 怎么了 可以吗 没事的 等一下 '
+    '稍等 马上回来 一会儿再说 晚点再说 等会儿 有空吗 一会儿 好了吗 真棒 太棒了 真的嘛 真的假的 当然可以 '
+    '你说得对 我知道了 没听清楚 再说一遍 明白了 记住了 不知道 不确定 看一下 看到了 找到了 '
+    '还没有 已经可以了 没有了 有时候 没什么 这么回事 为什么 怎么办 怎么样 还有吗 还有什么 '
+    '什么时候回来 你在哪里 要不要 需不需要 可不可以 能不能 应不应该 没有问题 不用谢 不用了 不需要 '
+    '一路平安 注意安全 路上小心 身体健康 早点休息 好好休息 新年快乐 节日快乐 周末愉快')
+EXTRA[56] += (' 自动纠错 自动更新 自定义 收藏 撤回 撤销 重做 取消 确认 删除 置顶 分词 文档 文件 文件夹 '
+    '照片 视频 音频 图片 链接 网页 光标 段落 段首 段尾 留白 调节 调整 高度 宽度 透明度 '
+    '流畅 不流畅 卡住 会卡住 没反应 没有反应 闪烁 抖动 拖动 滑动 选择 全选 输入框 候选词 '
+    '翻译 普通话 四川话 识别 麦克风 离线 中文 英文 拼音 音节 词库 模糊音 连续删除 长按删除 '
+    '工作 学习 开会 快递 外卖 地铁 公交 高铁 火车 飞机 打车 付款 支付 转账 订单 地址 电话 '
+    '上午 下午 中午 晚饭 午饭 早饭 早餐 午餐 晚餐 今天晚上 明天早上 后天 昨天 刚才 现在 以后 '
+    '银行 行为 音乐 快乐 长大 长城 重庆 重复 重新 重要 重量 调节 调整 调度 了解 觉得')
 for sc, s in EXTRA.items():
     for w in s.split():
         if w in have:
             row = words[have[w]]
             row[2] = max(row[2], sc)
             continue
-        parts = lazy_pinyin(w)
+        parts = COMMON_READINGS[w].split("'") if w in COMMON_READINGS else lazy_pinyin(w)
         if all(p in valid_syl for p in parts):
-            extra.append(["'".join(parts), w, sc])
-words = extra + words
+            have[w]=len(words)
+            words.append(["'".join(parts), w, sc])
 
 syls = sorted(syl_freq, key=lambda s: -syl_freq[s])
 lines = [f'{p} {w} {s}' for p, w, s in chars + words]
@@ -153,4 +206,4 @@ with open(args.out, 'w', encoding='utf8', newline='\n') as fp:
         fp.write(' '.join(syls) + '\n')
         fp.write('\n'.join(lines) + '\n')
 
-print('syllables', len(syls), 'char readings', len(chars), 'words', len(words))
+print('syllables', len(syls), 'char readings', len(chars), 'words', len(words), 'upstream', upstream_count)

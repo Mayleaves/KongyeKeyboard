@@ -640,7 +640,9 @@ fun optionList(context: Context, skin: Skin, opts: List<Opt>): ScrollView {
 
 /** 键盘最下面一条：左边切换输入法，右边剪贴板（照截图 1 的红框） */
 class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private val onClip: () -> Unit) : View(context) {
-    private val d = resources.displayMetrics.density
+    var uiScale = 1f
+        set(v) { if(field!=v) {field=v;icons.scale=v;requestLayout();invalidate() } }
+    private val d get() = resources.displayMetrics.density * uiScale
     private val icons = Icons(context)
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     var skin: Skin = Skins.KONGYE

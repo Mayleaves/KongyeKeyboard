@@ -50,6 +50,22 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("engine".equals(mode)) {
+                long start=android.os.SystemClock.elapsedRealtime();
+                Lexicon.INSTANCE.loadFrom(ctx.getAssets().open("lexicon.txt"),null);
+                report("PASS engine cold load ms: "+(android.os.SystemClock.elapsedRealtime()-start));
+                for(String[] sample:new String[][]{{"zhrmbang","真棒"},{"zhenbng","真棒"},{"zhenbgang","真棒"},{"nihoa","你好"},{"mihao","你好"},{"nhao","你好"},{"nihaoo","你好"}}) {
+                    long query=System.nanoTime();
+                    java.util.List<Cand> found=Lexicon.INSTANCE.candidates(sample[0],true);
+                    require(!found.isEmpty() && found.get(0).getW().equals(sample[1]),"Wrong correction: "+sample[0]);
+                    require(found.get(0).getN()==sample[0].length(),"Wrong consumed input length");
+                    require(found.get(0).getMask()!=null,"Missing typo highlight");
+                    report("PASS "+sample[0]+" → "+sample[1]+" in "+((System.nanoTime()-query)/1000)+" us");
+                }
+                require(Lexicon.INSTANCE.candidates("u",true).get(0).getW().equals("u"),"Invalid syllable returned Han characters");
+                report("ALL DEVICE ENGINE CHECKS PASSED");
+                finish(Activity.RESULT_OK,new Bundle());return;
+            }
             if ("voice-start".equals(mode)) {
                 checkVoiceStart(ctx);
                 report("ALL VOICE STARTUP CHECKS PASSED");
