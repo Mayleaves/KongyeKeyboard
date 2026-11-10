@@ -19,3 +19,6 @@ captures/
 .env
 .env.*
 app/libs/*.aar
+app/src/main/assets/rime-data.zip
+app/src/main/assets/voice-streaming/*.onnx
+app/src/main/assets/voice-streaming/bbpe.model

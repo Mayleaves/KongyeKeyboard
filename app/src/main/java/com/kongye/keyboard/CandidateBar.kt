@@ -290,6 +290,12 @@ class CandidateBar(context: Context) : View(context) {
             // 拼音：打错的字母标红
             var px = x + pad + text.measureText(it.w) + 4 * d
             small.textSize = 11.5f * d
+            // Draw tone marks as a shaped string (including combining marks).
+            if (it.mask == null) {
+                small.color = withAlpha(if (kongyeHi) Color.WHITE else skin.barFg, 200)
+                c.drawText(py, px, base, small)
+                continue
+            }
             for ((j, ch) in py.withIndex()) {
                 val err = it.mask?.getOrNull(j) == true
                 small.color = when {

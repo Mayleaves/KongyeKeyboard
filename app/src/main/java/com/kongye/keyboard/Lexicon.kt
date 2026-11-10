@@ -14,6 +14,8 @@ class Entry(val syl: Array<String>, val w: String, val sc: Int, val user: Boolea
     val key: String get() = "$w\t$p"
 }
 
+class RimeChoice(val schema: String, val raw: String)
+
 /**
  * 候选：n 是它吃掉了多少个输入键；abbr 表示按简拼匹配；
  * fix 表示是纠错出来的，py 是要显示的拼音（音节间空格），mask 标出 py 里打错的字母（标红）
@@ -25,6 +27,9 @@ class Cand(
     val sentence: Boolean = false,
     /** 按模糊音换了读音才对上的（拼音显示不按它的读音来） */
     val fuzzy: Boolean = false,
+    val inputDisplay: String? = null,
+    val nativeChoice: RimeChoice? = null,
+    val correction: Boolean = false,
 ) {
     val fix get() = mask != null
 }
@@ -75,6 +80,25 @@ object Lexicon {
     fun load(ctx: Context) {
         if (ready) return
         loadFrom(ctx.assets.open("lexicon.txt"), File(ctx.filesDir, "user_lexicon.txt"))
+        HandwritingPinyin.load(ctx)
+    }
+
+    @Synchronized fun loadReadings(file: File) {
+        file.forEachLine { line ->
+            val fields = line.split('\t')
+            if (fields.size == 2 && fields[0].length == 1) charPy[fields[0][0]] = fields[1]
+        }
+    }
+
+    /** Keep previously learned personal phrases when upgrading to Rime. */
+    @Synchronized fun userCandidates(keys: List<String>, abbr: Boolean): List<Cand> {
+        val (sets, marks) = split(keys)
+        return userWords.filter { e ->
+            (e.p.length == sets.size && fitsSets(e.p, sets, sets.size) && fitsMarks(e, sets.size, marks)) ||
+                (abbr && marks.isEmpty() && e.ini.length == sets.size && fitsSets(e.ini, sets, sets.size))
+        }.sortedByDescending { userFreq[it.key] ?: 0 }.take(4).map { e ->
+            Cand(e.w, sets.size, e, 100f, py = e.syl.joinToString(" "))
+        }
     }
 
     /** 拆出来是为了能在电脑上用 JVM 直接测引擎（tools/engine_check） */

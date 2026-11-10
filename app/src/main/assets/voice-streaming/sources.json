@@ -1,0 +1,12 @@
+{
+  "repo": "csukuangfj/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01",
+  "revision": "a5f60fe00dcfbaf68fcc1c6b5cf53061e144d6da",
+  "license": "Apache-2.0",
+  "checkpoint": "https://huggingface.co/csukuangfj/icefall-streaming-zipformer-small-ctc-zh-2025-04-01",
+  "files": {
+    "model.int8.onnx": "68c9c943840f7d9cf3e8a4970ba50f404feb5277f611fa82b7e72267786fa84a",
+    "tokens.txt": "6fed8c6c248516f38e7faa19404b57413e8ce259f1cbc1fa4aebc86eac32fdfd",
+    "bbpe.model": "503204e0690eff065e30d0e01898c9ab06d0e6dc376a741eb6846198f95b2f82"
+  },
+  "changes": "No model changes. Streaming inference follows sherpa-onnx Android OnlineRecognizer API."
+}

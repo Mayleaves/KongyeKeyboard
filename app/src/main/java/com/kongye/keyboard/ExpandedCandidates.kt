@@ -10,6 +10,7 @@ import android.widget.TextView
 class ExpandedCandidates(
     context: Context, skin: Skin, items: List<String>, mode: Int,
     onMode: (Int) -> Unit, onPick: (Int) -> Unit, onDelete: () -> Unit, onBack: () -> Unit,
+    labels: List<String?> = emptyList(),
 ) : LinearLayout(context) {
     init {
         orientation = HORIZONTAL
@@ -17,7 +18,7 @@ class ExpandedCandidates(
         val filtered = items.indices.filter { mode == 0 || if (mode == 1) items[it].codePointCount(0, items[it].length) == 1 else items[it].codePointCount(0, items[it].length) > 1 }
         addView(ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
-            addView(CandFlowView(context, skin, filtered.map { items[it] }) { onPick(filtered[it]) })
+            addView(CandFlowView(context, skin, filtered.map { items[it] }, filtered.map { labels.getOrNull(it) }) { onPick(filtered[it]) })
         }, lp(0, MATCH, 1f))
         addView(LinearLayout(context).apply {
             orientation = VERTICAL

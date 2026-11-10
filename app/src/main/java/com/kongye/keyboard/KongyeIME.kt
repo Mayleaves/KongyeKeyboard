@@ -195,6 +195,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         ClipStore.load(this)
         Thread {
             Lexicon.load(applicationContext)
+            PinyinEngine.initialize(applicationContext)
             main.post { if (seq.isNotEmpty()) refreshComposing() }
         }.start()
         clipboard = getSystemService(ClipboardManager::class.java)
@@ -209,6 +210,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         cancelVoiceDraft()
         offlineSpeech?.cancel(); offlineSpeech = null
         OfflineVoice.releaseCache()
+        OpenHandwriting.release()
         Translator.cancel()
         clipboard?.removePrimaryClipChangedListener(clipListener)
         runCatching { unregisterReceiver(vaultLock) }; vault.destroy()
@@ -223,6 +225,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     override fun dump(fd: java.io.FileDescriptor?, out: java.io.PrintWriter?, args: Array<out String>?) {
         out?.println("VaultFill: ${vault.diagnosticState()} passwordField=$passwordField sink=$sink panel=$panel provider=${vaultGateway.owner()} failure=${vaultGateway.lastFailure}")
         out?.println("RemoteInput: active=${remoteEditor()} knownCharacters=${remoteHistory.knownCharacters()}")
+        out?.println("PinyinEngine: ready=${PinyinEngine.ready} version=${PinyinEngine.version} failure=${PinyinEngine.failure}")
     }
 
     /**
@@ -477,6 +480,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         remoteHistory.reset()
         super.onFinishInput()
         resetComposing()
+        if(!candidateWorker.isShutdown) candidateWorker.submit { PinyinEngine.endInput() }
     }
 
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
@@ -703,7 +707,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             seq.isNotEmpty() -> bar.showCandidates(candItems(), panel == Panel.CANDS)
             sink == Sink.TRANSLATE && langPicking -> bar.showAssoc(Translator.TARGETS.map { it.second })
             sink == Sink.TRANSLATE -> bar.showMessage(transStatus.ifEmpty { "译文直接显示在输入框里，点“完成”确认；点左边的语言可以换" })
-            panel in listOf(Panel.HAND, Panel.HAND_CANDS) && handCands.isNotEmpty() -> bar.showCandidates(handCands.map { w -> CandItem(w, if (w.any { it in '一'..'鿿' }) Lexicon.pinyinOf(w) else null) }, panel == Panel.HAND_CANDS)
+            panel in listOf(Panel.HAND, Panel.HAND_CANDS) && handCands.isNotEmpty() -> bar.showCandidates(handCands.map { w -> CandItem(w, if (w.any { it in '一'..'鿿' }) HandwritingPinyin.label(w) else null) }, panel == Panel.HAND_CANDS)
             assoc.isNotEmpty() && (panel == Panel.NONE || panel == Panel.HAND) -> bar.showAssoc(assoc)
             pendingClipText != null && panel == Panel.NONE && sink == Sink.NONE -> bar.showClipSuggestion(pendingClipText!!)
             else -> bar.showTools(listOf("more") + Prefs.tools(this), if (panel == Panel.ADJUST) null else activeTool())
@@ -765,7 +769,25 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     // —————————— 拼音条 ——————————
 
-    private fun tabDisplay() = Lexicon.display(seq.toList(), null)
+    private var resolvedKeys: List<String> = emptyList()
+    private fun tabDisplay(): String {
+        val keys = seq.toList()
+        val first = cands.firstOrNull()
+        if (resolvedKeys == keys && first?.inputDisplay != null) {
+            val prefix = first.inputDisplay
+            if (first.n == letterCount()) return prefix
+            val remaining = keys.dropWhileConsumed(first.n)
+            val tail = Lexicon.display(remaining, null)
+            return if (tail.isEmpty()) prefix else "$prefix'$tail"
+        }
+        return Lexicon.display(keys, null)
+    }
+    private fun List<String>.dropWhileConsumed(n: Int): List<String> {
+        var letters = 0; var index = 0
+        while (index < size && letters < n) { if (this[index] != "'") letters++; index++ }
+        while (index < size && this[index] == "'") index++
+        return drop(index)
+    }
 
     private fun renderTab() {
         if (!::tab.isInitialized) return
@@ -911,6 +933,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun resetComposing() {
         candidateRevision++;candidateTask?.cancel(false);candidatesPending=false
+        pendingPick=null;followingKeys.clear()
         seq.clear()
         picks.clear()
         pyCaret = -1
@@ -923,6 +946,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var candidateTask:java.util.concurrent.Future<*>?=null
     private var candidateRevision=0
     private var candidatesPending=false
+    private var pendingPick: Pair<Int,Int>?=null
+    private val followingKeys=ArrayDeque<Key>()
     private fun refreshComposing() {
         val keys=seq.toList();val revision=++candidateRevision
         val pending=pendingText();val abbr=flag(Prefs.ABBR)
@@ -931,15 +956,21 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         composeOut(immediate)
         candidateTask?.cancel(false)
         candidateTask=candidateWorker.submit {
-            val result=runCatching {Lexicon.candidates(keys,abbr)}.getOrElse {
+            val result=runCatching {PinyinEngine.candidates(keys,abbr)}.getOrElse {
                 android.util.Log.e("KongyeIME","Candidate query failed",it)
                 listOf(Cand(keys.joinToString("") {it.take(1)},keys.count {it!="'"},null,0f))
             }
             bar.postOnAnimation {
                 if(revision!=candidateRevision || seq.toList()!=keys) return@postOnAnimation
-                cands=result;candidatesPending=false
+                cands=result;resolvedKeys=keys;candidatesPending=false
                 renderBar()
                 if(panel==Panel.CANDS) buildPanel()
+                val requested=pendingPick
+                if(requested?.first==revision) {
+                    pendingPick=null
+                    cands.getOrNull(requested.second)?.let {pick(it)}
+                    while(followingKeys.isNotEmpty() && pendingPick==null) onKey(followingKeys.removeFirst())
+                }
             }
         }
     }
@@ -966,7 +997,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         val syl = c.e?.syl?.toList() ?: Lexicon.decode(taken.filter { it != "'" })
         picks.add(Pick(c.w, syl, taken, c.e == null))
         if (learnOn()) {
-            if (c.sentence) Lexicon.learnPhrase(c.w, syl) else if (c.e != null) Lexicon.recordPick(c.e)
+            if (c.nativeChoice != null) candidateWorker.submit { PinyinEngine.recordPick(c) }
+            else if (c.sentence) Lexicon.learnPhrase(c.w, syl) else if (c.e != null) Lexicon.recordPick(c.e)
         }
         if (letterCount() == 0) { seq.clear(); finishPicks() } else refreshComposing()
     }
@@ -1005,7 +1037,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         var guard = 0
         while (seq.isNotEmpty() && guard++ < 40) {
             if (letterCount() == 0) { seq.clear(); if (picks.isNotEmpty()) finishPicks(); return }
-            pick(Lexicon.candidates(seq.toList(), flag(Prefs.ABBR)).first())
+            pick(PinyinEngine.candidates(seq.toList(), flag(Prefs.ABBR)).first())
         }
     }
 
@@ -1049,11 +1081,17 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onKey(key: Key) {
+        // An immediate space must choose the just-typed word, never the previous
+        // frame's candidates. Preserve subsequent key order while lookup finishes.
+        if(pendingPick!=null) {followingKeys.addLast(key);return}
         when (key.kind) {
             Kind.LETTER -> typeLetter(key)
             Kind.CHAR -> typeChar(key.out)
             Kind.SPACE -> {
-                if (seq.isNotEmpty()) cands.firstOrNull()?.let { pick(it) } ?: commitRaw()
+                if (seq.isNotEmpty()) {
+                    if(candidatesPending) pendingPick=candidateRevision to 0
+                    else cands.firstOrNull()?.let { pick(it) } ?: commitRaw()
+                }
                 else { assoc = emptyList(); commitOut(" "); renderBar(); updateAutoCaps() }
             }
             Kind.ENTER -> {
@@ -1294,7 +1332,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     // —————————— 候选栏与工具栏 ——————————
 
     override fun onCandidate(index: Int) {
-        if(candidatesPending && seq.isNotEmpty()) return
+        if(candidatesPending && seq.isNotEmpty()) {pendingPick=candidateRevision to index;return}
         if (seq.isEmpty() && (panel == Panel.HAND || panel == Panel.HAND_CANDS)) {
             val w = handCands.getOrNull(index) ?: return
             commitOut(w)
@@ -1495,7 +1533,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (!micGranted()) { openSettings("grant_mic"); return }
         voiceWantsListening = true
         val dialect = if (!zh && !voiceToSink) 0 else prefs.getInt(Prefs.VOICE_LANG, 0)
-        if (OfflineVoice.ready(this, dialect)) { startOfflineVoice(dialect); return }
+        if ((zh || voiceToSink) && OfflineVoice.available(this, dialect)) { startOfflineVoice(dialect); return }
         if (prefs.getBoolean(Prefs.VOICE_OFFLINE, false)) {
             voicePack()
             return
@@ -2112,8 +2150,10 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 renderBar()
             }).also { v ->
                 handView = v
-                v.status = HandInk.status
-                HandInk.prepare { main.post { handView?.status = HandInk.status } }
+                v.status = if (OpenHandwriting.ready) "" else "正在准备手写…"
+                OpenHandwriting.prepare(applicationContext) {
+                    if (handView === v) v.status = if (OpenHandwriting.ready) "" else "开源手写启动失败，使用备用识别"
+                }
             }
             Panel.VOICE -> VoiceBoard(this, skin, p.getInt(Prefs.VOICE_LANG, 0), !micGranted(),
                 onDialect = { i ->
@@ -2133,7 +2173,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             Panel.HAND_CANDS -> ExpandedCandidates(this, skin, handCands, candidateFilter,
                 onMode = { candidateFilter=it; buildPanel(animate=true) }, onPick = { onCandidate(it) },
                 onDelete = { handCands=emptyList(); panel=Panel.HAND; buildPanel(); renderBar() },
-                onBack = { openPanel(Panel.HAND) })
+                onBack = { openPanel(Panel.HAND) }, labels=handCands.map {HandwritingPinyin.label(it)})
         }
         if (panel == Panel.ADJUST) {
             adjustOverlay=v
@@ -2164,9 +2204,18 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             if (list.isEmpty()) message("没认出来，写大一点再试") else renderBar()
         }
         val pre = runCatching { ic()?.getTextBeforeCursor(20, 0)?.toString() }.getOrNull().orEmpty()
-        // 优先用数字墨水（按笔画认字）；模型还没好就用 OCR 兜底，同时去准备模型
+        if (OpenHandwriting.recognize(view.inkStrokes()) { result ->
+            if (result.isNotEmpty()) deliver(result, ocr = false)
+            else if (!HandInk.recognize(view.inkStrokes(), view.padWidth(), view.padHeight(), pre) { deliver(it, ocr = false) })
+                view.bitmap()?.let { bmp -> Ink.recognize(bmp) { deliver(it, ocr = true) } }
+        }) return
+        OpenHandwriting.prepare(applicationContext) {
+            if (panel == Panel.HAND && handView === view && inkRevision == revision && OpenHandwriting.ready)
+                OpenHandwriting.recognize(view.inkStrokes()) { deliver(it, ocr = false) }
+        }
+        // Existing downloaded Digital Ink model is a fallback; recognition stays local.
         if (HandInk.recognize(view.inkStrokes(), view.padWidth(), view.padHeight(), pre) { deliver(it, ocr = false) }) return
-        HandInk.prepare { main.post { handView?.status = HandInk.status } }
+        HandInk.prepare { main.post { if (!OpenHandwriting.ready) handView?.status = HandInk.status } }
         view.bitmap()?.let { bmp -> Ink.recognize(bmp) { deliver(it, ocr = true) } }
     }
 

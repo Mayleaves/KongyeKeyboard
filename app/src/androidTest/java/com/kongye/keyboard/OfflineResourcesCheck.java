@@ -50,6 +50,15 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("rime".equals(mode)) {
+                RimeRegression.INSTANCE.run(this);report("ALL NATIVE RIME DECODER CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("open-handwriting".equals(mode)) {
+                HandwritingRegression.INSTANCE.run(this);report("ALL OPEN HANDWRITING AND POLYPHONIC TONE CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("streaming-voice".equals(mode)) {
+                StreamingVoiceRegression.INSTANCE.run(this);report("ALL OFFLINE STREAMING VOICE CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
             if ("landscape-editor".equals(mode)) {
                 LandscapeEditorRegression.run(this);report("ALL COMPACT LANDSCAPE EDITOR CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
             }

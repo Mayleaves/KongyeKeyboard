@@ -174,6 +174,10 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Thread({
+            Lexicon.load(applicationContext)
+            PinyinEngine.initialize(applicationContext)
+        }, "Kongye Rime preload").start()
         enableEdgeToEdge()
         ClipStore.load(this)
         Prefs.of(this).registerOnSharedPreferenceChangeListener(prefListener)
@@ -643,7 +647,7 @@ class SettingsActivity : ComponentActivity() {
             Tip(pal, "纠错", "打错时给出正确的词，错的字母标红")
         }
         Card(pal) {
-            Tip(pal, "词库来源", "含 amzxyz 万象拼音精选词（CC BY 4.0）")
+            Tip(pal, "拼音引擎", "Rime · 万象完整词库与整句语言模型，本机离线解码")
             ActionRow(pal, "万象拼音 · CC BY 4.0", "作者、原始项目与许可", "查看") {
                 startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/amzxyz/rime-wanxiang")))
             }
@@ -673,7 +677,13 @@ class SettingsActivity : ComponentActivity() {
         Card(pal) {
             Line(pal, top = 10.dp)
             ActionRow(pal, "清除选词记录", forgetHint.ifEmpty { "只删学到的东西，不影响词库" }, "清除") {
-                if (confirmed("forget")) { Lexicon.clearUser(this@SettingsActivity); forgetHint = "已清除" } else forgetHint = "再点一次“清除”确认"
+                if (confirmed("forget")) {
+                    forgetHint = "正在清除…"
+                    Thread {
+                        val result = runCatching { Lexicon.clearUser(this@SettingsActivity); PinyinEngine.clearUser(this@SettingsActivity) }
+                        runOnUiThread { forgetHint = if (result.isSuccess) "已清除" else "清除失败，请重试" }
+                    }.start()
+                } else forgetHint = "再点一次“清除”确认"
             }
         }
     }
@@ -1128,7 +1138,7 @@ class SettingsActivity : ComponentActivity() {
             Tip(pal, "分词", "打拼音时大写键变成分词：xi 分词 an → 西安")
             Tip(pal, "移动光标", "左右滑空格，或长按空格后滑动")
             Tip(pal, "拼音条", "点拼音中间，可以在那里改字母")
-            Tip(pal, "手写", "首次使用下载约 20MB 模型")
+            Tip(pal, "手写", "内置开源笔画识别，候选显示声调与多种读音")
             Tip(pal, "翻译", "译文直接出现在光标处，首次使用下载模型")
             Tip(pal, "工具栏", "再点一次已打开的工具，回到键盘")
         }

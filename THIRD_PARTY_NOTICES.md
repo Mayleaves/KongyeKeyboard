@@ -1,5 +1,41 @@
 # 第三方数据与算法参考
 
+## 2.1.0 实际接入的输入核心
+
+| 部件 | 上游 | 许可与版本 |
+| --- | --- | --- |
+| 拼音解码、字典、分词、简拼、整句生成 | [rime/librime](https://github.com/rime/librime) | BSD-3-Clause，1.17.0 |
+| 整句语法模型插件 | [lotem/librime-octagram](https://github.com/lotem/librime-octagram) | GPL-3.0，`dfcc15115788c828d9dd7b4bff68067d3ce2ffb8` |
+| 候选边界元数据适配 | [hchunhui/librime-lua](https://github.com/hchunhui/librime-lua) | BSD-3-Clause，`6da5d6cedb853380ed1b5b9b6979cb1a9c028353` |
+| 合并在上游运行库中的 Predict 插件 | [rime/librime-predict](https://github.com/rime/librime-predict) | BSD-3-Clause，`920bd41ebf6f9bf6855d14fbe80212e54e749791`；空叶方案不启用预测插件 |
+| Android 原生库载体与构建脚本 | [xkinput/keytao-app](https://github.com/xkinput/keytao-app) | 载体项目 MIT，v1.2.4；各原生组件仍按其各自许可分发 |
+| C ABI 调用 | [Java Native Access](https://github.com/java-native-access/jna) | 5.17.0，选择 Apache-2.0 |
+| 词库及 LTS 语法模型 | [amzxyz/rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)、[数据项目](https://github.com/amzxyz/rime-wanxiang-data) | CC BY 4.0，方案包 v18.1.11，LTS 模型以 SHA256 固定 |
+| 开源笔画识别 | [gugray/hanzi_lookup](https://github.com/gugray/hanzi_lookup) | LGPL-3.0，`01f90c3ab99a8fadf0696c28e5eb097223c500db`；原始 JS/WASM 未修改 |
+| 手写笔画数据 | HanziLookup 内嵌 Make Me a Hanzi / Arphic 衍生数据 | Arphic Public License，9,507 字 |
+| 带调字音和多音字数据 | [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) | MIT，`fe29ad32bdf352b31a02b9936e537f575432e9a6` |
+| 流式语音与原有离线模型运行时 | [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Apache-2.0，2.0.1 |
+| 普通话流式模型 | [官方转换模型](https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01)、[原始 checkpoint](https://huggingface.co/csukuangfj/icefall-streaming-zipformer-small-ctc-zh-2025-04-01) | Apache-2.0，转换模型提交 `a5f60fe00dcfbaf68fcc1c6b5cf53061e144d6da` |
+
+Rime 词库转换：合并字表、基础词、错音兼容、多音词、地名、人名与艺人表；去声调用于拼音索引，保留词频。
+转换后 1,675,705 条字音和词条。独立鼻音感叹词不参与 `m/n/ng` 的首选匹配；相应汉字仍可由其他读音或手写输入。
+全拼、14 键和九键各自编译拼写图，共用词库和语言模型。没有按测试句子加入特例词。
+
+手写显示转换：pinyin-data 转成 Unicode 规范化的带调 TSV；保留单字的多个读音。
+万象词典中选频率最高的六万常用词作带调词组注音，单字多音提示不与词组读音混淆。
+笔画识别调用的是原始 HanziLookup WASM 模块；应用只添加本地数字笔画输入和候选结果桥接，禁止网络、文件和内容访问。
+
+语音按官方 Android OnlineRecognizer 接口增量处理音频帧；普通话流式模型作为即时预览，已安装的高容量普通话模型作句末复核。
+四川话使用原有川渝 Paraformer 专用模型。Dolphin 及其他方言模型仅作调研，未加入本版。
+
+固定下载地址、摘要和处理脚本：`tools/fetch_rime.py`、`tools/fetch_handwriting.py`、`tools/fetch_streaming_voice.py`。
+原生库构建、完整对应源码包说明见 [Rime 原生构建](docs/Rime-原生构建.md)。
+完整许可随 APK 位于 `assets/licenses/`；各项数据的第三方许可保持不变。
+
+Rime 合并库还包含 Boost、glog、LevelDB、marisa、OpenCC、yaml-cpp、Lua 和 Android libc++；对应版权及许可同样保留在 APK 和原生源码包中。
+
+## 旧辅助词库与算法
+
 ## 万象拼音词库
 
 作者：amzxyz；项目：[万象拼音 / rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)。
@@ -9,7 +45,7 @@
 
 改动：合并基础词库与多音兼容词库，去掉声调，保留 2–8 字汉字词，去重后选取词频最高的十万条。
 构建 APK 时使用普通话音节白名单验证读音，将词频转为对数分值，与原词库及空叶常用词合并。
-没有集成万象的 Rime 引擎、Lua 或语言模型。此署名不代表原作者认可或参与空叶键盘。
+上述筛选方式用于旧 Kotlin 辅助词库；2.1.0 主拼音引擎的完整词库和模型见上一节。此署名不代表原作者认可或参与空叶键盘。
 
 复现：按清单中的提交下载 `dicts/jichu.dict.yaml`、`dicts/duoyin.dict.yaml`、`LICENSE`，将提交写入 `commit.txt`；
 执行 `python tools/import_wanxiang.py <下载目录>`，再执行 `tools/build_lexicon.py`。

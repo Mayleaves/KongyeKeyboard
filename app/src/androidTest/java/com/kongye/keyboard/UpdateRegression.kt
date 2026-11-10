@@ -9,10 +9,20 @@ object UpdateRegression {
     private fun fails(block:()->Unit):Boolean = try {block();false} catch(_:Exception) {true}
     @JvmStatic fun run(inst:Instrumentation) {
         val context=inst.targetContext
+        val selected=UpdateChecker.parseReleases("""[
+            {"tag_name":"v2.0.4","body":"compatibility bridge","assets":[]},
+            {"tag_name":"v2.1.0","body":"stable engine","assets":[]},
+            {"tag_name":"v9.0.0","prerelease":true,"assets":[]},
+            {"tag_name":"nightly","assets":[]}
+        ]""")
+        check(selected.version=="2.1.0") {"Updater remained on compatibility label"}
         val apk=File(context.cacheDir,"updates/test-installed.apk").apply {parentFile!!.mkdirs()}
         try {
             java.nio.file.Files.copy(File(context.applicationInfo.sourceDir).toPath(),apk.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            val digest=MessageDigest.getInstance("SHA-256").digest(java.nio.file.Files.readAllBytes(apk.toPath())).joinToString("") {"%02x".format(it)}
+            val hash=MessageDigest.getInstance("SHA-256")
+            val input=java.io.FileInputStream(apk)
+            try {val buffer=ByteArray(128*1024);while(true) {val count=input.read(buffer);if(count<0) break;hash.update(buffer,0,count)}} finally {input.close()}
+            val digest=hash.digest().joinToString("") {"%02x".format(it)}
             AppUpdate.validate(context,apk,UpdateChecker.currentVersion(context),digest)
             check(fails {AppUpdate.validate(context,apk,"99.99.99",digest)})
             check(fails {AppUpdate.validate(context,apk,UpdateChecker.currentVersion(context),"0".repeat(64))})

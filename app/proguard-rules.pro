@@ -11,6 +11,12 @@
 # The separately built release-device test loads the real engine and reads candidates.
 -keep class com.kongye.keyboard.Lexicon { *; }
 -keep class com.kongye.keyboard.Cand { *; }
+-keep class com.sun.jna.** { *; }
+-dontwarn java.awt.**
+-keep class com.kongye.keyboard.RimeBridge** { *; }
+-keep class com.kongye.keyboard.PinyinEngine** { *; }
+-keep class com.kongye.keyboard.OpenHandwriting** { *; }
+-keep class com.kongye.keyboard.HandwritingPinyin { *; }
 
 # 1.3.0：手写的数字墨水库带进了 WorkManager 和 Room。数据库实现类（WorkDatabase_Impl）、
 # androidx.startup 的 Initializer、Worker 都是反射创建的，R8 full mode 删掉构造后进程一启动就崩
@@ -41,3 +47,6 @@
 -keep class kotlin.text.** { *; }
 -keep class kotlin.jvm.** { *; }
 -keep class kotlin.Unit { *; }
+-keep class kotlin.TuplesKt* { *; }
+-keep class kotlin.Pair { *; }
+-keep class kotlin.ranges.** { *; }

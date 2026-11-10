@@ -12,6 +12,10 @@ import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineParaformerModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OnlineRecognizer
+import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OnlineModelConfig
+import com.k2fsa.sherpa.onnx.OnlineZipformer2CtcModelConfig
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -46,6 +50,11 @@ object OfflineVoice {
         return File(dir, "model.int8.onnx").length() == p.bytes && File(dir, "tokens.txt").length() == p.tokensBytes &&
             runCatching { File(dir, ".verified").readText() == signature(p) }.getOrDefault(false)
     }
+
+    /** Ordinary Mandarin can start immediately with the bundled streaming model.
+     * Pack readiness still means the separate, higher-capacity final pass exists.
+     */
+    fun available(ctx: Context, dialect: Int) = dialect == 0 || ready(ctx, dialect)
 
     private fun sha(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -126,6 +135,7 @@ object OfflineVoice {
 
     @Volatile private var cachedDialect = -1
     private var cachedEngine: OfflineRecognizer? = null
+    private var streamingEngine: OnlineRecognizer? = null
     private val warmRequests = HashSet<Int>()
     @Volatile private var preferredDialect = 0
 
@@ -137,13 +147,24 @@ object OfflineVoice {
         return recognizer(ctx,dialect).also { cachedEngine=it; cachedDialect=dialect }
     }
 
+    private fun streaming(ctx: Context): OnlineRecognizer = streamingEngine ?: OnlineRecognizer(
+        assetManager = ctx.assets,
+        config = OnlineRecognizerConfig(modelConfig = OnlineModelConfig(
+            zipformer2Ctc = OnlineZipformer2CtcModelConfig("voice-streaming/model.int8.onnx"),
+            tokens = "voice-streaming/tokens.txt", numThreads = 2, debug = false,
+            modelType = "zipformer2", provider = "cpu"), enableEndpoint = false)
+    ).also { streamingEngine = it }
+
     /** 只预热模型，不打开麦克风。 */
     fun prewarm(ctx: Context, dialect: Int) {
         preferredDialect=dialect
-        if(!ready(ctx,dialect) || cachedDialect==dialect) return
+        if(!available(ctx,dialect) || cachedDialect==dialect && (dialect!=0 || streamingEngine!=null)) return
         synchronized(warmRequests) { if(!warmRequests.add(dialect)) return }
         Thread({
-            try { engineLock.withLock { if(preferredDialect==dialect) runCatching { engine(ctx.applicationContext,dialect) } } }
+            try { engineLock.withLock { if(preferredDialect==dialect) runCatching {
+                if(dialect==0) streaming(ctx.applicationContext)
+                if(ready(ctx,dialect)) engine(ctx.applicationContext,dialect)
+            } } }
             finally { synchronized(warmRequests) { warmRequests.remove(dialect) } }
         },"KongyeVoiceWarmup").start()
     }
@@ -152,12 +173,33 @@ object OfflineVoice {
         preferredDialect=-1
         Thread({ engineLock.withLock {
             cachedDialect=-1; cachedEngine?.release(); cachedEngine=null
+            streamingEngine?.release(); streamingEngine=null
         } },"KongyeVoiceRelease").start()
     }
 
     /** 公开样本验证与真实录音共享同一个缓存引擎。 */
     fun recognizeSamples(ctx: Context, dialect: Int, samples: FloatArray, sampleRate: Int): String = engineLock.withLock {
         decode(engine(ctx,dialect), samples, sampleRate)
+    }
+
+    /** Public sample regression uses the same incremental decoder as the mic. */
+    fun recognizeStreamingSamples(ctx: Context, samples: FloatArray, sampleRate: Int, partial: (String) -> Unit): String = engineLock.withLock {
+        val recognizer = streaming(ctx)
+        val stream = recognizer.createStream()
+        try {
+            var at = 0; var previous = ""
+            while(at < samples.size) {
+                val end = minOf(at+1600, samples.size)
+                stream.acceptWaveform(samples.copyOfRange(at,end), sampleRate)
+                while(recognizer.isReady(stream)) recognizer.decode(stream)
+                val text = recognizer.getResult(stream).text.trim()
+                if(text.isNotBlank() && text!=previous) { previous=text; partial(text) }
+                at=end
+            }
+            stream.acceptWaveform(FloatArray(sampleRate/2),sampleRate);stream.inputFinished()
+            while(recognizer.isReady(stream)) recognizer.decode(stream)
+            recognizer.getResult(stream).text.trim()
+        } finally { stream.release() }
     }
 
     @Keep
@@ -234,7 +276,11 @@ object OfflineVoice {
                     while(!cancelled && !locked) locked=engineLock.tryLock(40,java.util.concurrent.TimeUnit.MILLISECONDS)
                     if(cancelled) { if(locked) engineLock.unlock(); return@Thread }
                     try {
-                        val loaded=engine(ctx,dialect)
+                        val loaded=if(ready(ctx,dialect)) engine(ctx,dialect) else null
+                        val online=if(dialect==0) streaming(ctx) else null
+                        var onlineStream=online?.createStream()
+                        check(loaded!=null || online!=null) { "请先安装${name(dialect)}离线包" }
+                        try {
                         val samples=FloatArray(16000*12)
                         var length=0
                         var spoken=false
@@ -243,8 +289,16 @@ object OfflineVoice {
                         var partialAt=0
                         var lastPartial=""
                         fun flush() {
+                            var streamed=""
+                            if(online!=null && onlineStream!=null) {
+                                val stream=onlineStream!!
+                                stream.acceptWaveform(FloatArray(8000),16000);stream.inputFinished()
+                                while(online.isReady(stream)) online.decode(stream)
+                                streamed=online.getResult(stream).text.trim()
+                                stream.release();onlineStream=online.createStream()
+                            }
                             if(spoken && length>3200) {
-                                val result=decode(loaded,samples.copyOf(length))
+                                val result=if(loaded!=null) decode(loaded,samples.copyOf(length)) else streamed
                                 if(result.isNotBlank()) post { listener.result(result) }
                             }
                             length=0; spoken=false; silence=0; partialAt=0; lastPartial=""
@@ -254,12 +308,21 @@ object OfflineVoice {
                             val buffer=chunk.first; val n=buffer.size; val rms=chunk.second
                             if(length+n>samples.size) flush()
                             for(i in 0 until n) samples[length++]=buffer[i]/32768f
+                            if(online!=null && onlineStream!=null) {
+                                val stream=onlineStream!!
+                                stream.acceptWaveform(FloatArray(n) {buffer[it]/32768f},16000)
+                                while(online.isReady(stream)) online.decode(stream)
+                                val partial=online.getResult(stream).text.trim()
+                                if(partial.isNotBlank() && partial!=lastPartial) {
+                                    lastPartial=partial;post {listener.partial(partial)}
+                                }
+                            }
                             if(rms>.009f) { spoken=true; silence=0; idle=0 } else { silence+=n; idle+=n }
                             if(!spoken && length>4800) {
                                 samples.copyInto(samples,0,length-3200,length); length=3200
                             }
                             if(spoken && silence>=11200) flush()
-                            else if(spoken && length-partialAt>=24000) {
+                            else if(online==null && loaded!=null && spoken && length-partialAt>=16000) {
                                 partialAt=length
                                 val partial=decode(loaded,samples.copyOf(length))
                                 if(partial.isNotBlank() && partial!=lastPartial) {
@@ -270,6 +333,7 @@ object OfflineVoice {
                         }
                         captureError.get()?.let { error=it }
                         if(!cancelled) flush()
+                        } finally { onlineStream?.release() }
                     } finally { engineLock.unlock() }
                 } catch(e:Throwable) { error=e.message ?: "离线识别失败" }
                 finally {

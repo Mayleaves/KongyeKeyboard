@@ -169,7 +169,7 @@ class CellGridView(context: Context) : View(context) {
 }
 
 /** 展开的候选：自动换行的格子 */
-class CandFlowView(context: Context, private val skin: Skin, private val items: List<String>, private val onPick: (Int) -> Unit) : View(context) {
+class CandFlowView(context: Context, private val skin: Skin, private val items: List<String>, private val subtitles: List<String?> = emptyList(), private val onPick: (Int) -> Unit) : View(context) {
     private val d = resources.displayMetrics.density
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = 18 * d }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -178,10 +178,13 @@ class CandFlowView(context: Context, private val skin: Skin, private val items: 
     private var pressed = -1
     private var dx = 0f
     private var dy = 0f
-    private val cellH get() = 48 * d
+    private val cellH get() = (if(subtitles.any {it!=null}) 80 else 48) * d
+    private val hintPaint=android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {textSize=10*d}
+    private val hintLayouts=ArrayList<android.text.StaticLayout?>()
 
     private fun layoutBoxes(w: Int): Int {
         boxes.clear()
+        hintLayouts.clear()
         val gap = 6 * d
         val pad = 6 * d
         val cols = if (w / d < 280) 3 else 4
@@ -190,6 +193,12 @@ class CandFlowView(context: Context, private val skin: Skin, private val items: 
             val x = pad + i % cols * (bw + gap)
             val y = pad + i / cols * (cellH + gap)
             boxes.add(RectF(x, y, x + bw, y + cellH))
+            val hint=subtitles.getOrNull(i)
+            hintLayouts.add(hint?.let {
+                android.text.StaticLayout.Builder.obtain(it,0,it.length,hintPaint,(bw-10*d).toInt().coerceAtLeast(1))
+                    .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER).setIncludePad(false).setMaxLines(3)
+                    .setEllipsize(android.text.TextUtils.TruncateAt.END).build()
+            })
         }
         val y = pad + ((items.size - 1).coerceAtLeast(0) / cols) * (cellH + gap)
         return (y + cellH + pad).toInt()
@@ -220,7 +229,13 @@ class CandFlowView(context: Context, private val skin: Skin, private val items: 
             text.textSize = 18 * d
             while (text.measureText(items[i]) > r.width() - 12 * d && text.textSize > 10 * d) text.textSize -= d
             val tfm = text.fontMetrics
-            c.drawText(items[i], r.centerX(), r.centerY() - (tfm.ascent + tfm.descent) / 2, text)
+            val hint=hintLayouts.getOrNull(i)
+            val cy=if(hint==null) r.centerY() else r.top+21*d
+            c.drawText(items[i], r.centerX(), cy - (tfm.ascent + tfm.descent) / 2, text)
+            if(hint!=null) {
+                hintPaint.color=withAlpha(if(kongyeFirst) Color.WHITE else skin.barFg,210)
+                c.save();c.translate(r.left+5*d,r.top+37*d);hint.draw(c);c.restore()
+            }
         }
     }
 

@@ -1,0 +1,31 @@
+{
+  "HanziLookup": "01f90c3ab99a8fadf0696c28e5eb097223c500db",
+  "pinyin-data": "fe29ad32bdf352b31a02b9936e537f575432e9a6",
+  "files": {
+    "hanzi_lookup.js": {
+      "url": "https://raw.githubusercontent.com/gugray/hanzi_lookup/01f90c3ab99a8fadf0696c28e5eb097223c500db/web_demo/hanzi_lookup.js",
+      "sha256": "fe6f70c1b4172951727a1b313313cff1dc1c663ff0c5209a7ccb42ae3e0a71ef"
+    },
+    "hanzi_lookup_bg.wasm": {
+      "url": "https://raw.githubusercontent.com/gugray/hanzi_lookup/01f90c3ab99a8fadf0696c28e5eb097223c500db/web_demo/hanzi_lookup_bg.wasm",
+      "sha256": "8d2affdbfffe651d62534fb6a4ad192d57cf3559631860a7aadb7cd48ffa7463"
+    },
+    "hanzi-LGPL-3.0.txt": {
+      "url": "https://raw.githubusercontent.com/gugray/hanzi_lookup/01f90c3ab99a8fadf0696c28e5eb097223c500db/LICENSE",
+      "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+    },
+    "hanzi-Arphic.txt": {
+      "url": "https://raw.githubusercontent.com/gugray/hanzi_lookup/01f90c3ab99a8fadf0696c28e5eb097223c500db/LICENSE-APL",
+      "sha256": "3a5e90c0957524a89e48203febcd4492ca4393678abaa7e5b4d70f3ff32b386d"
+    },
+    "pinyin.txt": {
+      "url": "https://raw.githubusercontent.com/mozillazg/pinyin-data/fe29ad32bdf352b31a02b9936e537f575432e9a6/pinyin.txt",
+      "sha256": "2342a6f98c85dbc3c8d26aef31744876a36326c6466e51e9a0f16898c36c2011"
+    },
+    "pinyin-data-MIT.txt": {
+      "url": "https://raw.githubusercontent.com/mozillazg/pinyin-data/fe29ad32bdf352b31a02b9936e537f575432e9a6/LICENSE",
+      "sha256": "9c048697be2502a16e8bcb282d5d465a07295b2def0ffb05a269c5d39dbe1586"
+    }
+  },
+  "changes": "HanziLookup JS/WASM unmodified. Codepoint and phrase pronunciation TSV generated; phrase readings from Wanxiang 18.1.11, top 60000 by frequency."
+}
