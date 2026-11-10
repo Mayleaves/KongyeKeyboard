@@ -52,20 +52,45 @@ class ToggleView(context: Context, private val skin: Skin, var on: Boolean, priv
     private val d = resources.displayMetrics.density
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val r = RectF()
+    private var progress = if (on) 1f else 0f
 
     init {
-        setOnClickListener { on = !on; invalidate(); onChange(on) }
+        setOnClickListener {
+            on = !on
+            postInvalidateOnAnimation()
+            onChange(on)
+        }
     }
 
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) = setMeasuredDimension((48 * d).toInt(), (30 * d).toInt())
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) =
+        setMeasuredDimension((44 * d).toInt(), (26 * d).toInt())
 
     override fun onDraw(c: Canvas) {
-        val th = 26 * d
-        r.set(1 * d, (height - th) / 2, 47 * d, (height + th) / 2)
-        fill.color = if (on) skin.candHi else withAlpha(skin.barFg, 80)
+        val target = if (on) 1f else 0f
+        progress += (target - progress) * 0.38f
+        if (abs(target - progress) < 0.01f) progress = target
+
+        val th = 24 * d
+        r.set(1 * d, (height - th) / 2, width - 1 * d, (height + th) / 2)
+        val offColor = withAlpha(skin.barFg, if (skin.dark) 72 else 45)
+        fill.color = Color.argb(
+            (Color.alpha(offColor) + (Color.alpha(skin.candHi) - Color.alpha(offColor)) * progress).toInt(),
+            (Color.red(offColor) + (Color.red(skin.candHi) - Color.red(offColor)) * progress).toInt(),
+            (Color.green(offColor) + (Color.green(skin.candHi) - Color.green(offColor)) * progress).toInt(),
+            (Color.blue(offColor) + (Color.blue(skin.candHi) - Color.blue(offColor)) * progress).toInt(),
+        )
         c.drawRoundRect(r, th / 2, th / 2, fill)
+
+        val knobR = th / 2 - 3 * d
+        val startX = r.left + th / 2
+        val endX = r.right - th / 2
+        val cx = startX + (endX - startX) * progress
+        fill.color = withAlpha(Color.BLACK, 26)
+        c.drawCircle(cx, r.centerY() + 0.8f * d, knobR + 0.4f * d, fill)
         fill.color = Color.WHITE
-        c.drawCircle(if (on) r.right - th / 2 else r.left + th / 2, r.centerY(), th / 2 - 3 * d, fill)
+        c.drawCircle(cx, r.centerY(), knobR, fill)
+
+        if (progress != target) postInvalidateOnAnimation()
     }
 }
 
@@ -223,6 +248,7 @@ class ThemeGridView(
     private val hiFg: Int,
     private val lineColor: Int,
     private val columns: Int = 3,
+    private val topPadDp: Float = 12f,
     private val onPick: (Theme) -> Unit,
 ) : View(context) {
     private val d = resources.displayMetrics.density
@@ -233,6 +259,7 @@ class ThemeGridView(
     private val clip = Path()
     private val cards = ArrayList<RectF>()
     private val pad get() = 12 * d
+    private val topPad get() = topPadDp * d
     private val gap get() = 12 * d
     private val labelH get() = 30 * d
 
@@ -244,10 +271,10 @@ class ThemeGridView(
         cards.clear()
         for (i in themes.indices) {
             val x = pad + (i % columns) * (cw + gap)
-            val y = pad + (i / columns) * (ch + labelH + gap)
+            val y = topPad + (i / columns) * (ch + labelH + gap)
             cards.add(RectF(x, y, x + cw, y + ch))
         }
-        setMeasuredDimension(w, (pad * 2 + rows * (ch + labelH + gap)).toInt())
+        setMeasuredDimension(w, (topPad + pad + rows * (ch + labelH + gap)).toInt())
     }
 
     override fun onDraw(c: Canvas) {
@@ -341,10 +368,27 @@ class ThemeGridView(
 }
 
 /** 一排分段按钮 */
-fun segmented(context: Context, skin: Skin, options: List<String>, index: Int, onSel: (Int) -> Unit): LinearLayout {
+fun segmented(
+    context: Context,
+    skin: Skin,
+    options: List<String>,
+    index: Int,
+    onSel: (Int) -> Unit,
+): LinearLayout = segmented(context, skin, options, index, 12f, 5f, 13.5f, onSel)
+
+fun segmented(
+    context: Context,
+    skin: Skin,
+    options: List<String>,
+    index: Int,
+    padHDp: Float,
+    padVDp: Float,
+    textSizeSp: Float,
+    onSel: (Int) -> Unit,
+): LinearLayout {
     val row = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
-        background = roundBg(withAlpha(skin.barFg, 40), context.dp(18f))
+        background = roundBg(withAlpha(skin.barFg, if (skin.dark) 64 else 38), context.dp(18f))
         val p = context.dp(3f).toInt()
         setPadding(p, p, p, p)
     }
@@ -359,10 +403,11 @@ fun segmented(context: Context, skin: Skin, options: List<String>, index: Int, o
     options.forEachIndexed { i, s ->
         row.addView(TextView(context).apply {
             text = s
-            textSize = 13.5f
+            textSize = textSizeSp
             gravity = Gravity.CENTER
-            val h = context.dp(12f).toInt()
-            setPadding(h, context.dp(5f).toInt(), h, context.dp(5f).toInt())
+            val h = context.dp(padHDp).toInt()
+            val v = context.dp(padVDp).toInt()
+            setPadding(h, v, h, v)
             setOnClickListener { mark(i); onSel(i) }
         }, lp(WRAP, WRAP))
     }
@@ -370,26 +415,59 @@ fun segmented(context: Context, skin: Skin, options: List<String>, index: Int, o
     return row
 }
 
-/** 换皮肤面板：深浅模式 + 配色网格 */
-class SkinPanel(context: Context, skin: Skin, themes: List<Theme>, selected: String, mode: Int, onMode: (Int) -> Unit, onPick: (Theme) -> Unit, glass:Boolean=false,onGlass:(Boolean)->Unit={}) : LinearLayout(context) {
+/** 换皮肤面板：单行顶栏（左：跟随系统/浅色/深色分段胶囊，右：液态玻璃开关）+ 配色网格 */
+class SkinPanel(
+    context: Context,
+    skin: Skin,
+    themes: List<Theme>,
+    selected: String,
+    mode: Int,
+    onMode: (Int) -> Unit,
+    onPick: (Theme) -> Unit,
+    glass: Boolean = false,
+    onGlass: (Boolean) -> Unit = {},
+) : LinearLayout(context) {
     init {
         orientation = VERTICAL
-        val head = LinearLayout(context).apply {
+        val headRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            val p = context.dp(12f).toInt()
-            setPadding(p, context.dp(6f).toInt(), p, 0)
+            val px = context.dp(12f).toInt()
+            setPadding(px, context.dp(5f).toInt(), px, context.dp(2f).toInt())
         }
-        head.addView(TextView(context).apply { text = "深色模式"; textSize = 14f; setTextColor(skin.candFg) }, lp(0, WRAP, 1f))
-        head.addView(segmented(context, skin, listOf("跟随系统", "浅色", "深色"), mode, onMode), lp(WRAP, WRAP))
-        addView(head, lp(MATCH, WRAP))
-        addView(LinearLayout(context).apply {
-            orientation=HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
-            setPadding((12*resources.displayMetrics.density).toInt(),0,(12*resources.displayMetrics.density).toInt(),0)
-            addView(TextView(context).apply {text="液态玻璃";textSize=14f;setTextColor(skin.candFg)},lp(0,WRAP,1f))
-            addView(ToggleView(context,skin,glass,onGlass),lp((48*resources.displayMetrics.density).toInt(),(34*resources.displayMetrics.density).toInt()))
-        },lp(MATCH,WRAP))
-        val grid = ThemeGridView(context, themes, selected, skin.candFg, skin.candHi, withAlpha(skin.candFg, 40), 3, onPick)
+        // 左侧：跟随系统 / 浅色 / 深色（文案本身即自解释，省去冗余“深色模式”标题）
+        headRow.addView(
+            segmented(context, skin, listOf("跟随系统", "浅色", "深色"), mode, 10.5f, 4.5f, 13f, onMode),
+            lp(WRAP, WRAP),
+        )
+        headRow.addView(View(context).apply { minimumWidth = context.dp(10f).toInt() }, lp(0, 1, 1f))
+
+        // 右侧：液态玻璃标签 + 开关（整组可点击，与右侧卡片边缘对齐）
+        val toggle = ToggleView(context, skin, glass, onGlass)
+        val glassLabel = TextView(context).apply {
+            text = "液态玻璃"
+            textSize = 13f
+            setTextColor(if (glass) skin.candHi else skin.candFg)
+            typeface = if (glass) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        }
+        val glassBox = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(glassLabel, lp(WRAP, WRAP).apply { marginEnd = context.dp(6f).toInt() })
+            addView(toggle, lp(WRAP, WRAP))
+            setOnClickListener { toggle.performClick() }
+        }
+        headRow.addView(glassBox, lp(WRAP, WRAP))
+
+        // 常规宽度下左右两端对齐；悬浮极窄宽度下可横滑防折行
+        val headScroller = android.widget.HorizontalScrollView(context).apply {
+            isFillViewport = true
+            isHorizontalScrollBarEnabled = false
+            addView(headRow, FrameLayout.LayoutParams(MATCH, WRAP))
+        }
+        addView(headScroller, lp(MATCH, WRAP))
+
+        val grid = ThemeGridView(context, themes, selected, skin.candFg, skin.candHi, withAlpha(skin.candFg, 40), 3, topPadDp = 7f, onPick = onPick)
         addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(grid) }, lp(MATCH, 0, 1f))
     }
 }

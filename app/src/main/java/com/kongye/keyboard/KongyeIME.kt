@@ -1912,7 +1912,12 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                         root?.post { adjustOverlay?.bringToFront(); positionAdjustment() }
                     },
                     onMove = { x,y -> placeFloat(x,y); a.floatX=col.translationX; a.floatY=col.translationY },
-                    onReset = { adj = Adjust(1f, 1f, 0, 0, 0, floatX=resources.displayMetrics.widthPixels*.07f, floatY=resources.displayMetrics.heightPixels*.45f); floating=false; applyFloat(); applySkin() },
+                    onReset = {
+                        adj = Adjust(1f, 1f, 0, 0, 0, floatX = resources.displayMetrics.widthPixels * .07f, floatY = resources.displayMetrics.heightPixels * .45f)
+                        floating = false
+                        applyFloat(); applySkin()
+                        root?.post { adjustOverlay?.bringToFront(); positionAdjustment() }
+                    },
                     onDone = {
                         p.edit().putFloat(Prefs.HEIGHT_SCALE, a.scale).putFloat(Prefs.OPACITY, a.opacity)
                             .putBoolean(Prefs.SPLIT_LAYOUT, a.split).putBoolean(Prefs.FLOAT, a.floating)
