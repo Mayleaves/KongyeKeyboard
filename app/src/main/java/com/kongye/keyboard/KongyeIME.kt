@@ -54,7 +54,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private enum class Layer { LETTERS, NUM }
     private enum class Panel { NONE, EMOJI, CLIP, EDIT, SKIN, CANDS, MORE, ADJUST, ARRANGE, LAYOUT, SYMBOL, HAND, HAND_CANDS, VOICE, TOKENS }
     /** 打字的去向：编辑框，或者剪贴板搜索、编辑、新建分类、翻译的输入条 */
-    private enum class Sink { NONE, SEARCH, EDIT, NEWCAT, TRANSLATE, FAVORITE }
+    private enum class Sink { NONE, SEARCH, EDIT, NEWCAT, CLIP_ADD, TRANSLATE, FAVORITE }
 
     /** 分几次选词时，已经选好但还没上屏的部分 */
     private class Pick(val w: String, val syl: List<String>, val keys: List<String>, val isRaw: Boolean)
@@ -352,6 +352,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var restoringHistoryUntil = 0L
     private var editMoveAt = 0L
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
+        EditorDeletion.cancel()
         super.onStartInputView(info, restarting)
         if (restarting && panel == Panel.ADJUST && adj != null) {
             applyFloat(); applySkin(rebuildPanel=false)
@@ -410,6 +411,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        EditorDeletion.cancel()
         super.onFinishInputView(finishingInput)
         resetComposing()
         stopListening()
@@ -666,6 +668,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun ic(): InputConnection? = currentInputConnection
 
     private fun commitOut(text: String, typing: Boolean = false) {
+        EditorDeletion.cancel()
         if (sink != Sink.NONE) {
             sinkBuf.append(text)
             sinkStrip.value = sinkBuf.toString()
@@ -952,6 +955,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onPress(key: Key) {
+        EditorDeletion.cancel()
         buzz()
         if (prefs.getBoolean(Prefs.SOUND, false)) {
             val fx = when (key.kind) {
@@ -1032,9 +1036,13 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             checkpoint(typing = false)
             val ic = ic() ?: return
             ic.beginBatchEdit()
-            ic.commitText("", 1)
-            ic.deleteSurroundingText(100000, 100000)
+            val cleared = EditorDeletion.clear(ic, currentInputEditorInfo?.packageName)
             ic.endBatchEdit()
+            if (!cleared) {
+                assoc = emptyList()
+                message("UU 未提供完整待删文字，请在远端全选后删除")
+                return
+            }
         }
         assoc = emptyList()
         renderBar()
@@ -1128,9 +1136,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun deleteCommitted() {
         val connection=ic() ?: return
         connection.finishComposingText()
-        val selected=connection.getSelectedText(0)
-        if(!selected.isNullOrEmpty()) connection.commitText("",1)
-        else if(!connection.deleteSurroundingTextInCodePoints(1,0)) sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+        EditorDeletion.delete(connection, currentInputEditorInfo?.packageName)
     }
 
     private fun tapShift() {
@@ -1655,9 +1661,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             sinkBuf.setLength(0); sinkStrip.value = ""; sinkStrip.composing = ""; sinkStrip.translatedPreview = ""; sinkStrip.refresh()
             resetComposing(); onSinkChanged(); renderBar()
         }
-        sinkStrip.multiline = mode == Sink.EDIT
-        sinkStrip.icon = when (mode) { Sink.EDIT -> R.drawable.ic_edit; Sink.TRANSLATE -> R.drawable.ic_translate; Sink.NEWCAT -> R.drawable.ic_clip; Sink.FAVORITE -> R.drawable.ic_emoji; else -> R.drawable.ic_search }
-        sinkStrip.hint = when (mode) { Sink.EDIT -> "修改内容"; Sink.TRANSLATE -> "输入要翻译的中文或外文"; Sink.NEWCAT -> "新分类的名字"; Sink.FAVORITE -> "输入要收藏的表情或颜文字"; else -> "搜索剪贴板" }
+        sinkStrip.multiline = mode == Sink.EDIT || mode == Sink.CLIP_ADD
+        sinkStrip.icon = when (mode) { Sink.EDIT, Sink.CLIP_ADD -> R.drawable.ic_edit; Sink.TRANSLATE -> R.drawable.ic_translate; Sink.NEWCAT -> R.drawable.ic_clip; Sink.FAVORITE -> R.drawable.ic_emoji; else -> R.drawable.ic_search }
+        sinkStrip.hint = when (mode) { Sink.CLIP_ADD -> "添加到分类“$clipTab”"; Sink.EDIT -> "修改内容"; Sink.TRANSLATE -> "输入要翻译的中文或外文"; Sink.NEWCAT -> "新分类的名字"; Sink.FAVORITE -> "输入要收藏的表情或颜文字"; else -> "搜索剪贴板" }
         sinkStrip.value = initial
         sinkStrip.composing = ""
         sinkStrip.showAnimated(true,animate=false)
@@ -1754,6 +1760,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             }
             Sink.SEARCH -> clipQuery = text.trim()
             Sink.EDIT -> sinkClip?.let { ClipStore.update(it, text) }
+            Sink.CLIP_ADD -> ClipStore.addCustom(text, clipTab)
             Sink.NEWCAT -> { ClipStore.addCategory(text); if (text.isNotBlank()) clipTab = text.trim().take(8) }
             Sink.TRANSLATE -> {
                 // 完成：把译文确定下来（还没出来就用原文）
@@ -1857,7 +1864,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun buildPanel(animate: Boolean=false) {
         if (root == null) return
         val previous = if (animate && panelHost.visibility == View.VISIBLE) NativeMotion.snapshot(panelHost) else null
-        val clipScroll = (panelHost.getChildAt(0) as? ClipboardPanel)?.scrollPosition ?: 0
+        val oldClipPanel = panelHost.getChildAt(0) as? ClipboardPanel
+        val clipScroll = oldClipPanel?.scrollPosition ?: 0
+        val tabsScroll = oldClipPanel?.tabsScrollPosition ?: 0
         adjustOverlay?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }; adjustOverlay = null
         panelHost.removeAllViews()
         editView = null
@@ -1869,12 +1878,13 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 onTab = { emojiTab = it }, onCustom = { startSink(Sink.FAVORITE,"",null) }) { onKey(Key(Kind.DEL)) }
             Panel.CLIP -> ClipboardPanel(
                 this, skin, if (clipTab in ClipStore.tabs()) clipTab else "全部", clipQuery, clipExpanded, clipPicking,
-                onTab = { clipTab = it; clipQuery = ""; clipExpanded = null; buildPanel(animate=true) },
-                onTabLong = { t -> confirm("cat:$t", "再长按一次删除分类“$t”（里面的内容不删）") { ClipStore.removeCategory(t); clipTab = "全部"; buildPanel() } },
+                onTab = { clipTab = it; clipQuery = ""; clipExpanded = null; clipPicking = null },
+                onTabLong = { t -> confirm("cat:$t", "再长按一次删除分类“$t”（内容移回历史记录）") { ClipStore.removeCategory(t); clipTab = "全部"; buildPanel() } },
                 onNewCat = { startSink(Sink.NEWCAT, "", null) },
+                onNewContent = { clipTab = it; startSink(Sink.CLIP_ADD, "", null) },
                 onSearch = { startSink(Sink.SEARCH, clipQuery, null) },
                 onClearQuery = { clipQuery = ""; buildPanel() },
-                onClear = { confirm("clear", "再点一次垃圾桶，清空没置顶的记录") { ClipStore.clearUnpinned(); clipExpanded = null; buildPanel(); message("已清空没置顶的记录") } },
+                onClear = { confirm("clear", "再点一次垃圾桶清空历史，保留置顶和自定义分类") { ClipStore.clearUnpinned(); clipExpanded = null; buildPanel(); message("已清空历史，保留置顶和自定义分类") } },
                 onPaste = ::pasteClip,
                 onExpand = { clipExpanded = it; clipPicking = null },
                 onAction = ::clipAction,
@@ -1975,7 +1985,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             root?.addView(v, FrameLayout.LayoutParams(col.width, col.height))
             positionAdjustment()
         } else panelHost.addView(v, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-        if (v is ClipboardPanel) v.restoreScroll(clipScroll)
+        if (v is ClipboardPanel) { v.restoreScroll(clipScroll); v.restoreTabsScroll(tabsScroll) }
         if (animate) {
             if (panel == Panel.ADJUST) NativeMotion.pulse(v)
             else NativeMotion.reveal(panelHost, v, previous)

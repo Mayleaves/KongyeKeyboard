@@ -19,6 +19,9 @@ fun main(args: Array<String>) {
         if (!ok) fail++
         println("${if (ok) "ok  " else "FAIL"} $input → ${c.take(6).joinToString(" ") { it.w }}  [$d]  ${us}µs")
     }
+    for ((raw, shown) in listOf("nhy" to "n'h'y", "zg" to "z'g", "nh" to "n'h", "zhg" to "zh'g", "nihao" to "ni'hao", "nihaoy" to "ni'hao'y")) {
+        check(Lexicon.display(raw, null) == shown) { "Unstable abbreviation display: $raw -> ${Lexicon.display(raw, null)}" }
+    }
     expect("nain", "年")
     expect("sih", "是")
     expect("jain", "建")

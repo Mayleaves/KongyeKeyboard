@@ -160,12 +160,13 @@ class ClipboardPanel(
     context: Context,
     private val skin: Skin,
     tab: String,
-    query: String,
+    private var query: String,
     private var expanded: Clip?,
-    private val picking: Clip?,
-    onTab: (String) -> Unit,
+    private var picking: Clip?,
+    private val onTab: (String) -> Unit,
     onTabLong: (String) -> Unit,
     onNewCat: () -> Unit,
+    onNewContent: (String) -> Unit,
     onSearch: () -> Unit,
     onClearQuery: () -> Unit,
     onClear: () -> Unit,
@@ -179,6 +180,14 @@ class ClipboardPanel(
         textSize = 13.5f * resources.displayMetrics.scaledDensity
     }.fontMetricsInt.let { it.descent - it.ascent + 2 * d }
     private val cardHeight = (10 * d + 3 * previewLineHeight + 78 * d).toInt()
+    private var activeTab = tab
+    private val labels = LinkedHashMap<String, TextView>()
+    private val tabScroll = HorizontalScrollView(context)
+    private val positions = HashMap<String, Int>()
+    private var queryRow: View? = null
+    private lateinit var addContent: View
+    val tabsScrollPosition get() = tabScroll.scrollX
+    fun restoreTabsScroll(x: Int) { tabScroll.post { tabScroll.scrollTo(x, 0) } }
     private lateinit var recordsScroll: ScrollView
     val scrollPosition get() = recordsScroll.scrollY
     fun restoreScroll(y: Int) { recordsScroll.post { recordsScroll.scrollTo(0, y) } }
@@ -208,18 +217,20 @@ class ClipboardPanel(
             setPadding((4 * d).toInt(), 0, (4 * d).toInt(), 0)
         }
         for (t in ClipStore.tabs()) {
-            val active = t == tab
-            tabs.addView(TextView(context).apply {
+            val active = t == activeTab
+            val label = TextView(context).apply {
                 text = t
                 textSize = 13f
                 gravity = Gravity.CENTER
                 setTextColor(if (active) skin.accFg else skin.barFg)
-                typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                typeface = Typeface.DEFAULT
                 background = if (active) roundBg(skin.accBg, 15 * d) else roundBg(withAlpha(skin.modBg, 110), 15 * d)
                 setPadding((12 * d).toInt(), (5 * d).toInt(), (12 * d).toInt(), (5 * d).toInt())
-                setOnClickListener { onTab(t) }
+                setOnClickListener { selectTab(t) }
                 if (t !in ClipStore.FIXED_TABS) setOnLongClickListener { onTabLong(t); true }
-            }, lp(WRAP, WRAP).apply { marginEnd = (5 * d).toInt() })
+            }
+            labels[t] = label
+            tabs.addView(label, lp(WRAP, (32*d).toInt()).apply { marginEnd = (5 * d).toInt() })
         }
         tabs.addView(TextView(context).apply {
             text = "+ 分类"
@@ -230,7 +241,18 @@ class ClipboardPanel(
             setPadding((11 * d).toInt(), (5 * d).toInt(), (11 * d).toInt(), (5 * d).toInt())
             setOnClickListener { onNewCat() }
         }, lp(WRAP, WRAP))
-        head.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(tabs) }, lp(0, WRAP, 1f))
+        tabScroll.isHorizontalScrollBarEnabled = false
+        tabScroll.addView(tabs)
+        head.addView(tabScroll, lp(0, (32*d).toInt(), 1f))
+        addContent = TextView(context).apply {
+            text = "+ 内容"; textSize = 12.5f; gravity = Gravity.CENTER
+            setTextColor(skin.candHi)
+            setPadding((8*d).toInt(), 0, (8*d).toInt(), 0)
+            contentDescription = "向当前分类添加内容"
+            setOnClickListener { onNewContent(activeTab) }
+            visibility = if (activeTab in ClipStore.customTabs()) View.VISIBLE else View.INVISIBLE
+        }
+        head.addView(addContent, lp(WRAP, (32*d).toInt()))
         head.addView(IconButton(context, R.drawable.ic_search, skin.barFg, 19f) { onSearch() }.apply {
             background = roundBg(withAlpha(skin.modBg, 140), 16 * d)
         }, lp((32 * d).toInt(), (32 * d).toInt()).apply { marginStart = (4 * d).toInt(); marginEnd = (5 * d).toInt() })
@@ -242,13 +264,37 @@ class ClipboardPanel(
             val q = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding((14 * d).toInt(), 0, (4 * d).toInt(), 0) }
             q.addView(TextView(context).apply { text = "搜索：$query"; textSize = 13f; setTextColor(skin.candHi) }, lp(0, WRAP, 1f))
             q.addView(IconButton(context, R.drawable.ic_close, skin.barFg, 16f) { onClearQuery() }, lp((36 * d).toInt(), (28 * d).toInt()))
+            queryRow = q
             addView(q, lp(MATCH, WRAP))
         }
-        val list = ClipStore.list(tab, query)
+        recordsScroll = ScrollView(context).apply { isVerticalScrollBarEnabled = false }
+        addView(recordsScroll, lp(MATCH, 0, 1f))
+        renderRecords()
+    }
+
+    private fun selectTab(tab: String) {
+        if (tab == activeTab) return
+        positions[activeTab] = recordsScroll.scrollY
+        activeTab = tab; query = ""; expanded = null; picking = null
+        queryRow?.visibility = View.GONE
+        labels.forEach { (name, label) ->
+            val active = name == tab
+            label.setTextColor(if (active) skin.accFg else skin.barFg)
+            label.background = if (active) roundBg(skin.accBg, 15*d) else roundBg(withAlpha(skin.modBg,110),15*d)
+        }
+        addContent.visibility = if (tab in ClipStore.customTabs()) View.VISIBLE else View.INVISIBLE
+        onTab(tab)
+        renderRecords()
+        restoreScroll(positions[tab] ?: 0)
+    }
+
+    private fun renderRecords() {
+        overlays.clear()
+        val list = ClipStore.list(activeTab, query)
         val col = LinearLayout(context).apply { orientation = VERTICAL; setPadding((8 * d).toInt(), (2 * d).toInt(), (8 * d).toInt(), (10 * d).toInt()) }
         if (list.isEmpty()) {
             col.addView(TextView(context).apply {
-                text = if (ClipStore.items.isEmpty()) "复制的文字和图片会保存在这里（最多 ${ClipStore.MAX} 条）\n点卡片直接上屏 · 长按展开编辑与分词" else "该分类下暂无记录"
+                text = if (ClipStore.items.isEmpty()) "历史记录最多 ${ClipStore.MAX} 条，置顶和自定义分类长期保存\n点卡片直接上屏 · 长按展开编辑与分词" else "该分类下暂无记录"
                 setTextColor(skin.barFg)
                 textSize = 13f
                 gravity = Gravity.CENTER
@@ -271,15 +317,15 @@ class ClipboardPanel(
         }
         if (list.isNotEmpty()) {
             col.addView(TextView(context).apply {
-                text = "共 ${ClipStore.items.size}/${ClipStore.MAX} 条 · 点按上屏 · 长按操作"
+                text = "历史 ${ClipStore.historyCount()}/${ClipStore.MAX} 条 · 分类与置顶长期保存"
                 textSize = 11f
                 gravity = Gravity.CENTER
                 setTextColor(withAlpha(skin.barFg, 180))
                 setPadding(0, (10 * d).toInt(), 0, 0)
             }, lp(MATCH, WRAP))
         }
-        recordsScroll = ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(col) }
-        addView(recordsScroll, lp(MATCH, 0, 1f))
+        recordsScroll.removeAllViews()
+        recordsScroll.addView(col)
     }
 
     private fun card(clip: Clip): View {
@@ -313,10 +359,11 @@ class ClipboardPanel(
         })
         if (clip.cat != null && clip.cat != "置顶") card.addView(TextView(context).apply {
             text=clip.cat; textSize=10f; setTextColor(skin.barFg)
-            background=roundBg(skin.modBg,6*d)
-            setPadding((4*d).toInt(),0,(4*d).toInt(),0)
-        }, android.widget.FrameLayout.LayoutParams(WRAP,WRAP,Gravity.TOP or Gravity.END).apply {
-            topMargin=(3*d).toInt(); rightMargin=((if(clip.pinned) 30 else 5)*d).toInt()
+            background=roundBg(skin.modBg,9*d)
+            gravity=Gravity.CENTER
+            setPadding((6*d).toInt(),0,(6*d).toInt(),0)
+        }, android.widget.FrameLayout.LayoutParams(WRAP,(18*d).toInt(),Gravity.TOP or Gravity.END).apply {
+            topMargin=(5*d).toInt(); rightMargin=((if(clip.pinned) 30 else 5)*d).toInt()
         })
         val tools = LinearLayout(context).apply {
             orientation = VERTICAL

@@ -427,7 +427,7 @@ class AdjustOverlay(
             addView(blankValue, lp((42 * d).toInt(), WRAP))
         }, lp(MATCH, WRAP))
 
-        // 4. 底部操作按钮行：重置 / 悬浮 / 分体 / 确认（主按钮突出主题色）
+        // 4. 底部操作按钮行：重置 / 悬浮 / 分体 / 确认（与重置统一灰底）
         val buttons = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, (8 * d).toInt(), 0, 0)
@@ -488,7 +488,7 @@ class AdjustOverlay(
             onLive()
             styleButton(splitBtn, kind = 1, active = a.split)
         }
-        addActionButton("确认", R.drawable.ic_done, kind = 2, isLast = true, action = onDone)
+        addActionButton("确认", R.drawable.ic_done, kind = 0, isLast = true, action = onDone)
         card.addView(buttons, lp(MATCH, WRAP))
 
         addView(card, LayoutParams(MATCH, WRAP, Gravity.CENTER).apply {

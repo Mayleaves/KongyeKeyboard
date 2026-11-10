@@ -502,10 +502,10 @@ class SettingsActivity : ComponentActivity() {
             Item("主题与外观", R.drawable.ic_float, cLook, "键盘高度", "无级缩放键盘高度与预览", "${(scale * 100).roundToInt()}%", null) { go(Page.HEIGHT) },
             Item("主题与外观", R.drawable.ic_float, cLook, "悬浮键盘", "自由拖动的小尺寸悬浮输入窗口", if (floating) "已开启" else "关闭", if (floating) pal.accent else null) { p.edit().putBoolean(Prefs.FLOAT, !floating).apply() },
             Item("效率工具", R.drawable.ic_toolbar, cTool, "工具栏与菜单排序", "长按拖拽自定义顶部工具栏与更多面板", null, null) { go(Page.ARRANGE) },
-            Item("效率工具", R.drawable.ic_clip, cTool, "剪贴板管理", "容量 ${ClipStore.MAX} 条，支持置顶、分类、分词与图片", "${ClipStore.items.size} 条", null) { go(Page.CLIP) },
+            Item("效率工具", R.drawable.ic_clip, cTool, "剪贴板管理", "历史 ${ClipStore.MAX} 条，置顶和自定义分类长期保存", "${ClipStore.items.size} 条", null) { go(Page.CLIP) },
             Item("关于与帮助", R.drawable.ic_settings, cAbout, "使用技巧", "滑行输入、删除手势、分词与离线手写说明", null, null) { go(Page.TIPS) },
             Item("关于与帮助", R.drawable.ic_download, cAbout, "检查更新", "当前 v$version · GitHub ${UpdateChecker.REPO}", upd.ifEmpty { null }, if (upd.startsWith("有新版本")) pal.accent else null) {
-                go(Page.UPDATE); if (release.value == null) checkUpdate(silent = false)
+                checkUpdate(silent = false)
             },
         )
         val shown = items.filter { query.isBlank() || it.title.contains(query) || it.sub.contains(query) || it.section.contains(query) }
@@ -515,6 +515,12 @@ class SettingsActivity : ComponentActivity() {
                 rows.forEachIndexed { i, it ->
                     if (i > 0) Line(pal, start = 58.dp)
                     NavRow(pal, it)
+                    if (it.title == "检查更新") release.value?.let { rel ->
+                        BasicText(rel.notes.trim().take(1500), style = TextStyle(color = pal.text2, fontSize = 13.sp, lineHeight = 19.sp), modifier = Modifier.padding(start = 58.dp, bottom = 8.dp))
+                        Row(Modifier.padding(start = 58.dp, bottom = 12.dp)) {
+                            Pill(pal, "下载 ${rel.tag}", false) { openUrl(rel.apkUrl ?: rel.pageUrl) }
+                        }
+                    }
                 }
             }
         }
@@ -748,10 +754,10 @@ class SettingsActivity : ComponentActivity() {
         val pinned = remember(tick, hint) { ClipStore.items.count { it.pinned } }
         val images = remember(tick, hint) { ClipStore.items.count { it.image != null } }
         Card(pal) {
-            BasicText("共 $count 条（置顶 $pinned 条，图片 $images 张），最多保存 ${ClipStore.MAX} 条，满了先挤掉最旧的；置顶的不会被挤掉。", style = TextStyle(color = pal.ink, fontSize = 15.sp, lineHeight = 22.sp))
-            BasicText("点键盘右下角的剪贴板图标打开。只记录用空叶键盘期间复制的内容，存在这台手机里。分类可以自己加：在剪贴板顶上点“＋分类”。", style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp), modifier = Modifier.padding(top = 6.dp))
+            BasicText("共 $count 条（置顶 $pinned 条，图片 $images 张），普通历史最多 ${ClipStore.MAX} 条，满了淘汰最旧的历史；置顶和自定义分类长期保存。", style = TextStyle(color = pal.ink, fontSize = 15.sp, lineHeight = 22.sp))
+            BasicText("点键盘右下角的剪贴板图标打开。只记录用空叶键盘期间复制的内容，存在这台手机里。分类可以自己加：在剪贴板顶上点“＋分类”，进入自定义分类后点“＋内容”即可手动添加。", style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp), modifier = Modifier.padding(top = 6.dp))
             Line(pal, top = 12.dp)
-            ActionRow(pal, "清空没置顶的记录", hint.ifEmpty { null }, "清空") {
+            ActionRow(pal, "清空历史（保留置顶和自定义分类）", hint.ifEmpty { null }, "清空") {
                 if (confirmed("clips")) { ClipStore.clearUnpinned(); hint = "已清空" } else hint = "再点一次“清空”确认"
             }
         }
@@ -1086,7 +1092,7 @@ private fun NavRow(pal: Pal, it: Item) {
         }
         Spacer(Modifier.width(8.dp))
         if (it.value != null) BasicText(it.value, style = TextStyle(color = it.valueColor ?: pal.text2, fontSize = 13.5.sp, fontWeight = FontWeight.Medium))
-        if (it.valueColor == null) Image(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(20.dp), colorFilter = ColorFilter.tint(pal.text2))
+        if (it.valueColor == null && it.title != "检查更新") Image(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(20.dp), colorFilter = ColorFilter.tint(pal.text2))
     }
 }
 

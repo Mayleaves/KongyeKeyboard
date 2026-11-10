@@ -328,7 +328,7 @@ public final class OfflineResourcesCheck extends Instrumentation {
         store.togglePin(stale);
         require(store.list("置顶", "").size() == 1, "Stale card pin was lost");
         require(store.getItems().get(0).getPinned(), "Stored record must be pinned");
-        require(!store.tabs().contains("图片"), "Image category must be hidden");
+        require(store.tabs().indexOf("图片") == store.tabs().indexOf("文本") + 1, "Image category must follow text");
         report("PASS stale-card pin and pinned category");
         for (int n = 0; n < 80; n++) store.togglePin(store.getItems().get(0));
         java.lang.reflect.Field field = ClipStore.class.getDeclaredField("writer");
@@ -338,9 +338,84 @@ public final class OfflineResourcesCheck extends Instrumentation {
         org.json.JSONArray json = new org.json.JSONArray(new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8));
         require(json.length() == 1 && json.getJSONObject(0).getBoolean("p"), "Latest pin state was overwritten by an older save");
         report("PASS 80 queued atomic writes preserve final pinned state");
-        store.getItems().clear();
+        store.addCategory("测试长期保存");
+        store.add("old card");
+        Clip staleCategory = store.getItems().get(0);
+        store.add("old card");
+        store.setCategory(staleCategory, "测试长期保存");
+        store.update(staleCategory, "saved updated card");
+        store.addCustom("manual saved card", "测试长期保存");
+        File image = new File(store.getDir(), "regression.png");
+        Files.write(image.toPath(), new byte[]{1,2,3});
+        store.addImage(image.getName());
+        store.setCategory(store.getItems().get(0), "测试长期保存");
+        for(int n=0;n<ClipStore.MAX+12;n++) store.add("ordinary history " + n);
+        require(store.historyCount()==ClipStore.MAX, "History capacity must exclude saved entries");
+        require(store.list("测试长期保存", "").size()==3, "Categorized text/image was evicted");
+        require(image.exists(), "Saved category image was deleted");
+        require(store.list("置顶", "").size()==1, "Pinned text was evicted");
+        require(store.list("全部", "ordinary history 0").isEmpty(), "Old history was not evicted");
+        writer.submit(() -> {}).get(30, TimeUnit.SECONDS);
+        json = new org.json.JSONArray(new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8));
+        require(json.length()==ClipStore.MAX+4, "Saved and history records did not persist together");
+        store.getItems().clear(); storeFile.set(null,null); store.load(isolated);
+        require(store.list("测试长期保存", "").size()==3, "Saved entries missing after reload");
+        store.clearUnpinned();
+        require(store.historyCount()==0 && store.getItems().size()==4, "Clear history removed saved entries");
+        require(image.exists(), "Clear history removed a saved image");
+        report("PASS custom add, stale-card category/edit, >500 history, saved image, reload and history clear");
+        checkRemoteDeletion();
+        store.getItems().clear(); store.removeCategory("测试长期保存");
+        writer.submit(() -> {}).get(30, TimeUnit.SECONDS);
+        image.delete();
         saved.delete();
         new File(directory, "clips").delete();
         directory.delete();
+    }
+    private void checkRemoteDeletion() throws Exception {
+        java.util.List<android.view.KeyEvent> events = new java.util.ArrayList<>();
+        int[] deleteApiCalls={0};
+        StringBuilder text = new StringBuilder("你好😀abc");
+        android.view.inputmethod.InputConnection connection = new android.view.inputmethod.BaseInputConnection(new android.view.View(getTargetContext()),false) {
+            // Reproduce UU: only DEL-up reaches the remote; deleteSurroundingText
+            // ignores its requested length; the proxy exposes the locally typed text.
+            @Override public boolean sendKeyEvent(android.view.KeyEvent event) {
+                events.add(event);
+                if(event.getAction()==android.view.KeyEvent.ACTION_UP && event.getKeyCode()==android.view.KeyEvent.KEYCODE_DEL && text.length()>0) {
+                    text.delete(text.offsetByCodePoints(text.length(),-1),text.length());
+                }
+                return true;
+            }
+            @Override public CharSequence getTextBeforeCursor(int count,int flags) {return text.toString();}
+            @Override public CharSequence getTextAfterCursor(int count,int flags) {return "";}
+            @Override public boolean deleteSurroundingTextInCodePoints(int before,int after) { deleteApiCalls[0]++; return true; }
+            @Override public boolean deleteSurroundingText(int before,int after) { deleteApiCalls[0]++; return true; }
+            @Override public CharSequence getSelectedText(int flags) { return null; }
+        };
+        runOnMainSync(() -> {
+            EditorDeletion.INSTANCE.delete(connection,"com.netease.uuremote");
+            require(events.size()==2 && text.toString().equals("你好😀ab"),"UU backspace must send one DEL-up");
+            events.clear();
+            require(EditorDeletion.INSTANCE.clear(connection,"com.netease.uuremote"),"Remote clear rejected known text");
+            require(text.length()==0 && events.size()==10,"Clear must send one backspace per code point, not ignored Ctrl+A");
+            for(android.view.KeyEvent event:events) require(event.getKeyCode()==android.view.KeyEvent.KEYCODE_DEL && !event.isCtrlPressed(),"UU clear emitted unsupported shortcut");
+            require(deleteApiCalls[0]==0,"Remote must bypass unsupported text deletion APIs");
+            events.clear();
+            require(!EditorDeletion.INSTANCE.clear(connection,"com.netease.uuremote") && events.isEmpty(),"Unknown remote text must not cause blind deletes");
+            EditorDeletion.INSTANCE.delete(connection,"com.kongye.keyboard");
+            require(deleteApiCalls[0]==1 && events.isEmpty(),"Normal editors must keep code-point deletion");
+            text.append("x".repeat(48));
+            EditorDeletion.INSTANCE.clear(connection,"com.netease.uuremote");
+            require(text.length()==32,"Long clear must yield after first 16 keys");
+            EditorDeletion.INSTANCE.cancel();
+        });
+        Thread.sleep(60);waitForIdleSync();
+        require(text.length()==32,"Canceled clear kept deleting");
+        events.clear();
+        runOnMainSync(() -> EditorDeletion.INSTANCE.clear(connection,"com.netease.uuremote"));
+        // Wait for the next frame without blocking the main looper.
+        Thread.sleep(100);waitForIdleSync();
+        require(text.length()==0 && events.size()==64,"Chunked remote clear did not finish");
+        report("PASS actual UU filtering model: code-point backspace clear, unknown text, cancellation, chunking, normal editors");
     }
 }

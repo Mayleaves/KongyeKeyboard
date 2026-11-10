@@ -469,13 +469,42 @@ object Lexicon {
         }
         if (pos < sets.size) {
             val cuts = (listOf(pos) + marks.filter { it > pos } + sets.size).distinct()
-            for (j in 0 until cuts.size - 1) out.addAll(decode(sets.subList(cuts[j], cuts[j + 1])))
+            for (j in 0 until cuts.size - 1) out.addAll(displaySyllables(sets.subList(cuts[j], cuts[j + 1])))
         }
         val text = out.joinToString("'")
         return if (keys.lastOrNull() == "'") "$text'" else text
     }
 
     fun display(raw: String, top: Cand?): String = display(raw.map { it.toString() }, top)
+
+    /** 显示分隔不依赖异步候选；完整音节优先，也允许连续声母简拼 n'h'y。 */
+    private fun displaySyllables(sets: List<String>): List<String> {
+        val decoded = decode(sets)
+        if (decoded.size != 1 || decoded[0] in syllables || sets.size <= 1) return decoded
+        val failed = HashSet<Int>()
+        fun walk(i: Int): List<String>? {
+            if (i == sets.size) return emptyList()
+            if (i in failed) return null
+            for (len in min(6, sets.size - i) downTo 1) {
+                for (syl in syllables) {
+                    if (syl.length != len || syl.indices.any { syl[it] !in sets[i + it] }) continue
+                    val tail = walk(i + len) ?: continue
+                    return listOf(syl) + tail
+                }
+            }
+            // zh/ch/sh 是一个声母；其他声母只占一个按键。
+            for (initial in DISPLAY_INITIALS) {
+                if (i + initial.length > sets.size || initial.indices.any { initial[it] !in sets[i + it] }) continue
+                val tail = walk(i + initial.length) ?: continue
+                return listOf(initial) + tail
+            }
+            failed.add(i)
+            return null
+        }
+        return walk(0) ?: decoded
+    }
+
+    private val DISPLAY_INITIALS = listOf("zh", "ch", "sh") + "bpmfdtnlgkhjqxrzcsyw".map { it.toString() }
 
     /** 上屏后的联想：以刚上屏的词开头的常用词，取后半截 */
     fun assoc(w: String): List<String> {
