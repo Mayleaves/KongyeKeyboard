@@ -23,9 +23,7 @@ object VaultFields {
         val variation = info.inputType and InputType.TYPE_MASK_VARIATION
         val hint = info.hintText?.toString().orEmpty()
         if(hint.contains("验证码")) return Kind.OTHER
-        val password = cls == InputType.TYPE_CLASS_TEXT && variation in setOf(
-            InputType.TYPE_TEXT_VARIATION_PASSWORD, InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
-            InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD) || cls == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        val password = passwordType(info)
         if (hint.contains("确认密码") || hint.contains("再次输入")) return Kind.CONFIRM
         if (hint.contains("设置密码") || hint.contains("新密码")) return Kind.NEW_PASSWORD
         if (password) return Kind.PASSWORD
@@ -33,7 +31,15 @@ object VaultFields {
             || listOf("账号", "帐号", "手机", "邮箱", "用户名", "登录名").any(hint::contains)) return Kind.ACCOUNT
         return Kind.OTHER
     }
-    fun sensitive(info: EditorInfo) = kind(info) in setOf(Kind.PASSWORD, Kind.NEW_PASSWORD, Kind.CONFIRM)
+    val SECRET = setOf(Kind.PASSWORD, Kind.NEW_PASSWORD, Kind.CONFIRM)
+    fun passwordType(info: EditorInfo): Boolean {
+        val cls = info.inputType and InputType.TYPE_MASK_CLASS
+        val variation = info.inputType and InputType.TYPE_MASK_VARIATION
+        return cls == InputType.TYPE_CLASS_TEXT && variation in setOf(
+            InputType.TYPE_TEXT_VARIATION_PASSWORD, InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+            InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD) || cls == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+    }
+    fun sensitive(info: EditorInfo) = passwordType(info) || kind(info) in SECRET
 }
 
 /** Fixed authorities, package ownership and signature checked before every cross-app call. */
@@ -92,7 +98,7 @@ class VaultFill(
 ) {
     data class Entry(val id: String, val name: String, val account: String, val matchedBy: String)
     data class Action(val label: String, val run: () -> Unit)
-    private data class Target(val pkg: String, val field: Int, val kind: VaultFields.Kind, val hint: String, val inputType: Int)
+    private data class Target(val pkg: String, val field: Int, val kind: VaultFields.Kind, val hint: String, val inputType: Int, val browser: Boolean)
     private data class Pending(val id: String, val target: Target, val until: Long, val bind: Boolean)
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -113,6 +119,7 @@ class VaultFill(
     private var capture = false
     private var savePassword = CharArray(0)
     private var savePkg = ""
+    private var saveBrowser = false
     private var saveAccount = CharArray(0)
     private var generated = CharArray(0)
     private var generatedPkg = ""
@@ -143,7 +150,7 @@ class VaultFill(
     }
     private fun retireTyped() {
         if (typed.isNotEmpty()) {
-            wipeSave(); savePassword = typed.copyOf(); savePkg = target?.pkg.orEmpty()
+            wipeSave(); savePassword = typed.copyOf(); savePkg = target?.pkg.orEmpty(); saveBrowser = target?.browser == true
             saveAccount=if(accountPkg==savePkg) account.copyOf() else CharArray(0)
             saveUntil=clock()+30000
             main.postDelayed(expireSave, 30000)
@@ -151,7 +158,7 @@ class VaultFill(
         typed.fill('\u0000'); typed = CharArray(0); capture = false
     }
     fun focus(info: EditorInfo, browser: Boolean = false, emptyField: Boolean = true) {
-        val fresh = Target(info.packageName.orEmpty(), info.fieldId, VaultFields.kind(info), info.hintText?.toString().orEmpty(), info.inputType)
+        val fresh = Target(info.packageName.orEmpty(), info.fieldId, VaultFields.kind(info), info.hintText?.toString().orEmpty(), info.inputType, browser)
         if(fresh != target) secretEpoch++
         if (fresh != target) retireTyped()
         if (target?.pkg != fresh.pkg) {
@@ -161,11 +168,11 @@ class VaultFill(
         if(fresh.kind==VaultFields.Kind.CONFIRM && generatedPkg==fresh.pkg && clock()-generatedAt<120000) wipeSave()
         if(fresh.kind==VaultFields.Kind.ACCOUNT && fresh!=target) {account.fill('\u0000');account=CharArray(0);accountPkg=fresh.pkg}
         target = fresh; active = true; epoch++; entries = emptyList(); available = false; dismissed = false
-        capture = VaultFields.sensitive(info) && (typed.isNotEmpty() || emptyField) && info.initialSelStart == typed.size && info.initialSelEnd == typed.size
+        capture = fresh.kind in VaultFields.SECRET && (typed.isNotEmpty() || emptyField) && info.initialSelStart == typed.size && info.initialSelEnd == typed.size
         if (!enabled()) { reset(); return }
         val returning = pendingUnlock?.takeIf { it.target == fresh && clock() < it.until }
         if (returning != null) { pendingUnlock = null; reveal(returning.id, returning.bind, allowUnlock=false); return }
-        val nextPassword = pendingNext?.takeIf { it.target.pkg == fresh.pkg && VaultFields.sensitive(info) && clock() < it.until }
+        val nextPassword = pendingNext?.takeIf { it.target.pkg == fresh.pkg && fresh.kind == VaultFields.Kind.PASSWORD && clock() < it.until }
         pendingNext = null
         if (nextPassword != null) { reveal(nextPassword.id, false); return }
         if (fresh.kind == VaultFields.Kind.OTHER && savePassword.isEmpty()) return
@@ -189,7 +196,7 @@ class VaultFill(
     fun actions(): List<Action> {
         if (!enabled() || !active || !available || dismissed) return emptyList()
         if(savePassword.isNotEmpty() && clock()>=saveUntil) wipeSave()
-        if (savePassword.isNotEmpty()) return listOf(Action("存到空叶文档？", ::save), Action("不保存", ::discard))
+        if (savePassword.isNotEmpty()) return listOf(Action(if (saveBrowser) "存到空叶文档（需补网址）？" else "存到空叶文档？", ::save), Action("不保存", ::discard))
         val t = target ?: return emptyList()
         if (t.kind == VaultFields.Kind.OTHER) return emptyList()
         val result = ArrayList<Action>()
@@ -227,7 +234,7 @@ class VaultFill(
                     val value = data.getString(key) ?: return@request
                     if (value.isEmpty() || !fill(value)) { notice("这里填不了"); return@request }
                     invalidateCapture()
-                    if (bind) request("bind", Bundle().apply { putString("id",id); putString("package",t.pkg) }) { }
+                    if (bind && !t.browser) request("bind", Bundle().apply { putString("id",id); putString("package",t.pkg) }) { }
                     if (t.kind == VaultFields.Kind.ACCOUNT) {
                         account.fill('\u0000'); account = value.toCharArray(); accountPkg = t.pkg
                         pendingNext = Pending(id,t,clock()+10000,false)
@@ -289,13 +296,13 @@ class VaultFill(
     fun hide() { retireTyped(); active = false; epoch++;secretEpoch++ }
     fun dismiss() { dismissed = true; discard() }
     fun discard() { secretEpoch++;pendingUnlock=null;pendingNext=null;invalidateCapture();wipeSave();account.fill('\u0000');account=CharArray(0);generated.fill('\u0000');generated=CharArray(0);changed() }
-    private fun wipeSave() { main.removeCallbacks(expireSave); savePassword.fill('\u0000'); savePassword = CharArray(0); saveAccount.fill('\u0000'); saveAccount=CharArray(0); savePkg = "" }
+    private fun wipeSave() { main.removeCallbacks(expireSave); savePassword.fill('\u0000'); savePassword = CharArray(0); saveAccount.fill('\u0000'); saveAccount=CharArray(0); savePkg = ""; saveBrowser = false }
     private fun save() {
         val pkg = savePkg
         if (savePassword.isEmpty() || pkg.isEmpty()) return
-        val extras = Bundle().apply { putString("name", appName(pkg)); putString("package",pkg); putString("account", String(saveAccount)); putString("password",String(savePassword)) }
+        val extras = Bundle().apply { putString("name", if (saveBrowser) "${appName(pkg)} 网页密码（请补网址）" else appName(pkg)); if (!saveBrowser) putString("package",pkg); putString("account", String(saveAccount)); putString("password",String(savePassword)) }
         wipeSave(); generated.fill('\u0000'); generated = CharArray(0); account.fill('\u0000'); account = CharArray(0)
-        request("save", extras) { notice(if (it.getString("status")=="ok") "已存到空叶文档" else "保存失败，请在密码空间中确认") }
+        request("save", extras) { notice(if (it.getString("status")=="ok") { if (it.getString("result")=="updated") "已更新密码，旧密码保留在条目里" else "已存到空叶文档" } else "保存失败，请在密码空间中确认") }
         changed()
     }
     fun reset() {

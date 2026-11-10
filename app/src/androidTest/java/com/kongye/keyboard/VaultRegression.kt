@@ -31,6 +31,9 @@ object VaultRegression {
         check(VaultFields.kind(info(InputType.TYPE_CLASS_TEXT,1,"用户名"))==VaultFields.Kind.ACCOUNT)
         check(VaultFields.kind(info(password,1,"新密码"))==VaultFields.Kind.NEW_PASSWORD)
         check(VaultFields.kind(info(password,2,"再次输入"))==VaultFields.Kind.CONFIRM)
+        check(VaultFields.sensitive(info(password, 1, "密码/验证码")))
+        check(VaultFields.kind(info(password, 1, "密码/验证码")) == VaultFields.Kind.OTHER)
+        var browserSaved = false
         var enabled=false
         var locked=true
         var backendEnabled=true
@@ -48,6 +51,11 @@ object VaultRegression {
         lateinit var vault:VaultFill
         ui {vault=VaultFill({enabled},{method,extras ->
             calls.add(method)
+            if (method == "save" && extras.getString("name").orEmpty().contains("网页密码")) {
+                check(!extras.containsKey("package"))
+                check(extras.getString("name").orEmpty().contains("请补网址"))
+                browserSaved = true
+            }
             when(method) {
                 "status" -> Bundle().apply {putString("status",if(backendEnabled)"ok" else "disabled");putBoolean("enabled",backendEnabled);putInt("version",1)}
                 "match","search" -> rows()
@@ -146,6 +154,21 @@ object VaultRegression {
         ui {vault.focus(info(password,47,pkg="browser.fixture"),browser=true)}
         waitFor("browser search ready") {vault.actions().any {it.label=="🔍 搜索密码空间"}}
         check(calls.count {it=="match"}==matchesBefore) {"Browser auto-matched without a domain"}
+        val browserBinds = calls.count { it == "bind" }
+        val beforeBrowserReveal = filled.size
+        ui { vault.choose(VaultFill.Entry("fixture", "Fixture", "masked", "search")) }
+        waitFor("browser reveal") { filled.size > beforeBrowserReveal }
+        // 排队的 status 会在 reveal 的回调完成后执行，确保 bind 检查覆盖异步调用。
+        ui { vault.focus(info(password, 48, "新密码", "browser.fixture"), browser=true) }
+        waitFor("browser generation ready") { vault.actions().any { it.label == "生成强密码" } }
+        check(calls.count { it == "bind" } == browserBinds)
+        val beforeBrowserGeneration = filled.size
+        ui { vault.actions().first { it.label == "生成强密码" }.run() }
+        waitFor("browser generated capture") { filled.size > beforeBrowserGeneration && filled.last() == "Generated-Only!8" }
+        ui { vault.submitted(); check(vault.actions().any { it.label == "存到空叶文档（需补网址）？" }); vault.actions().first { it.label == "存到空叶文档（需补网址）？" }.run() }
+        waitFor("browser save without package") { browserSaved }
+        ui { vault.focus(info(password, 49, "密码/验证码")); vault.typed("otp-only"); vault.submitted() }
+        ui { check(vault.actions().isEmpty()) }
         backendEnabled=false
         ui {vault.focus(info(password,50))}
         Thread.sleep(80);inst.waitForIdleSync();ui {check(vault.actions().isEmpty())}
