@@ -26,7 +26,7 @@ object MotionRegression {
             host.addView(content,FrameLayout.LayoutParams(600,500))
             host.measure(View.MeasureSpec.makeMeasureSpec(600,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(500,View.MeasureSpec.EXACTLY))
             host.layout(0,0,600,500)
-            NativeMotion.swap(host,content) {content.setBackgroundColor(background)}
+            NativeMotion.swap(host,content) {NativeMotion.swap(host,content) {content.setBackgroundColor(background)}}
             content.viewTreeObserver.dispatchOnPreDraw()
             unchangedBackground()
         }
@@ -35,6 +35,7 @@ object MotionRegression {
         Thread.sleep(180)
         ui {
             unchangedBackground()
+            check(host.childCount==1) {"Nested tool transition left a stale cover over the new panel"}
             NativeMotion.pulse(content);check(content.alpha==1f)
             NativeMotion.enter(content);check(content.alpha==1f)
             NativeMotion.change(content) {};check(content.alpha==1f)

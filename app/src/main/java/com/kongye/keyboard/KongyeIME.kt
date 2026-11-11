@@ -102,6 +102,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private lateinit var floatBar: FloatBar
     private lateinit var sinkStrip: SinkStrip
     private lateinit var bar: CandidateBar
+    private lateinit var barHost: FrameLayout
+    private lateinit var languageBar: CandidateBar
     private lateinit var keyboard: KeyboardView
     private lateinit var panelHost: PanelHost
     private lateinit var bottomStrip: BottomStrip
@@ -160,6 +162,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private var transResult = ""
     private var transStatus = ""
+    private var transDirection = ""
     private val transTask = Runnable { runLiveTranslation() }
 
     private var speech: SpeechRecognizer? = null
@@ -184,10 +187,24 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var pendingClipAt = 0L
     private var dismissedClipText = ""
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { captureClip() }
+    private val releaseTools = Runnable {
+        if (panel != Panel.VOICE && !listening) OfflineVoice.releaseCache()
+        if (panel != Panel.HAND && panel != Panel.HAND_CANDS) OpenHandwriting.release()
+    }
+    private fun releaseToolsLater() {
+        main.removeCallbacks(releaseTools); main.postDelayed(releaseTools, 30_000)
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) releaseTools.run()
+    }
 
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs.of(this)
+        if (Translator.TARGETS.none { it.first == prefs.getString(Prefs.TRANS_TO,"auto") })
+            prefs.edit().putString(Prefs.TRANS_TO,"auto").apply()
         prefs.registerOnSharedPreferenceChangeListener(this)
         zh = prefs.getBoolean(Prefs.ZH, true)
         floating = prefs.getBoolean(Prefs.FLOAT, false)
@@ -202,10 +219,10 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         clipboard?.addPrimaryClipChangedListener(clipListener)
         if(android.os.Build.VERSION.SDK_INT>=33) registerReceiver(vaultLock,android.content.IntentFilter(Intent.ACTION_SCREEN_OFF),RECEIVER_NOT_EXPORTED)
         else @Suppress("DEPRECATION") registerReceiver(vaultLock,android.content.IntentFilter(Intent.ACTION_SCREEN_OFF))
-        OfflineVoice.prewarm(applicationContext,prefs.getInt(Prefs.VOICE_LANG,0))
     }
 
     override fun onDestroy() {
+        main.removeCallbacks(releaseTools)
         candidateRevision++;candidateWorker.shutdownNow()
         cancelVoiceDraft()
         offlineSpeech?.cancel(); offlineSpeech = null
@@ -226,6 +243,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         out?.println("VaultFill: ${vault.diagnosticState()} passwordField=$passwordField sink=$sink panel=$panel provider=${vaultGateway.owner()} failure=${vaultGateway.lastFailure}")
         out?.println("RemoteInput: active=${remoteEditor()} knownCharacters=${remoteHistory.knownCharacters()}")
         out?.println("PinyinEngine: ready=${PinyinEngine.ready} version=${PinyinEngine.version} failure=${PinyinEngine.failure}")
+        out?.println("KeyboardUi: sink=$sink panel=$panel languagePicker=$langPicking listening=$listening voiceStatus=$voiceStatus")
     }
 
     /**
@@ -289,6 +307,19 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         floatBar = FloatBar(this)
         sinkStrip = SinkStrip(this, onOk = { sinkConfirm() }, onCancel = { sinkCancel() }).apply { visibility = View.GONE }
         bar = CandidateBar(this).also { it.listener = this }
+        barHost=FrameLayout(this)
+        languageBar=CandidateBar(this).apply {
+            visibility=View.INVISIBLE;alpha=0f
+            listener=object:CandidateBar.Listener {
+                override fun onCandidate(index:Int) {}
+                override fun onAssoc(index:Int) {if(langPicking) this@KongyeIME.onAssoc(index)}
+                override fun onTool(id:String) {}
+                override fun onExpand() {}
+                override fun onDismissAssoc() {setLanguagePicker(false)}
+            }
+        }
+        barHost.addView(bar,FrameLayout.LayoutParams(MATCH_PARENT,WRAP_CONTENT))
+        barHost.addView(languageBar,FrameLayout.LayoutParams(MATCH_PARENT,WRAP_CONTENT))
         keyboard = KeyboardView(this).also { it.listener = this }
         panelHost = PanelHost(this).apply {
             visibility = View.GONE
@@ -303,7 +334,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         col.addView(floatBar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         col.addView(sinkStrip, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         col.addView(clipSearch, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        col.addView(bar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        col.addView(barHost, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         col.addView(area, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         col.addView(bottomStrip, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         r.addView(col, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
@@ -415,7 +446,6 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if(keepEdit) {
             resetComposing();assoc=emptyList();renderBar();return
         }
-        OfflineVoice.prewarm(applicationContext, prefs.getInt(Prefs.VOICE_LANG, 0))
         resetComposing()
         assoc = emptyList()
         selecting = false
@@ -474,6 +504,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             if (panel != Panel.NONE) closePanel(render = false)
         }
         Lexicon.save()
+        releaseToolsLater()
     }
 
     override fun onFinishInput() {
@@ -502,7 +533,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             if(prefs.getBoolean(Prefs.VAULT,false)) currentInputEditorInfo?.let { vault.focus(it,browser(it.packageName.orEmpty())) }
             return
         }
-        if(key==Prefs.VOICE_LANG) { OfflineVoice.prewarm(applicationContext,prefs.getInt(Prefs.VOICE_LANG,0)); return }
+        if(key==Prefs.VOICE_LANG) { if (panel==Panel.VOICE) OfflineVoice.prewarm(applicationContext,prefs.getInt(Prefs.VOICE_LANG,0)); return }
         if (key == Prefs.FUZZY) { Lexicon.fuzzyRules = Prefs.fuzzy(this); if (seq.isNotEmpty()) refreshComposing(); return }
         if (root == null || key in setOf(Prefs.ZH, Prefs.RECENT_EMOJI, Prefs.RECENT_SYM, Prefs.COUNT_TODAY, Prefs.COUNT_DATE, Prefs.FLOAT_X, Prefs.FLOAT_Y,
                 Prefs.TRANS_TO, Prefs.VOICE_LANG, Prefs.VOICE_OFFLINE, Prefs.UPDATE_CHECKED)) return
@@ -535,6 +566,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         skin = Prefs.theme(this).pick(Prefs.night(this)).styled(1f, prefs.getBoolean(Prefs.GLASS, false))
         val r = root ?: return
         bar.skin = skin
+        languageBar.skin=skin
+        languageBar.setBackgroundColor(skin.kbBg or android.graphics.Color.BLACK)
         sinkStrip.skin = skin
         bottomStrip.skin = skin
         tab.skin = skin
@@ -551,6 +584,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         keyboard.visibility=when {panel==Panel.NONE || panel==Panel.ADJUST -> View.VISIBLE;landscapeEdit()->View.GONE;else->View.INVISIBLE}
         panelHost.requestLayout()
         bar.uiScale=scale;bottomStrip.uiScale=scale;tab.uiScale=scale
+        languageBar.uiScale=scale
         col.alpha=a?.opacity ?: Prefs.opacity(this)
         tab.alpha=col.alpha
         col.setLayerType(if(panel==Panel.ADJUST || col.alpha<.99f) View.LAYER_TYPE_HARDWARE else View.LAYER_TYPE_NONE,null)
@@ -680,6 +714,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     /** 打开面板时工具栏里高亮哪个工具 */
     private fun activeTool(): String? {
+        if (sink == Sink.TRANSLATE) return "translate"
         val id = when (panel) {
             Panel.EMOJI -> "emoji"; Panel.CLIP, Panel.TOKENS -> "clip"; Panel.EDIT -> "edit"; Panel.SKIN -> "skin"
             Panel.HAND, Panel.HAND_CANDS -> "handwrite"; Panel.VOICE -> "voice"
@@ -694,7 +729,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun renderBar() {
         if (root == null) return
         val rowWidth=if(landscapeEdit()) minOf(resources.displayMetrics.widthPixels,(744*resources.displayMetrics.density).toInt()) else MATCH_PARENT
-        for(view in listOf(bar,sinkStrip)) {
+        for(view in listOf(barHost,sinkStrip)) {
             val params=view.layoutParams as LinearLayout.LayoutParams
             if(params.width!=rowWidth) {params.width=rowWidth;params.gravity=Gravity.CENTER_HORIZONTAL;view.layoutParams=params}
         }
@@ -705,8 +740,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         when {
             vaultActions.isNotEmpty() -> bar.showActions(vaultActions.map { it.label }, { i -> vaultActions.getOrNull(i)?.run?.invoke() }, { vault.dismiss() })
             seq.isNotEmpty() -> bar.showCandidates(candItems(), panel == Panel.CANDS)
-            sink == Sink.TRANSLATE && langPicking -> bar.showAssoc(Translator.TARGETS.map { it.second })
-            sink == Sink.TRANSLATE -> bar.showMessage(transStatus.ifEmpty { "译文直接显示在输入框里，点“完成”确认；点左边的语言可以换" })
+            sink == Sink.TRANSLATE && sinkBuf.isNotEmpty() -> bar.showMessage(transDirection)
             panel in listOf(Panel.HAND, Panel.HAND_CANDS) && handCands.isNotEmpty() -> bar.showCandidates(handCands.map { w -> CandItem(w, if (w.any { it in '一'..'鿿' }) HandwritingPinyin.label(w) else null) }, panel == Panel.HAND_CANDS)
             assoc.isNotEmpty() && (panel == Panel.NONE || panel == Panel.HAND) -> bar.showAssoc(assoc)
             pendingClipText != null && panel == Panel.NONE && sink == Sink.NONE -> bar.showClipSuggestion(pendingClipText!!)
@@ -760,6 +794,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     /** 正在打的拼音：输入条模式下显示在输入条里；平时只显示在拼音条上，不写进编辑框 */
     private fun composeOut(text: String) {
+        if(sink==Sink.TRANSLATE && langPicking && text.isNotEmpty()) setLanguagePicker(false)
         if (sink != Sink.NONE) {
             sinkStrip.composing = text
             sinkStrip.refresh()
@@ -1350,7 +1385,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (sink == Sink.TRANSLATE && langPicking) {
             val t = Translator.TARGETS.getOrNull(index) ?: return
             prefs.edit().putString(Prefs.TRANS_TO, t.first).apply()
-            langPicking = false
+            setLanguagePicker(false)
             sinkStrip.chip = t.second
             sinkStrip.refresh()
             renderBar()
@@ -1364,7 +1399,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onDismissAssoc() {
-        if (langPicking) { langPicking = false; renderBar(); return }
+        if (langPicking) { setLanguagePicker(false); return }
         assoc = emptyList()
         renderBar()
     }
@@ -1406,6 +1441,16 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     private fun runFeature(id: String) {
+        if(sink==Sink.TRANSLATE) {
+            NativeMotion.swap(root,col) {
+                ic()?.setComposingText("",1)
+                endSink(false)
+                if(id=="translate") render() else runFeatureNow(id)
+            }
+        } else runFeatureNow(id)
+    }
+
+    private fun runFeatureNow(id: String) {
         // The menu and toolbar share this gate; neither may start a password tool.
         if(passwordField && id in setOf("voice","translate","handwrite","undo","redo")) { message("密码框中不使用此工具");return }
         if (panel == Panel.VOICE && id != "voice") closePanel()
@@ -1658,7 +1703,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             }
         })
         offlineSpeech = session; listening = true
-        voiceStatus = "正在打开麦克风…"
+        // Keep the same status across startup and dialect restarts. Errors and
+        // pause still have distinct states, but no transient opening label.
+        voiceStatus = "正在聆听..."
         updateVoice(); session.start()
     }
 
@@ -1787,6 +1834,30 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     // —————————— 输入条：剪贴板搜索、编辑、新建分类、翻译 ——————————
 
+    private fun setLanguagePicker(show:Boolean) {
+        langPicking=show;sinkStrip.chipExpanded=show;sinkStrip.refresh()
+        languageBar.animate().cancel()
+        val dy=8*resources.displayMetrics.density
+        if(!android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            languageBar.visibility=if(show) View.VISIBLE else View.INVISIBLE
+            languageBar.alpha=if(show) 1f else 0f;languageBar.translationY=0f
+            if(show) languageBar.showAssoc(Translator.TARGETS.map {it.second})
+            return
+        }
+        if(show) {
+            languageBar.showAssoc(Translator.TARGETS.map {it.second})
+            if(languageBar.visibility!=View.VISIBLE) {languageBar.alpha=0f;languageBar.translationY=dy}
+            languageBar.visibility=View.VISIBLE
+            languageBar.animate().alpha(1f).translationY(0f).setDuration(180)
+                .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        } else {
+            languageBar.animate().alpha(0f).translationY(-dy).setDuration(150)
+                .setInterpolator(android.view.animation.DecelerateInterpolator()).withEndAction {
+                    if(!langPicking) languageBar.visibility=View.INVISIBLE
+                }.start()
+        }
+    }
+
     private fun startSink(mode: Sink, initial: String, clip: Clip?) {
         NativeMotion.swap(root,col) {startSinkNow(mode,initial,clip)}
     }
@@ -1805,17 +1876,22 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         langPicking = false
         transResult = ""
         transStatus = ""
+        transDirection = ""
         sinkStrip.chip = if (mode == Sink.TRANSLATE) Translator.name(prefs.getString(Prefs.TRANS_TO, "auto") ?: "auto") else null
         sinkStrip.translatedPreview = ""
         sinkStrip.micOn = false
-        sinkStrip.onChip = { langPicking = !langPicking; renderBar() }
+        sinkStrip.chipExpanded = false
+        sinkStrip.onChip = {
+            if(seq.isNotEmpty()) finalizeComposing()
+            setLanguagePicker(!langPicking)
+        }
         sinkStrip.onMic = { voiceIntoSink() }
         sinkStrip.onClear = {
             sinkBuf.setLength(0); sinkStrip.value = ""; sinkStrip.composing = ""; sinkStrip.translatedPreview = ""; sinkStrip.refresh()
             resetComposing(); onSinkChanged(); renderBar()
         }
         sinkStrip.multiline = mode == Sink.EDIT || mode == Sink.CLIP_ADD || mode==Sink.REMOTE_EDIT
-        sinkStrip.localEditing = sinkStrip.multiline
+        sinkStrip.localEditing = sinkStrip.multiline || mode == Sink.TRANSLATE
         sinkStrip.caption=if(mode==Sink.REMOTE_EDIT) "UU · 本次输入，点勾同步到远端" else ""
         sinkStrip.onBeforeSelection = {if(seq.isNotEmpty() || picks.isNotEmpty()) finalizeComposing()}
         sinkStrip.onEdited = {text ->
@@ -1825,7 +1901,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         sinkStrip.hint = when (mode) { Sink.REMOTE_EDIT -> "先输入文字，再用编辑工具调整"; Sink.VAULT_SEARCH -> "搜索密码空间（名称或账号）"; Sink.CLIP_ADD -> "添加到分类“$sinkCategory”"; Sink.EDIT -> "修改内容"; Sink.TRANSLATE -> "输入要翻译的中文或外文"; Sink.NEWCAT -> "新分类的名字"; Sink.FAVORITE -> "输入要收藏的表情或颜文字"; else -> "搜索剪贴板" }
         sinkStrip.value = initial
         sinkStrip.composing = ""
-        sinkStrip.showAnimated(true,animate=false)
+        sinkStrip.showAnimated(true,animate=mode==Sink.TRANSLATE)
         sinkStrip.refresh()
         layer = Layer.LETTERS
         assoc = emptyList()
@@ -1842,6 +1918,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         sinkClip = null
         sinkCategory = ""
         langPicking = false
+        if(::languageBar.isInitialized) {languageBar.animate().cancel();languageBar.visibility=View.INVISIBLE;languageBar.alpha=0f}
         if (::sinkStrip.isInitialized) {sinkStrip.localEditing=false;sinkStrip.showAnimated(false, animate)}
         updateClipSearch()
     }
@@ -1850,7 +1927,17 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun onSinkChanged() {
         when (sink) {
             Sink.SEARCH -> updateClipSearch()
-            Sink.TRANSLATE -> { main.removeCallbacks(transTask); main.postDelayed(transTask, 450) }
+            Sink.TRANSLATE -> {
+                if(langPicking && sinkBuf.isNotEmpty()) setLanguagePicker(false)
+                Translator.cancel();main.removeCallbacks(transTask)
+                transResult="";transStatus=""
+                val text=sinkBuf.toString()
+                val source=if(text.any {it in '一'..'鿿'}) "zh" else if(text.any {it in 'a'..'z' || it in 'A'..'Z'}) "en" else "auto"
+                val target=prefs.getString(Prefs.TRANS_TO,"auto") ?: "auto"
+                val destination=if(target!="auto") target else if(source=="zh") "en" else "zh"
+                transDirection=if(text.isBlank()) "" else "${Translator.name(source)}→${Translator.name(destination)}"
+                renderBar();main.postDelayed(transTask,450)
+            }
             else -> Unit
         }
     }
@@ -1885,7 +1972,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             return
         }
         val target = prefs.getString(Prefs.TRANS_TO, "auto") ?: "auto"
-        Translator.run(applicationContext, text, false, target) { ok, result, status ->
+        Translator.run(applicationContext, text, false, target, onDirection={ source,destination ->
+            if(sink==Sink.TRANSLATE && (sinkBuf.toString()+sinkStrip.composing).trim()==text) {
+                transDirection="${Translator.name(source)}→${Translator.name(destination)}";renderBar()
+            }
+        }) { ok, result, status ->
             if (sink != Sink.TRANSLATE || (sinkBuf.toString() + sinkStrip.composing).trim() != text) return@run
             if (ok) {
                 transResult = result
@@ -1894,6 +1985,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 ic()?.setComposingText(result, 1)
             }
             transStatus = status
+            if(!ok && ("失败" in status || "超时" in status)) message(status)
             renderBar()
         }
     }
@@ -1978,6 +2070,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
     private fun landscapeEdit()=panel==Panel.EDIT && !floating && resources.configuration.orientation==Configuration.ORIENTATION_LANDSCAPE
     private fun openPanelNow(p:Panel) {
+        // Bottom shortcuts enter panels directly, without runFeature(). They
+        // follow the same translation-exit rule as the toolbar and menu.
+        if(sink==Sink.TRANSLATE && p!=Panel.NONE && p!=Panel.CANDS) {
+            ic()?.setComposingText("",1);endSink(false)
+        }
+        if (p == Panel.VOICE) OfflineVoice.prewarm(applicationContext, prefs.getInt(Prefs.VOICE_LANG, 0))
+        if (p != Panel.VOICE && p != Panel.HAND && p != Panel.HAND_CANDS) releaseToolsLater()
+        else main.removeCallbacks(releaseTools)
         if (panel == Panel.ADJUST && p != Panel.ADJUST) closePanel(render=false)
         if (p != Panel.CANDS && seq.isNotEmpty()) finalizeComposing()
         if (p != Panel.CLIP && p != Panel.TOKENS) { clipExpanded = null; clipPicking = null }
@@ -2011,6 +2111,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         editView = null
         handView = null
         handCands = emptyList()
+        releaseToolsLater()
         if (::panelHost.isInitialized) {
             panelHost.removeAllViews()
             panelHost.visibility = View.GONE
@@ -2157,9 +2258,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             }
             Panel.VOICE -> VoiceBoard(this, skin, p.getInt(Prefs.VOICE_LANG, 0), !micGranted(),
                 onDialect = { i ->
+                    if (i == p.getInt(Prefs.VOICE_LANG, 0)) return@VoiceBoard
+                    val resume = listening
+                    if (resume) stopListening()
                     p.edit().putInt(Prefs.VOICE_LANG, i).apply()
                     sichuanFallback = false
-                    if (listening) { stopListening(); main.postDelayed({ toggleListening() }, 200) }
+                    // Restart synchronously. An unguarded delayed toggle could
+                    // reopen after cancel or toggle a newer session off.
+                    if (resume) toggleListening()
                 },
                 onMic = { toggleListening() },
                 onCancel = { stopListening(); voiceText.setLength(0); voicePartial = ""; closePanel() },
@@ -2204,19 +2310,28 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             if (list.isEmpty()) message("没认出来，写大一点再试") else renderBar()
         }
         val pre = runCatching { ic()?.getTextBeforeCursor(20, 0)?.toString() }.getOrNull().orEmpty()
+        fun backup() {
+            if (panel != Panel.HAND || handView !== view || inkRevision != revision) return
+            if (HandInk.recognize(view.inkStrokes(), view.padWidth(), view.padHeight(), pre) { deliver(it, ocr = false) }) return
+            HandInk.prepare { main.post {
+                if (panel == Panel.HAND && handView === view && inkRevision == revision && !OpenHandwriting.ready) {
+                    view.status = HandInk.status
+                    HandInk.recognize(view.inkStrokes(), view.padWidth(), view.padHeight(), pre) { deliver(it, ocr = false) }
+                }
+            } }
+            view.bitmap()?.let { bmp -> Ink.recognize(bmp) { deliver(it, ocr = true) } }
+        }
         if (OpenHandwriting.recognize(view.inkStrokes()) { result ->
             if (result.isNotEmpty()) deliver(result, ocr = false)
-            else if (!HandInk.recognize(view.inkStrokes(), view.padWidth(), view.padHeight(), pre) { deliver(it, ocr = false) })
-                view.bitmap()?.let { bmp -> Ink.recognize(bmp) { deliver(it, ocr = true) } }
+            else backup()
         }) return
         OpenHandwriting.prepare(applicationContext) {
-            if (panel == Panel.HAND && handView === view && inkRevision == revision && OpenHandwriting.ready)
-                OpenHandwriting.recognize(view.inkStrokes()) { deliver(it, ocr = false) }
+            if (panel == Panel.HAND && handView === view && inkRevision == revision) {
+                if (OpenHandwriting.ready) OpenHandwriting.recognize(view.inkStrokes()) { if (it.isEmpty()) backup() else deliver(it, ocr = false) }
+                else backup()
+            }
         }
-        // Existing downloaded Digital Ink model is a fallback; recognition stays local.
-        if (HandInk.recognize(view.inkStrokes(), view.padWidth(), view.padHeight(), pre) { deliver(it, ocr = false) }) return
-        HandInk.prepare { main.post { if (!OpenHandwriting.ready) handView?.status = HandInk.status } }
-        view.bitmap()?.let { bmp -> Ink.recognize(bmp) { deliver(it, ocr = true) } }
+        if (!OpenHandwriting.ready) view.status = "正在准备手写…"
     }
 
     // —————————— 编辑面板 ——————————

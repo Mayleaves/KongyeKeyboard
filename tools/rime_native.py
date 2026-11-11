@@ -51,6 +51,9 @@ class Rime:
         t.shared_data_dir = str(Path(shared).resolve()).encode()
         t.user_data_dir = str(Path(user).resolve()).encode()
         t.app_name = b'rime.kongye'; t.min_log_level = 2; t.log_dir = b''
+        # A compiled plugin is not necessarily in librime's default module group.
+        self.modules = (C.c_char_p * 5)(b'default', b'deployer', b'octagram', b'lua', None)
+        t.modules = C.cast(self.modules, C.c_void_p)
         self.call('setup', None, (C.c_void_p, C.addressof(t)))
         self.call('initialize', None, (C.c_void_p, C.addressof(t)))
         self.sessions = {}
@@ -81,9 +84,9 @@ class Rime:
             for i in range(c.menu.num_candidates):
                 cand = c.menu.candidates[i]
                 fields = text(cand.comment).split('\x1f')
-                if len(fields) != 4: raise RuntimeError('Missing Lua candidate metadata')
+                if len(fields) < 4: raise RuntimeError('Missing Lua candidate metadata')
                 out.append(dict(text=text(cand.text), pinyin=fields[0], end=int(fields[1]),
-                                quality=float(fields[2]), preedit=fields[3]))
+                                quality=float(fields[2]), preedit=fields[3], type=fields[4] if len(fields)>4 else 'unknown'))
             return text(c.composition.preedit), out
         finally:
             self.call('free_context', C.c_int, (C.c_void_p, C.addressof(c)))

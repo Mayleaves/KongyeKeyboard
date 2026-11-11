@@ -26,6 +26,8 @@ SOURCES = {
     'predict': ('rime/librime-predict', '920bd41ebf6f9bf6855d14fbe80212e54e749791', 'librime/plugins/predict'),
     'keytao': ('xkinput/keytao-app', 'v1.2.4', 'keytao'),
     'hanzi_lookup': ('gugray/hanzi_lookup', '01f90c3ab99a8fadf0696c28e5eb097223c500db', 'hanzi_lookup'),
+    'rime-ice': ('iDvel/rime-ice', '99662ba01e3affa6a0f009174ca530b887bac3b6', 'rime-ice'),
+    'ochwpro': ('ximeiorg/ochwpro', '54c326d33d86cc0754dbea5a36c1448682c8202c', 'ochwpro'),
 }
 
 
@@ -43,7 +45,7 @@ def main():
     digests['boost'] = hashlib.sha256(boost.read_bytes()).hexdigest()
     release = ROOT / 'build/release'; release.mkdir(exist_ok=True)
     target = release / 'KongyeKeyboard-2.1.0-native-sources.zip'
-    manifest = {'runtime': 'KeyTao v1.2.4 arm64, source-built librime 1.17.0',
+    manifest = {'runtime': 'KeyTao v1.2.4 arm64-v8a/x86_64, source-built librime 1.17.0',
                 'rime_source': '33e78140250125871856cdc5b42ddc6a5fcd3cd4',
                 'ndk': '27.0.12077973', 'boost': '1.84.0',
                 'sources': {name: {'repository': repo, 'revision': rev, 'path': path, 'archive_sha256': digests[name]}

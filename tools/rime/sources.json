@@ -1,11 +1,26 @@
 {
   "rime": "1.17.0",
   "wanxiang": "18.1.11",
-  "entries": 1675705,
+  "dictionary": "Rime Ice 99662ba01e3affa6a0f009174ca530b887bac3b6",
+  "entries": 1873493,
+  "native_binaries": {
+    "arm64-v8a/librime.so": "f6a2517ed852a03dc7d7e7ced5eae68bb9232d62f59bb151ab4f5a557db6567f",
+    "arm64-v8a/libc++_shared.so": "92ee8da641b969254cc8723f64aa115d36c8ffa87115e38bc9cb89e3eefee839",
+    "x86_64/librime.so": "60e975d9e162515e318f4ce288e60a13a8a0c5c5d8888bcf1e0c6b62a60401ff",
+    "x86_64/libc++_shared.so": "128bb6e63a08bbd21fba7128223fb6e1016afd76dab9cbc09d9aaf4b0400f4e2"
+  },
   "dependencies": {
     "keytao.apk": {
       "url": "https://github.com/xkinput/keytao-app/releases/download/v1.2.4/keytao-app-1.2.4-android-arm64-release.apk",
       "sha256": "ff2712b2fa4d8ef9f641d95e15cba0841a488456ca8aa0e336e5dfd15e922c7e"
+    },
+    "keytao-x86_64.apk": {
+      "url": "https://github.com/xkinput/keytao-app/releases/download/v1.2.4/keytao-app-1.2.4-android-x86_64-release.apk",
+      "sha256": "8a3b04f906e0b6c0f1b137303cfc419c56628031a8c28a332c05b80c9732b0dd"
+    },
+    "rime-ice.zip": {
+      "url": "https://codeload.github.com/iDvel/rime-ice/zip/99662ba01e3affa6a0f009174ca530b887bac3b6",
+      "sha256": "459eb85d0555f29888452114b48914e7b9b9407db765731629d322ba8a648aaa"
     },
     "jna.aar": {
       "url": "https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.17.0/jna-5.17.0.aar",
@@ -32,5 +47,5 @@
       "sha256": "6eb5629162c44761e7b878f1b122f464de5c8685bd3cd5ac1e8519badc6d6424"
     }
   },
-  "assets_sha256": "8e08680e3db26a4b23efd14996722a191dd225f5609d2537828aac782f634c9b"
+  "assets_sha256": "547b489bbd5ceb2653cdddfd835ffc8bd8bb233a07d1796de0ffab93218acf44"
 }

@@ -2,7 +2,7 @@
 
 Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，以及 26 键、14 键和九键布局。
 
-当前版本：**2.1.0**。Android 8.0 及以上，安装包面向 ARM64 设备。
+当前版本：**[2.1.0](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v2.1.0)**。Android 8.0 及以上；提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
 
 本项目源代码按 [GPL-3.0-only](LICENSE) 开源。第三方代码、模型和数据保留各自许可证，详见 [第三方说明](THIRD_PARTY_NOTICES.md)。
 
@@ -18,9 +18,9 @@ Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，
 
 - 多套皮肤与日夜模式，支持键盘高度、振动强度、工具栏排序和悬浮键盘。
 - 上下滑动输入符号，长按空格上下左右移动光标，撤销与重做；中英文切换仅过渡普通按键；数字、符号、面板切换保持整体不透明，不再整块变暗。
-- Emoji、颜文字、收藏；文字与图片剪贴板、自定义分类和分词；分类与置顶长期保存，自定义分类支持手动添加内容。分类右侧的笔图标用于添加内容，添加与编辑框支持光标、选区和长按粘贴。
-- 中文手写内置 HanziLookup 开源笔画识别，离线返回多个真实候选；显示带声调的拼音和单字多种读音，常用词按词注音。已下载的 ML Kit 数字墨水与 OCR 保留为备用识别。
-- 翻译输入条：选目标语言、打字或说话，译文实时显示在输入框里，点“完成”确定。ML Kit 离线翻译，首次使用需联网下载模型。
+- Emoji、颜文字、收藏；文字与图片剪贴板、自定义分类和分词；分类与置顶长期保存，自定义分类支持手动添加内容，内容区支持左右滑动切换分类。分类右侧的笔图标用于添加内容，添加与编辑框支持光标、选区和长按粘贴。
+- 中文手写内置 ochwpro 神经网络笔迹模型，支持倾斜和弯曲笔画；显示带声调的拼音和单字多种读音，常用词按词注音。HanziLookup、已下载的 ML Kit 数字墨水与 OCR 保留为备用识别。
+- 翻译输入条：真实可拖动光标的输入框；语言选择支持上下淡入淡出，开始输入后收起；空框保留工具栏、拼音时显示候选、选字后显示翻译方向。语言选项为自动、英文、中文、日文、韩文，点“完成”确定；切换其他工具会关闭翻译条。ML Kit 离线翻译，首次使用需联网下载模型。
 - 模糊音（z/zh、c/ch、s/sh、n/l、f/h、r/l、an/ang、en/eng、in/ing、ian/iang、uan/uang），可逐项开关。
 - 纯色日夜配色；液态玻璃沿用 1.5.4 的半透明底与细描边，不使用渐变。
 - 四周拖动调节键盘大小、透明度、悬浮与分体；等宽候选格及字词筛选。横屏编辑使用居中紧凑布局，方向盘不随屏幕拉大。
@@ -49,11 +49,13 @@ Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，
 ```sh
 python tools/fetch_offline_voice.py --engine-only
 python tools/fetch_rime.py
+python tools/build_expressions.py
 python tools/fetch_handwriting.py
+python tools/fetch_neural_handwriting.py
 python tools/fetch_streaming_voice.py
 ```
 
-语音脚本不加 `--engine-only` 时会另外下载两套高容量模型和公开测试样本，用于手机安装和回归；这两套可选模型不打进 APK。Rime 全量词库、整句模型及普通话流式预览打进 APK，安装后可离线使用。首次启动在后台解压预编译数据。完整离线资源使安装包约 500MB。
+语音脚本不加 `--engine-only` 时会另外下载两套高容量模型和公开测试样本，用于手机安装和回归；这两套可选模型不打进 APK。Rime 全量词库、整句模型、神经网络手写及普通话流式预览打进 APK，安装后可离线使用。首次启动在后台解压预编译数据。安装包按架构约为 ARM64 513 MiB、x86_64 524 MiB、universal 625 MiB。
 
 Rime 数据生成目前使用官方 Windows x64 工具，其他平台可复制生成的 `app/libs/*.aar`、`rime-data.zip` 及语音模型后构建。原生库来源和重建步骤见 [构建说明](docs/Rime-原生构建.md)。
 
@@ -69,19 +71,20 @@ macOS / Linux：
 ./gradlew assembleRelease lintRelease
 ```
 
-输出：`app/build/outputs/apk/release/app-release.apk`。
+输出：`app/build/outputs/apk/release/app-arm64-v8a-release.apk`、`app-x86_64-release.apk`、`app-universal-release.apk`。应用内更新优先匹配本机架构。
 
 项目当前为本地分发沿用 debug 签名。首次换一台电脑构建会生成该电脑的 debug 密钥，因此不保证能直接覆盖其他电脑签名的安装包；正式分发应配置独立签名。
 
 ## 词库和引擎检查
 
-2.1.0 的主输入核心为 [Rime 1.17.0](https://github.com/rime/librime)，使用 [amzxyz 万象](https://github.com/amzxyz/rime-wanxiang) 18.1.11 的完整词库（转换后 1,675,705 条字音和词条）与 LTS 整句语言模型。
+2.1.0 的主输入核心为 [Rime 1.17.0](https://github.com/rime/librime)，使用 [雾凇拼音](https://github.com/iDvel/rime-ice) 原始字表及完整词库（1,873,493 行）与万象 LTS 整句语言模型。
 全拼、简拼、混合简拼、自动分词、整句生成及词频排序由 Rime 解码；26 键、14 键和九键都使用同一完整词库。
 旧 Kotlin 词库用于联想、分词、旧学习记录迁移和启动时的临时兜底，不再承担正常拼音输入的主解码。
 
 纠错通过 Rime 的拼写图和原生邻键搜索给出备选，覆盖漏打、多打、邻键、字母颠倒；不改写用户原文。
 正确全拼路径优先，模糊输入仍可能需要手动选词，不承诺所有错拼都能首选命中。
-手写使用 [HanziLookup](https://github.com/gugray/hanzi_lookup)，声调与多音字来自 [pinyin-data](https://github.com/mozillazg/pinyin-data)，词组注音来自万象。
+中文拼音还会从第 5 候选起加入相关 emoji、符号和颜文字（雾凇表情关联与本项目补充），不改变前四个文字候选；表情不进入中文词库学习。
+手写主力使用 [ochwpro](https://github.com/ximeiorg/ochwpro)，声调与多音字来自 [pinyin-data](https://github.com/mozillazg/pinyin-data)，词组注音来自万象。语音仅在打开语音工具时预热，手写和语音退出 30 秒后释放模型；Rime 加载完成后释放旧解码索引，保留联想、分词与个人学习记录。
 来源、固定版本、处理步骤和许可见 [第三方说明](THIRD_PARTY_NOTICES.md)。
 
 主要设备回归：`rime`、`open-handwriting`、`streaming-voice`，以及原有密码填充、剪贴板、编辑和动画模式。

@@ -6,6 +6,8 @@
 -keep class com.google.android.gms.internal.mlkit_** { *; }
 -keep class com.google.android.odml.** { *; }
 -keep class com.k2fsa.sherpa.onnx.** { *; }
+# ONNX JNI constructs TensorInfo and value wrappers by exact Java signatures.
+-keep class ai.onnxruntime.** { *; }
 # 独立设备验证程序和 ML Kit 共用任务 API，保留异步任务的公开入口。
 -keep class com.google.android.gms.tasks.** { *; }
 # The separately built release-device test loads the real engine and reads candidates.
@@ -30,6 +32,7 @@
 -keep class com.kongye.keyboard.PinyinTab { *; }
 -keep class com.kongye.keyboard.PinyinTab$Preview { *; }
 -keep class com.kongye.keyboard.SinkStrip { *; }
+-keep class com.kongye.keyboard.ClipboardPanel { *; }
 -keep class com.kongye.keyboard.RemoteInputHistory { *; }
 -keep class com.kongye.keyboard.AppUpdate { *; }
 -keep class com.kongye.keyboard.UpdateChecker** { *; }
@@ -50,3 +53,4 @@
 -keep class kotlin.TuplesKt* { *; }
 -keep class kotlin.Pair { *; }
 -keep class kotlin.ranges.** { *; }
+-keep class kotlin.io.** { *; }

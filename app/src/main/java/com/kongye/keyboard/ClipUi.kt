@@ -189,6 +189,19 @@ class ClipboardPanel(
     private val tabScroll = HorizontalScrollView(context)
     private val positions = HashMap<String, Int>()
     private var queryRow: View? = null
+    private var recordsEmpty = false
+    private val swipeSlop=ViewConfiguration.get(context).scaledTouchSlop
+    private var swipeX=0f
+    private var swipeY=0f
+    private var swipeEligible=false
+    private var swiping=false
+    private lateinit var tabStrip:LinearLayout
+    private var underlineX=Float.NaN
+    private var underlineAnimator:android.animation.ValueAnimator?=null
+    private var recordsAnimator:android.animation.ValueAnimator?=null
+    private var recordsCover:android.graphics.drawable.BitmapDrawable?=null
+    private var recordsBitmap:android.graphics.Bitmap?=null
+    private var queuedTab:String?=null
     private lateinit var addContent: View
     val tabsScrollPosition get() = tabScroll.scrollX
     fun restoreTabsScroll(x: Int) { tabScroll.post { tabScroll.scrollTo(x, 0) } }
@@ -215,11 +228,18 @@ class ClipboardPanel(
             gravity = Gravity.CENTER_VERTICAL
             setPadding((6 * d).toInt(), (4 * d).toInt(), (8 * d).toInt(), (4 * d).toInt())
         }
-        val tabs = LinearLayout(context).apply {
+        val tabs = object:LinearLayout(context) {
+            private val line=Paint(Paint.ANTI_ALIAS_FLAG).apply {color=skin.candHi}
+            override fun dispatchDraw(canvas:Canvas) {
+                super.dispatchDraw(canvas)
+                if(underlineX.isFinite()) canvas.drawRoundRect(RectF(underlineX-7*d,height-4*d,underlineX+7*d,height-1.5f*d),2*d,2*d,line)
+            }
+        }.apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding((4 * d).toInt(), 0, (4 * d).toInt(), 0)
         }
+        tabStrip=tabs
         for (t in ClipStore.tabs()) {
             val active = t == activeTab
             val label = TextView(context).apply {
@@ -240,6 +260,7 @@ class ClipboardPanel(
         }, lp((34 * d).toInt(), (36 * d).toInt()))
         tabScroll.isHorizontalScrollBarEnabled = false
         tabScroll.addView(tabs)
+        tabs.addOnLayoutChangeListener {_,_,_,_,_,_,_,_,_->if(underlineAnimator==null) moveUnderline(false)}
         head.addView(tabScroll, lp(0, (36*d).toInt(), 1f))
         // 右边三个图标：往当前自定义分类里加内容、搜索、清空；都不加底色
         addContent = IconButton(context, R.drawable.ic_edit, skin.barFg, 19f) { onNewContent(activeTab) }.apply {
@@ -264,33 +285,112 @@ class ClipboardPanel(
         renderRecords()
     }
 
-    private fun selectTab(tab: String) {
+    override fun onInterceptTouchEvent(event:MotionEvent):Boolean {
+        when(event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                swipeX=event.x;swipeY=event.y;swiping=false
+                swipeEligible=event.y>=recordsScroll.top && event.y<=recordsScroll.bottom
+            }
+            MotionEvent.ACTION_MOVE -> if(swipeEligible && recordsAnimator==null && abs(event.x-swipeX)>swipeSlop*1.3f && abs(event.x-swipeX)>abs(event.y-swipeY)*1.3f) {
+                swiping=true;recordsScroll.animate().cancel();parent?.requestDisallowInterceptTouchEvent(true)
+                return true
+            }
+        }
+        return super.onInterceptTouchEvent(event)
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(event:MotionEvent):Boolean {
+        if(!swiping) return super.onTouchEvent(event)
+        val dx=event.x-swipeX
+        when(event.actionMasked) {
+            MotionEvent.ACTION_MOVE -> if(!recordsEmpty) recordsScroll.translationX=(dx*.3f).coerceIn(-width*.2f,width*.2f)
+            MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL -> {
+                val tabs=ClipStore.tabs();val direction=if(dx<0) 1 else -1
+                val target=tabs.indexOf(activeTab)+direction
+                if(event.actionMasked==MotionEvent.ACTION_UP && abs(dx)>max(32*d,width*.12f) && target in tabs.indices) selectTab(tabs[target],direction)
+                else recordsScroll.animate().translationX(0f).setDuration(150).start()
+                swiping=false;swipeEligible=false;parent?.requestDisallowInterceptTouchEvent(false)
+            }
+        }
+        return true
+    }
+
+    private fun selectTab(tab: String, direction:Int=0) {
         if (tab == activeTab) return
+        if(recordsAnimator!=null) {queuedTab=tab;return}
+        val tabs=ClipStore.tabs()
+        val slide=if(direction!=0) direction else if(tabs.indexOf(tab)>tabs.indexOf(activeTab)) 1 else -1
+        val offset=recordsScroll.translationX
+        val before=if(!recordsEmpty) NativeMotion.snapshot(recordsScroll) else null
         positions[activeTab] = recordsScroll.scrollY
         activeTab = tab; query = ""; expanded = null; picking = null
         queryRow?.visibility = View.GONE
         labels.forEach { (name, label) -> styleTab(label, name == tab) }
+        moveUnderline(true)
         addContent.visibility = if (tab in ClipStore.customTabs()) View.VISIBLE else View.GONE
         onTab(tab)
-        NativeMotion.change(recordsScroll) { renderRecords(); restoreScroll(positions[activeTab] ?: 0) }
+        recordsScroll.animate().cancel();renderRecords();restoreScroll(positions[activeTab] ?: 0)
+        if(!android.animation.ValueAnimator.areAnimatorsEnabled() || recordsScroll.width<=0 || before==null && recordsEmpty) {
+            before?.recycle();recordsScroll.translationX=0f;return
+        }
+        val distance=recordsScroll.width.toFloat()
+        val start=if(recordsEmpty) 0f else slide*distance+offset
+        recordsScroll.translationX=start
+        val cover=before?.let {bitmap ->
+            android.graphics.drawable.BitmapDrawable(resources,bitmap).also {
+                it.setBounds((recordsScroll.left+offset).toInt(),recordsScroll.top,(recordsScroll.right+offset).toInt(),recordsScroll.bottom)
+                recordsBitmap=bitmap;recordsCover=it;overlay.add(it)
+            }
+        }
+        recordsAnimator=android.animation.ValueAnimator.ofFloat(0f,1f).apply {
+            duration=240;interpolator=android.view.animation.DecelerateInterpolator(1.25f)
+            addUpdateListener {
+                val fraction=it.animatedValue as Float
+                recordsScroll.translationX=start*(1-fraction)
+                cover?.setBounds((recordsScroll.left+offset+(-slide*distance-offset)*fraction).toInt(),recordsScroll.top,
+                    (recordsScroll.right+offset+(-slide*distance-offset)*fraction).toInt(),recordsScroll.bottom)
+            }
+            addListener(object:android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation:android.animation.Animator) {
+                    clearRecordsMotion()
+                    val pending=queuedTab;queuedTab=null
+                    if(pending!=null && pending!=activeTab) post {selectTab(pending)}
+                }
+            });start()
+        }
+    }
+
+    private fun moveUnderline(animate:Boolean) {
+        val target=labels[activeTab]?.let {it.left+it.width/2f} ?: return
+        underlineAnimator?.cancel();underlineAnimator=null
+        if(!animate || !underlineX.isFinite() || !android.animation.ValueAnimator.areAnimatorsEnabled()) {underlineX=target;tabStrip.invalidate();return}
+        underlineAnimator=android.animation.ValueAnimator.ofFloat(underlineX,target).apply {
+            duration=220;interpolator=android.view.animation.DecelerateInterpolator()
+            addUpdateListener {underlineX=it.animatedValue as Float;tabStrip.invalidate()}
+            addListener(object:android.animation.AnimatorListenerAdapter() {override fun onAnimationEnd(animation:android.animation.Animator) {underlineAnimator=null}})
+            start()
+        }
+    }
+
+    private fun clearRecordsMotion() {
+        recordsAnimator?.removeAllListeners();recordsAnimator?.cancel();recordsAnimator=null
+        recordsCover?.let {overlay.remove(it)};recordsCover=null
+        recordsBitmap?.recycle();recordsBitmap=null;recordsScroll.translationX=0f
+    }
+
+    override fun onDetachedFromWindow() {
+        queuedTab=null;clearRecordsMotion();underlineAnimator?.cancel();underlineAnimator=null
+        super.onDetachedFromWindow()
     }
 
     /** 分类标签：选中的是正文色加粗，下面一条短横线；没选中的是灰字 */
     private fun styleTab(v: TextView, active: Boolean) {
+        // Bold selection must not reflow neighboring category labels.
+        if(v.width>0 && v.layoutParams?.width==WRAP) v.layoutParams=v.layoutParams.apply {width=v.width}
         v.setTextColor(if (active) skin.candFg else skin.barFg)
         v.typeface = if (active) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        v.background = if (!active) null else object : android.graphics.drawable.Drawable() {
-            private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = skin.candHi }
-            override fun draw(c: Canvas) {
-                val b = bounds
-                val w = 14 * d
-                c.drawRoundRect(RectF(b.exactCenterX() - w / 2, b.bottom - 4 * d, b.exactCenterX() + w / 2, b.bottom - 1.5f * d), 2 * d, 2 * d, p)
-            }
-            override fun setAlpha(alpha: Int) {}
-            override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
-            @Deprecated("Deprecated in Java")
-            override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
-        }
+        v.background=null
     }
 
     private fun showCat(clip: Clip) = clip.cat != null && clip.cat != "置顶" && clip.cat != activeTab
@@ -306,6 +406,7 @@ class ClipboardPanel(
     private fun renderRecords() {
         overlays.clear()
         val list = ClipStore.list(activeTab, query)
+        recordsEmpty = list.isEmpty()
         val col = LinearLayout(context).apply { orientation = VERTICAL; setPadding((8 * d).toInt(), (2 * d).toInt(), (8 * d).toInt(), (10 * d).toInt()) }
         if (list.isEmpty()) {
             col.addView(TextView(context).apply {
@@ -444,6 +545,10 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
     var multiline = false
         set(value) { if(field!=value) { field=value;requestLayout() } }
     private var changingEditor = false
+    private var editorDrag = false
+    private var editorDownX = 0f
+    private var editorDownY = 0f
+    private var singleLineEditor = false
     /** Clipboard add/edit uses a real local editor, not the application's InputConnection. */
     val editor = android.inputmethodservice.ExtractEditText(context).apply {
         background = null
@@ -486,6 +591,7 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         }
     /** 翻译模式：左边的语言按钮文字；null 表示普通输入条 */
     var chip: String? = null
+    var chipExpanded = false
     var translatedPreview = ""
     var micOn = false
     var onChip: () -> Unit = {}
@@ -506,6 +612,24 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
             if(event.actionMasked==MotionEvent.ACTION_DOWN) {
                 onBeforeSelection()
                 editor.requestFocus()
+                editorDownX=event.x;editorDownY=event.y;editorDrag=false
+            }
+            if (chip != null && localEditing) {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_MOVE -> {
+                        if (abs(event.x-editorDownX)>slop || abs(event.y-editorDownY)>slop) editorDrag=true
+                        if (editorDrag) {
+                            editor.cancelLongPress()
+                            editor.parent?.requestDisallowInterceptTouchEvent(true)
+                            editor.setSelection(editor.getOffsetForPosition(event.x,event.y).coerceIn(0,editor.length()))
+                            return@setOnTouchListener true
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if(editorDrag) {
+                        editorDrag=false;editor.parent?.requestDisallowInterceptTouchEvent(false)
+                        return@setOnTouchListener true
+                    }
+                }
             }
             false
         }
@@ -571,6 +695,11 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
 
     fun refresh() {
         if(localEditing) {
+            val single = chip != null
+            if (singleLineEditor != single) {
+                singleLineEditor=single;editor.setSingleLine(single)
+                editor.gravity=if(single) Gravity.CENTER_VERTICAL or Gravity.START else Gravity.TOP or Gravity.START
+            }
             editor.hint=hint
             editor.setTextColor(skin.keyFg);editor.setHintTextColor(skin.barFg)
             if(android.os.Build.VERSION.SDK_INT>=29) editor.textCursorDrawable?.setTint(skin.candHi)
@@ -602,6 +731,7 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         }
         if(show) {
             visibility=View.VISIBLE;alpha=0f;translationY=8*d
+            if(localEditing) editor.requestFocus()
             post {
                 if(generation==motion) animate().alpha(1f).translationY(0f).setDuration(200)
                     .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f)).withLayer().start()
@@ -613,7 +743,7 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         }
     }
 
-    private fun textWidth(w: Int) = if (chip != null) max(1, (boxRight - boxLeft - 34 * d).toInt()) else max(1, (w - 44 * d - 92 * d).toInt())
+    private fun textWidth(w: Int) = if (chip != null) max(1, (boxRight - boxLeft - (if(localEditing) 48 else 34) * d).toInt()) else max(1, (w - 44 * d - 92 * d).toInt())
 
     private fun layoutFor(w: Int): StaticLayout {
         tp.textSize = 15 * d
@@ -645,7 +775,12 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
     }
 
     override fun onLayout(changed:Boolean,left:Int,top:Int,right:Int,bottom:Int) {
-        if(localEditing) editor.layout((44*d).toInt(),(14*d+captionHeight).toInt(),(width-92*d).toInt(),(height-12*d).toInt())
+        if(localEditing) {
+            if (chip != null) {
+                val top = ((height-editor.measuredHeight)/2f+d).toInt()
+                editor.layout((boxLeft+14*d).toInt(),top,(boxRight-34*d).toInt(),top+editor.measuredHeight)
+            } else editor.layout((44*d).toInt(),(14*d+captionHeight).toInt(),(width-92*d).toInt(),(height-12*d).toInt())
+        }
     }
 
     override fun onDraw(c: Canvas) {
@@ -709,11 +844,12 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         tpChip.color = skin.candFg
         tpChip.textAlign = Paint.Align.CENTER
         val fm = tpChip.fontMetrics
-        c.drawText("${chip ?: "自动"} ▾", 8 * d + chipW / 2, cy - (fm.ascent + fm.descent) / 2, tpChip)
+        c.drawText("${chip ?: "自动"} ${if(chipExpanded) "▴" else "▾"}", 8 * d + chipW / 2, cy - (fm.ascent + fm.descent) / 2, tpChip)
         // 输入框：浅色圆角，不描边
         r.set(boxLeft, cy - 17 * d, boxRight, cy + 17 * d)
         fill.color = skin.keyBg
         c.drawRoundRect(r, 17 * d, 17 * d, fill)
+        if (!localEditing) {
         val lay = layoutFor(width)
         c.save()
         c.clipRect(boxLeft + 12 * d, r.top, boxRight - 30 * d, r.bottom)
@@ -726,6 +862,7 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
             c.drawRect(x + d, lay.getLineTop(last).toFloat(), x + 2.5f * d, lay.getLineBottom(last).toFloat(), fill)
         }
         c.restore()
+        }
         if (value.isNotEmpty() || composing.isNotEmpty()) {
             fill.color = withAlpha(skin.barFg, 90)
             c.drawCircle(boxRight - 16 * d, cy, 9 * d, fill)

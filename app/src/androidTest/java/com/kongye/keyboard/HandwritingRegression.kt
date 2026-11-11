@@ -12,7 +12,7 @@ object HandwritingRegression {
         val loaded = CountDownLatch(1)
         OpenHandwriting.prepare(i.targetContext) { loaded.countDown() }
         check(loaded.await(15, TimeUnit.SECONDS)) { "Handwriting initialization timeout" }
-        check(OpenHandwriting.ready) { "HanziLookup unavailable: ${OpenHandwriting.failure}" }
+        check(OpenHandwriting.ready) { "Neural handwriting unavailable: ${OpenHandwriting.failure}" }
         HandwritingPinyin.load(i.targetContext)
         val poly = HandwritingPinyin.label("行")
         check("xíng" in poly && "háng" in poly && " / " in poly) { "Polyphonic tones: $poly" }
@@ -36,5 +36,33 @@ object HandwritingRegression {
             check(wanted[index] in candidates.take(5)) { "Handwriting ${wanted[index]} missing: $candidates" }
             check(candidates.size >= 5) { "Only one OCR result was returned" }
         }
+        val fixtures = org.json.JSONArray(i.context.assets.open("handwriting-variants.json").bufferedReader().use { it.readText() })
+        var first = 0
+        for (index in 0 until fixtures.length()) {
+            val fixture = fixtures.getJSONObject(index)
+            val array = fixture.getJSONArray("strokes")
+            val ink = (0 until array.length()).map { s ->
+                val line = array.getJSONArray(s)
+                (0 until line.length()).map { p -> val point = line.getJSONArray(p); floatArrayOf(point.getDouble(0).toFloat(), point.getDouble(1).toFloat()) }
+            }
+            val done = CountDownLatch(1)
+            var output: List<String> = emptyList()
+            i.runOnMainSync { check(OpenHandwriting.recognize(ink) { output = it; done.countDown() }) }
+            check(done.await(5, TimeUnit.SECONDS)) { "Neural result timeout" }
+            val expected = fixture.getString("character")
+            check(expected in output.take(5)) { "$expected / ${fixture.getString("style")}: $output" }
+            if (output.firstOrNull() == expected) first++
+        }
+        i.sendStatus(0, Bundle().apply { putString("stream", "Neural ink: $first/${fixtures.length()} first choices on regular/slanted/wobbly public stroke fixtures\n") })
+        i.runOnMainSync { OpenHandwriting.release() }
+        val again = CountDownLatch(1)
+        OpenHandwriting.prepare(i.targetContext) { again.countDown() }
+        check(again.await(15, TimeUnit.SECONDS) && OpenHandwriting.ready) { "Handwriting did not reload after memory release" }
+        // Both native runtimes must coexist in the same process, in both orders.
+        StreamingVoiceRegression.run(i)
+        val afterVoice = CountDownLatch(1)
+        var after: List<String> = emptyList()
+        i.runOnMainSync { check(OpenHandwriting.recognize(inputs[0]) { after = it; afterVoice.countDown() }) }
+        check(afterVoice.await(5, TimeUnit.SECONDS) && "大" in after.take(5)) { "Speech runtime interfered with handwriting" }
     }
 }

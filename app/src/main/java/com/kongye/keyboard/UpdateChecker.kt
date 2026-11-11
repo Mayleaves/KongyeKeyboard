@@ -40,7 +40,7 @@ object UpdateChecker {
         }
     }
 
-    fun parseReleases(body: String): Release {
+    fun parseReleases(body: String, supportedAbis: List<String> = android.os.Build.SUPPORTED_ABIS.toList()): Release {
             val entries = JSONArray(body)
             var selected: JSONObject? = null
             for(i in 0 until entries.length()) {
@@ -55,13 +55,26 @@ object UpdateChecker {
             var apk: String? = null
             var digest: String? = null
             var assetApi: String? = null
+            var best = -1
             if (assets != null) for (i in 0 until assets.length()) {
-                val url = assets.getJSONObject(i).optString("browser_download_url")
+                val asset = assets.getJSONObject(i)
+                val url = asset.optString("browser_download_url")
                 if (url.endsWith(".apk", ignoreCase = true)) {
+                    val name = asset.optString("name").ifEmpty { url.substringAfterLast('/') }.lowercase()
+                    val aliases = mapOf("arm64-v8a" to listOf("arm64-v8a", "arm64"), "x86_64" to listOf("x86_64", "x64"),
+                        "armeabi-v7a" to listOf("armeabi-v7a", "armv7"), "x86" to listOf("-x86."))
+                    val matched = aliases.entries.firstOrNull { (_, names) -> names.any { name.contains(it) } }?.key
+                    val score = when {
+                        matched != null && matched in supportedAbis -> 1000 - supportedAbis.indexOf(matched)
+                        matched != null -> -1
+                        "universal" in name -> 100
+                        else -> 0 // Previous single-APK releases have no ABI suffix.
+                    }
+                    if (score <= best) continue
+                    best = score
                     apk = url
-                    digest=assets.getJSONObject(i).optString("digest").removePrefix("sha256:").takeIf {it.matches(Regex("[0-9a-fA-F]{64}"))}
-                    assetApi=assets.getJSONObject(i).optString("url").takeIf {it.isNotBlank()}
-                    break
+                    digest=asset.optString("digest").removePrefix("sha256:").takeIf {it.matches(Regex("[0-9a-fA-F]{64}"))}
+                    assetApi=asset.optString("url").takeIf {it.isNotBlank()}
                 }
             }
             return Release(json.optString("tag_name"), json.optString("body"), apk, json.optString("html_url").ifEmpty { RELEASES },digest,assetApi)

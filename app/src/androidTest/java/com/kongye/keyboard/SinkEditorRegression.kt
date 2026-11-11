@@ -57,6 +57,25 @@ object SinkEditorRegression {
                 check(strip.value=="甲乙") {"Local redo did not restore the edited text"}
                 strip.localEditing = false
                 check(strip.editor.visibility == View.GONE)
+                // Translation uses the same real editor inside its language /
+                // input / done layout, with drag-to-place caret.
+                strip.chip="自动";strip.multiline=false;strip.localEditing=true
+                strip.value="甲乙丙丁戊己庚辛壬癸";strip.refresh();strip.showAnimated(true,false)
+                strip.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED))
+                strip.layout(0,0,strip.measuredWidth,strip.measuredHeight)
+                check(strip.editor.left>44*inst.targetContext.resources.displayMetrics.density && strip.editor.isCursorVisible)
+                val layout=strip.editor.layout ?: error("Translation editor layout missing")
+                val y=strip.editor.height/2f
+                val from=layout.getPrimaryHorizontal(1)-strip.editor.scrollX+strip.editor.totalPaddingLeft
+                val to=layout.getPrimaryHorizontal(6)-strip.editor.scrollX+strip.editor.totalPaddingLeft
+                val now=android.os.SystemClock.uptimeMillis()
+                for ((action,x) in listOf(android.view.MotionEvent.ACTION_DOWN to from,android.view.MotionEvent.ACTION_MOVE to to,android.view.MotionEvent.ACTION_UP to to)) {
+                    val event=android.view.MotionEvent.obtain(now,now,action,x,y,0)
+                    try {strip.editor.dispatchTouchEvent(event)} finally {event.recycle()}
+                }
+                check(strip.editor.selectionStart==6 && strip.editor.selectionEnd==6) {"Translation drag did not place caret: ${strip.editor.selectionStart}"}
+                strip.insertAtCursor("新")
+                check(saved=="甲乙丙丁戊己新庚辛壬癸") {"Translation input ignored dragged caret"}
             } catch (t: Throwable) { failure = t }
         }
         failure?.let { throw it }

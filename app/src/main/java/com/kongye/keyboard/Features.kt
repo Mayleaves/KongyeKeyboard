@@ -240,7 +240,11 @@ class HandwriteView(context: Context, private val skin: Skin, private val onReco
                 pts?.add(floatArrayOf(e.x, e.y, (e.eventTime - t0).toFloat()))
                 invalidate()
             }
-            MotionEvent.ACTION_UP -> { cur = null; handler.postDelayed(recognize, 500) }
+            MotionEvent.ACTION_UP -> {
+                cur?.lineTo(e.x, e.y); bounds.union(e.x, e.y)
+                points.lastOrNull()?.add(floatArrayOf(e.x, e.y, (e.eventTime - t0).toFloat()))
+                cur = null; invalidate(); handler.postDelayed(recognize, 500)
+            }
             MotionEvent.ACTION_CANCEL -> { cur = null; handler.removeCallbacks(recognize); onChanged() }
         }
         return true
@@ -283,11 +287,10 @@ object Translator {
     /** 可选的目标语言：ML Kit 代码和名字；"auto" 表示中文译英文、其他译中文 */
     val TARGETS = listOf(
         "auto" to "自动", TranslateLanguage.ENGLISH to "英文", TranslateLanguage.CHINESE to "中文", TranslateLanguage.JAPANESE to "日文",
-        TranslateLanguage.KOREAN to "韩文", TranslateLanguage.FRENCH to "法文", TranslateLanguage.GERMAN to "德文",
-        TranslateLanguage.SPANISH to "西班牙文", TranslateLanguage.RUSSIAN to "俄文",
+        TranslateLanguage.KOREAN to "韩文",
     )
 
-    fun run(context: Context, text: String, retryDownload: Boolean = false, target: String = "auto", cb: (ok: Boolean, result: String, status: String) -> Unit) {
+    fun run(context: Context, text: String, retryDownload: Boolean = false, target: String = "auto", onDirection: (String, String) -> Unit = { _, _ -> }, cb: (ok: Boolean, result: String, status: String) -> Unit) {
         cancel()
         var done = false
         val main = Handler(Looper.getMainLooper())
@@ -385,7 +388,9 @@ object Translator {
             }.onFailure { failed(it as? Exception ?: Exception(it)) }
         }
         fun go(src: String) {
+            if (done) return
             val tgt = if (target != "auto") target else if (src == TranslateLanguage.CHINESE) TranslateLanguage.ENGLISH else TranslateLanguage.CHINESE
+            onDirection(src, tgt)
             if (src == tgt) finish(true, text, "原文已经是${name(tgt)}") else translate(src, tgt)
         }
         runCatching {

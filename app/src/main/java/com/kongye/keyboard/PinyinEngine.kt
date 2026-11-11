@@ -24,7 +24,7 @@ object PinyinEngine {
         if (ready) return
         try {
             val root = File(ctx.filesDir, "rime").apply { mkdirs() }
-            val data = File(root, "data-2.1.0-r2")
+            val data = File(root, "data-2.1.0-ice-r3")
             if (!File(data, ".complete").isFile) {
                 data.mkdirs()
                 ZipInputStream(ctx.assets.open("rime-data.zip").buffered()).use { zip ->
@@ -41,7 +41,7 @@ object PinyinEngine {
                         zip.closeEntry()
                     }
                 }
-                File(data, ".complete").writeText("Rime 1.17.0 / Wanxiang 18.1.11")
+                File(data, ".complete").writeText("Rime 1.17.0 / Rime Ice 99662ba / Wanxiang grammar")
             }
             val user = File(root, "user").apply { mkdirs() }
             core = RimeBridge(data.absolutePath, user.absolutePath)
@@ -49,7 +49,15 @@ object PinyinEngine {
             // Force native dictionary/model mapping off the keyboard UI thread.
             check(core!!.query("kongye_26", "nihao").candidates.any { it.text == "你好" })
             Lexicon.loadReadings(File(data, "readings.tsv"))
+            Lexicon.compactForNative()
+            PinyinExpressions.load(ctx)
             failure = null; ready = true
+            // These are regenerated dictionaries, never rime/user learning data.
+            for (name in listOf("data-2.1.0-r1", "data-2.1.0-r2")) {
+                val obsolete = File(root, name)
+                if (obsolete.canonicalFile.parentFile == root.canonicalFile && File(obsolete, ".complete").isFile)
+                    obsolete.deleteRecursively()
+            }
         } catch (e: Exception) {
             failure = e.javaClass.simpleName + ": " + e.message
             Log.e("KongyeRime", "Rime initialization failed", e)
@@ -109,8 +117,10 @@ object PinyinEngine {
                     .mapNotNull { convert(it, "kongye_correction", raw, layout, true) }
                 val first = repaired.firstOrNull()
                 val old = normalCandidates.firstOrNull()
+                // An initial is not a spelling mistake. A full-coverage normal
+                // abbreviation must precede repairs which delete/substitute it.
                 val promote = first != null && (old == null || old.n < keys.count { it != "'" } ||
-                    initialCount > 0 && !normalize(old.py.orEmpty()).startsWith(normalize(raw)) &&
+                    primary?.type == "sentence" && initialCount > 0 &&
                     spellingDistance(raw, first.py.orEmpty()) + .1 < spellingDistance(raw, old.py.orEmpty()))
                 if (promote) output.add(0, first)
                 val at = output.indexOfFirst { it.n < keys.count { key -> key != "'" } }.let { if (it < 0) output.size else it }
@@ -153,8 +163,9 @@ object PinyinEngine {
         val letters = keys.count { it != "'" }
         val literal = keys.joinToString("") { if (it == "'") "'" else it.take(1) }
         if (distinct.none { it.w == literal && it.n == letters }) distinct.add(Cand(literal, letters, null, -100f))
-        cache[cacheKey] = distinct
-        return distinct
+        val associated=PinyinExpressions.insert(distinct,keys)
+        cache[cacheKey] = associated
+        return associated
     }
 
     private fun convert(c: RimeBridge.Candidate, schema: String, raw: String, layout: String, correction: Boolean): Cand? {

@@ -172,6 +172,7 @@ object OfflineVoice {
     fun releaseCache() {
         preferredDialect=-1
         Thread({ engineLock.withLock {
+            if (preferredDialect != -1) return@withLock
             cachedDialect=-1; cachedEngine?.release(); cachedEngine=null
             streamingEngine?.release(); streamingEngine=null
         } },"KongyeVoiceRelease").start()

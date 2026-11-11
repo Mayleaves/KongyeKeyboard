@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / 'build/rime'
 DEPS = {
     'keytao.apk': ('https://github.com/xkinput/keytao-app/releases/download/v1.2.4/keytao-app-1.2.4-android-arm64-release.apk', 'ff2712b2fa4d8ef9f641d95e15cba0841a488456ca8aa0e336e5dfd15e922c7e'),
+    'keytao-x86_64.apk': ('https://github.com/xkinput/keytao-app/releases/download/v1.2.4/keytao-app-1.2.4-android-x86_64-release.apk', '8a3b04f906e0b6c0f1b137303cfc419c56628031a8c28a332c05b80c9732b0dd'),
+    'rime-ice.zip': ('https://codeload.github.com/iDvel/rime-ice/zip/99662ba01e3affa6a0f009174ca530b887bac3b6', '459eb85d0555f29888452114b48914e7b9b9407db765731629d322ba8a648aaa'),
     'jna.aar': ('https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.17.0/jna-5.17.0.aar', '4dbeffffa665d97ad5aa7eee297531d3c841a86716ab7f774fd6956422b3cf38'),
     'wanxiang.zip': ('https://github.com/amzxyz/rime-wanxiang/releases/download/v18.1.11/rime-wanxiang-base.zip', '6f3b50a3cbf66227b8f8c490aefc6715a92243eec0d3eab6b920741cd2c07cd6'),
     'wanxiang-lts-zh-hans.gram': ('https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/wanxiang-lts-zh-hans.gram', '3457b69f5fe0fc4f5d211c878bbfa2e2361b90639952c9845c8e31e9d047cde6'),
@@ -40,8 +42,8 @@ def from_apk(path):
     This path also works without the Windows dictionary compiler.
     """
     manifest = json.loads((ROOT / 'tools/rime/sources.json').read_text(encoding='utf8'))
-    expected = {'librime.so': 'f6a2517ed852a03dc7d7e7ced5eae68bb9232d62f59bb151ab4f5a557db6567f',
-                'libc++_shared.so': '92ee8da641b969254cc8723f64aa115d36c8ffa87115e38bc9cb89e3eefee839'}
+    expected = manifest.get('native_binaries') or {'arm64-v8a/librime.so': 'f6a2517ed852a03dc7d7e7ced5eae68bb9232d62f59bb151ab4f5a557db6567f',
+                'arm64-v8a/libc++_shared.so': '92ee8da641b969254cc8723f64aa115d36c8ffa87115e38bc9cb89e3eefee839'}
     libs = ROOT / 'app/libs'; libs.mkdir(exist_ok=True)
     url, sha = DEPS['jna.aar']; fetch(url, libs / 'jna-5.17.0.aar', sha)
     with zipfile.ZipFile(path) as source:
@@ -51,9 +53,9 @@ def from_apk(path):
         with zipfile.ZipFile(libs / 'rime-1.17.0.aar', 'w', zipfile.ZIP_DEFLATED) as out:
             out.writestr('AndroidManifest.xml', '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.rime.core"/>')
             for name, sha in expected.items():
-                binary = source.read('lib/arm64-v8a/' + name)
+                binary = source.read('lib/' + name)
                 if hashlib.sha256(binary).hexdigest() != sha: raise ValueError('Wrong Rime runtime')
-                out.writestr('jni/arm64-v8a/' + name, binary)
+                out.writestr('jni/' + name, binary)
     print('Pinned Rime data and runtime restored from release APK')
 
 
@@ -67,10 +69,14 @@ def main():
     shared = WORK / 'shared'; shared.mkdir(exist_ok=True)
     source = WORK / 'wanxiang'
     with zipfile.ZipFile(WORK / 'wanxiang.zip') as z: z.extractall(source)
+    ice = WORK / 'ice'
+    with zipfile.ZipFile(WORK / 'rime-ice.zip') as z: z.extractall(ice)
+    ice_source = next(ice.glob('rime-ice-*'))
+    shutil.copytree(ice_source / 'cn_dicts', shared / 'cn_dicts', dirs_exist_ok=True)
     readings = {}
     count = 0
     with (shared / 'kongye.dict.yaml').open('w', encoding='utf8', newline='\n') as out:
-        out.write('---\nname: kongye\nversion: "18.1.11"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n')
+        out.write('---\nname: kongye\nversion: "ice-99662ba"\nsort: by_weight\nuse_preset_vocabulary: false\nimport_tables:\n  - cn_dicts/8105\n  - cn_dicts/base\n  - cn_dicts/ext\n  - cn_dicts/tencent\n  - cn_dicts/others\n...\n')
         for name in ['zi', 'jichu', 'cuoyin', 'duoyin', 'diming', 'mingren', 'yiren']:
             for line in (source / 'dicts' / (name + '.dict.yaml')).read_text(encoding='utf-8-sig').splitlines():
                 a = line.split('\t')
@@ -78,7 +84,8 @@ def main():
                 py = normalize(a[1])
                 if not py or any(c not in 'abcdefghijklmnopqrstuvwxyz ' for c in py): continue
                 if any(s in ['m', 'n', 'ng', 'hm', 'hng'] for s in py.split()): continue
-                out.write(a[0] + '\t' + py + '\t' + a[2] + '\n'); count += 1
+                # Wanxiang remains the pronunciation helper and grammar source.
+                # Decode words/weights come from unmodified Rime Ice tables.
                 if len(a[0]) == 1:
                     weight = int(a[2])
                     if a[0] not in readings or weight > readings[a[0]][1]: readings[a[0]] = (py, weight)
@@ -115,11 +122,20 @@ def main():
     libs = ROOT / 'app/libs'; libs.mkdir(exist_ok=True)
     shutil.copyfile(WORK / 'jna.aar', libs / 'jna-5.17.0.aar')
     # Package the independent C core in an AAR, without introducing JNI app code.
-    with zipfile.ZipFile(WORK / 'keytao.apk') as source, zipfile.ZipFile(libs / 'rime-1.17.0.aar', 'w', zipfile.ZIP_DEFLATED) as out:
+    native_binaries = {}
+    with zipfile.ZipFile(libs / 'rime-1.17.0.aar', 'w', zipfile.ZIP_DEFLATED) as out:
         out.writestr('AndroidManifest.xml', '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.rime.core"/>')
-        for name in ['librime.so', 'libc++_shared.so']:
-            out.writestr('jni/arm64-v8a/' + name, source.read('lib/arm64-v8a/' + name))
-    manifest = {'rime': '1.17.0', 'wanxiang': '18.1.11', 'entries': count,
+        for abi, apk in [('arm64-v8a', 'keytao.apk'), ('x86_64', 'keytao-x86_64.apk')]:
+            with zipfile.ZipFile(WORK / apk) as source:
+                for name in ['librime.so', 'libc++_shared.so']:
+                    binary = source.read(f'lib/{abi}/{name}')
+                    native_binaries[f'{abi}/{name}'] = hashlib.sha256(binary).hexdigest()
+                    out.writestr(f'jni/{abi}/{name}', binary)
+    count = sum(1 for name in ['8105', 'base', 'ext', 'tencent', 'others'] for line in
+                (shared / 'cn_dicts' / (name + '.dict.yaml')).read_text(encoding='utf8').splitlines() if '\t' in line and not line.startswith('#'))
+    shutil.copyfile(ice_source / 'LICENSE', ROOT / 'app/src/main/assets/licenses/RimeIce-GPL-3.0.txt')
+    manifest = {'rime': '1.17.0', 'wanxiang': '18.1.11', 'dictionary': 'Rime Ice 99662ba01e3affa6a0f009174ca530b887bac3b6', 'entries': count,
+                'native_binaries': native_binaries,
                 'dependencies': {name: {'url': url, 'sha256': hashlib.sha256((WORK / name).read_bytes()).hexdigest()} for name, (url, _) in DEPS.items()},
                 'assets_sha256': hashlib.sha256(data.read_bytes()).hexdigest()}
     (WORK / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf8')

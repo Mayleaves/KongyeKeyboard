@@ -40,6 +40,15 @@ object RimeRegression {
             check(list.first().n == raw.length) { "Sentence was truncated for $raw" }
         }
         val m = PinyinEngine.candidates(listOf("m"), true)
+        for ((raw,wanted) in listOf("nhaoa" to "你好啊", "budn" to "不懂呢", "nh" to "你好", "wsm" to "为什么", "wzdl" to "我知道了")) {
+            val result=PinyinEngine.candidates(raw.map {it.toString()},true)
+            report(i,"abbreviation $raw => ${result.take(12).map {it.w}}")
+            if (raw == "nh") {
+                // nh has many ordinary readings; do not override upstream's
+                // dictionary frequency just to force a test's preferred word.
+                check(result.take(12).any { it.w == wanted }) {"Abbreviation missing: $raw"}
+            } else check(result.first().w==wanted) {"Abbreviation was replaced: $raw => ${result.take(5).map {it.w}}"}
+        }
         check(m.first().w in listOf("吗", "没", "么", "们")) { "Rare m ranking: ${m.first().w}" }
         for (raw in arrayOf("zhrmbang", "zhrnbang", "zhembang", "zhenbng", "zhenbgang", "zhenbnag")) {
             val alternatives=PinyinEngine.candidates(raw.map {it.toString()},true)
@@ -48,6 +57,13 @@ object RimeRegression {
         }
         check(PinyinEngine.candidates("nain".map {it.toString()},true).first().mask?.any {it}==true) {"Correction hint missing"}
         val initials = PinyinEngine.candidates(listOf("n", "h", "y"), true)
+        for(case in arrayOf(arrayOf("you","👉","→"),arrayOf("kaixin","😊","o(*￣▽￣*)ブ"))) {
+            val raw=case[0];val first=case[1];val second=case[2]
+            val output=PinyinEngine.candidates(raw.map {it.toString()},true)
+            check(output[4].w==first && output[5].w==second) {"Expression slots for $raw: ${output.take(9).map {it.w}}"}
+            check(output[4].n==raw.length && output[5].n==raw.length && output[4].e==null && output[4].nativeChoice==null) {"Expression consumption/learning boundary"}
+            report(i,"expressions $raw => ${output.take(8).map {it.w}}")
+        }
         check(initials.first().inputDisplay?.contains("'") == true) { "Initial separators missing" }
         val phrase = PinyinEngine.candidates("nihaoshijie".map { it.toString() }, true)
         check(phrase.any { it.w == "你好" && it.n == 5 }) { "Native prefix consumption lost" }
@@ -61,6 +77,7 @@ object RimeRegression {
         report(i, "14-key jianpan => ${fourteen.take(8).joinToString { it.w }}")
         check(fourteen.any { it.w == "键盘" && it.n == 7 }) { "14-key decoder failed" }
         check(Lexicon.pinyinOf("呒") == "fu") { "Handwriting reading was not migrated" }
+        check(Lexicon.assoc("大").isNotEmpty()) { "Associations were lost when releasing the old decoder" }
         report(i, "Sentence/abbreviation/typo/partial-candidate/layout checks passed; worst query $worst ms")
     }
 }

@@ -12,8 +12,13 @@ import android.widget.ImageView
 object NativeMotion {
     private val bases=java.util.WeakHashMap<View,Float>()
     private val swaps=java.util.WeakHashMap<View,Triple<ImageView,Bitmap,Float>>()
+    private val changing=java.util.WeakHashMap<View,Boolean>()
     /** One layout change, then a compositor crossfade of the complete keyboard. */
     fun swap(host: FrameLayout?, content: View, change: () -> Unit) {
+        // A tool change can close an input strip and open a panel in one step.
+        // Nested swaps must share one cover: otherwise the inner cover loses
+        // its owner and remains on screen above the live new panel.
+        if(changing[content]==true) {change();return}
         swaps.remove(content)?.let {(cover, bitmap, target) -> cover.animate().cancel();host?.removeView(cover);cover.setImageDrawable(null);bitmap.recycle();content.alpha=target}
         val before=snapshot(content)
         if(host==null || before==null) {change();return}
@@ -24,7 +29,8 @@ object NativeMotion {
             alpha=oldAlpha;x=content.x;y=content.y
             importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        change()
+        changing[content]=true
+        try {change()} finally {changing.remove(content)}
         val target=content.alpha
         host.addView(cover,FrameLayout.LayoutParams(before.width,before.height))
         swaps[content]=Triple(cover,before,target)

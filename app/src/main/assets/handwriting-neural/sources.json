@@ -1,0 +1,19 @@
+{
+  "source": "https://github.com/ximeiorg/ochwpro",
+  "revision": "54c326d33d86cc0754dbea5a36c1448682c8202c",
+  "files": {
+    "ochwpro.onnx": {
+      "url": "https://www.modelscope.cn/models/bikeand/ochwpro/resolve/master/ochwpro.onnx",
+      "sha256": "eb04d62a314c7d7bac4e34d6ce0c24137474d30ff94b929115a621385420ce13"
+    },
+    "char_index.json": {
+      "url": "https://www.modelscope.cn/models/bikeand/ochwpro/resolve/master/char_index.json",
+      "sha256": "171cf2ac23731428ac9dd28f64be82dece5f66a0ca3d674ffb3b567b51532176"
+    },
+    "onnxruntime-android-1.28.0.aar": {
+      "url": "https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/1.28.0/onnxruntime-android-1.28.0.aar",
+      "sha256": "f351a0638696f54b35184290dbc001d66daae17281ad0b548d2c70347d53b8a9"
+    }
+  },
+  "runtime": "Official ONNX Runtime 1.28.0; ELF SONAME/DT_NEEDED renamed to libkongye_ort_.so to coexist with sherpa"
+}

@@ -67,13 +67,14 @@ public final class RimeBridge {
         sessions.put(schema, id); return id;
     }
     public static final class Candidate {
-        public final String text, pinyin, preedit;
+        public final String text, pinyin, preedit, type;
         public final int end, index;
         public final double quality;
         Candidate(String text, String comment, int index) {
             String[] parts = comment.split("\u001f", -1);
-            if (parts.length != 4) throw new IllegalStateException("Rime metadata unavailable");
+            if (parts.length < 4) throw new IllegalStateException("Rime metadata unavailable");
             this.text = text; this.pinyin = parts[0]; this.end = Integer.parseInt(parts[1]);
+            this.type = parts.length > 4 ? parts[4] : "unknown";
             this.quality = Double.parseDouble(parts[2]); this.preedit = parts[3]; this.index = index;
         }
     }

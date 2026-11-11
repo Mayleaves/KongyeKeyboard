@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -79,6 +80,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -107,6 +110,7 @@ private enum class Page(val title: String) {
 private class Item(val section: String, val icon: Int, val tint: Color, val title: String, val sub: String, val value: String?, val valueColor: Color?, val onClick: () -> Unit)
 
 class SettingsActivity : ComponentActivity() {
+    private var restoredActivity = false
     private val tick = mutableIntStateOf(0)
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> tick.intValue++ }
     private var confirmAt = 0L
@@ -174,6 +178,7 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restoredActivity = savedInstanceState != null
         Thread({
             Lexicon.load(applicationContext)
             PinyinEngine.initialize(applicationContext)
@@ -222,8 +227,11 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun Screen(tick: Int) {
         val pal = if (isSystemInDarkTheme()) DARK else LIGHT
-        var showSplash by remember { mutableStateOf(intent?.getBooleanExtra("grant_mic", false) != true) }
-        var page by remember { mutableStateOf(Page.MAIN) }
+        // Rotation recreates the Activity, but it is not a new app launch.
+        // Also skip the intro if rotation interrupts it halfway through.
+        var showSplash by rememberSaveable { mutableStateOf(!restoredActivity && intent?.getBooleanExtra("grant_mic", false) != true) }
+        if (restoredActivity && showSplash) showSplash = false
+        var page by rememberSaveable { mutableStateOf(Page.MAIN) }
         val backStack = remember { mutableStateListOf<Page>() }
         // 主页独立保存滚动状态：从子页面返回时回到原先浏览的位置，不会跳回最顶部
         val mainScroll = rememberScrollState()
@@ -359,7 +367,10 @@ class SettingsActivity : ComponentActivity() {
                         radius = 900f,
                     ),
                 )
-                .clickable { dismiss=true },
+                // A full-screen Material ripple darkens the whole screen on
+                // every tap. Consume taps without indication; dismiss once.
+                .semantics { contentDescription = "开屏动画" }
+                .pointerInput(Unit) { detectTapGestures { onDone() } },
             contentAlignment = Alignment.Center,
         ) {
             Column(

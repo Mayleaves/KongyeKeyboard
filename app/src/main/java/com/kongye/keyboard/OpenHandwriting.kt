@@ -16,7 +16,7 @@ import org.json.JSONArray
  * loop. The private runtime has no visible page, network, file or content access.
  * The bridge accepts only numeric stroke arrays and returns dictionary matches.
  */
-object OpenHandwriting {
+internal object TemplateHandwriting {
     private val main = Handler(Looper.getMainLooper())
     private var web: WebView? = null
     @Volatile var ready = false; private set

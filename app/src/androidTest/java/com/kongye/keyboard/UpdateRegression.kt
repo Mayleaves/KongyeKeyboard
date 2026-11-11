@@ -16,6 +16,14 @@ object UpdateRegression {
             {"tag_name":"nightly","assets":[]}
         ]""")
         check(selected.version=="2.1.0") {"Updater remained on compatibility label"}
+        val variants="""[{"tag_name":"v2.1.0","assets":[
+            {"name":"KongyeKeyboard-2.1.0-x86_64.apk","browser_download_url":"https://github.com/test/x86_64.apk"},
+            {"name":"KongyeKeyboard-2.1.0-universal.apk","browser_download_url":"https://github.com/test/universal.apk"},
+            {"name":"KongyeKeyboard-2.1.0-arm64.apk","browser_download_url":"https://github.com/test/arm64.apk"}
+        ]}]"""
+        check(UpdateChecker.parseReleases(variants,listOf("arm64-v8a","armeabi-v7a")).apkUrl!!.endsWith("/arm64.apk"))
+        check(UpdateChecker.parseReleases(variants,listOf("x86_64","x86")).apkUrl!!.endsWith("/x86_64.apk"))
+        check(UpdateChecker.parseReleases(variants,listOf("armeabi-v7a")).apkUrl!!.endsWith("/universal.apk"))
         val apk=File(context.cacheDir,"updates/test-installed.apk").apply {parentFile!!.mkdirs()}
         try {
             java.nio.file.Files.copy(File(context.applicationInfo.sourceDir).toPath(),apk.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING)

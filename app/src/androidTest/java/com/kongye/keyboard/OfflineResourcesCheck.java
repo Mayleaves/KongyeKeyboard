@@ -65,6 +65,12 @@ public final class OfflineResourcesCheck extends Instrumentation {
             if ("motion".equals(mode)) {
                 MotionRegression.run(this);report("ALL OPAQUE KEYBOARD TRANSITION CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
             }
+            if ("settings-motion".equals(mode)) {
+                SettingsMotionRegression.INSTANCE.run(this);report("ALL SETTINGS INTRO MOTION CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("clipboard-motion".equals(mode)) {
+                ClipboardMotionRegression.INSTANCE.run(this);report("ALL EMPTY CLIPBOARD CATEGORY MOTION CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
             if ("app-update-download".equals(mode)) {
                 UpdateRegression.download(this);report("ALL LIVE IN-APP APK DOWNLOAD CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
             }

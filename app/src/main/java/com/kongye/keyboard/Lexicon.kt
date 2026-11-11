@@ -66,6 +66,19 @@ object Lexicon {
     private val exact = HashMap<String, ArrayList<Entry>>()
     private val initials = HashMap<String, ArrayList<Entry>>()
     private val byHead = HashMap<Char, ArrayList<Entry>>()
+    private var nativeOnly = false
+    private val associationWords = HashMap<Char, List<String>>()
+
+    /** Rime owns decoding. Retain compact words for clipboard segmentation and
+     * associations, not a second full spelling trie and every Entry object.
+     */
+    @Synchronized fun compactForNative() {
+        if (nativeOnly) return
+        byHead.forEach { (head, entries) -> associationWords[head] = entries.filterNot { it.user }.map { it.w } }
+        sorted = emptyArray(); rangeEntries = emptyArray(); rangeExtras.clear()
+        prefixRanges.clear(); exact.clear(); initials.clear(); byHead.clear()
+        corrector = null; candidateCache.clear(); nativeOnly = true
+    }
     /** 单字 → 最常用的读音，手写候选显示拼音用 */
     private val charPy = HashMap<Char, String>()
     /** 所有词，分词用 */
@@ -80,7 +93,6 @@ object Lexicon {
     fun load(ctx: Context) {
         if (ready) return
         loadFrom(ctx.assets.open("lexicon.txt"), File(ctx.filesDir, "user_lexicon.txt"))
-        HandwritingPinyin.load(ctx)
     }
 
     @Synchronized fun loadReadings(file: File) {
@@ -535,6 +547,14 @@ object Lexicon {
         if (!ready || w.isEmpty() || w.last() !in '一'..'鿿') return emptyList()
         val out = LinkedHashSet<String>()
         fun add(prefix: String) {
+            if (nativeOnly) {
+                val candidates = userWords.asSequence().map { it.w } + associationWords[prefix[0]].orEmpty().asSequence()
+                for (word in candidates) {
+                    if (out.size >= 12) return
+                    if (word.length > prefix.length && word.startsWith(prefix)) out.add(word.substring(prefix.length))
+                }
+                return
+            }
             for (e in byHead[prefix[0]] ?: return) {
                 if (out.size >= 12) return
                 if (e.w.length > prefix.length && e.w.startsWith(prefix)) out.add(e.w.substring(prefix.length))
@@ -588,6 +608,13 @@ object Lexicon {
     fun learnPhrase(w: String, syl: List<String>) {
         if (!ready || w.length < 2 || w.length > 8 || syl.size != w.length) return
         val p = syl.joinToString("")
+        if (nativeOnly) {
+            val existing = userWords.firstOrNull { it.p == p && it.w == w }
+            if (existing != null) { recordPick(existing); return }
+            val entry = Entry(syl.toTypedArray(), w, 40, user = true)
+            userWords.add(entry); words.add(w); userFreq[entry.key] = 1; dirty = true
+            return
+        }
         exact[p]?.firstOrNull { it.w == w }?.let { recordPick(it); return }
         val e = Entry(syl.toTypedArray(), w, 40, user = true)
         userWords.add(e)
@@ -630,7 +657,7 @@ object Lexicon {
                 initials.values.forEach { it.removeAll(gone) }
                 byHead.values.forEach { it.removeAll(gone) }
                 sorted = sorted.filter { it !in gone }.toTypedArray()
-                rebuildRanges()
+                if (!nativeOnly) rebuildRanges()
             }
             userWords.clear()
             userFreq.clear()
