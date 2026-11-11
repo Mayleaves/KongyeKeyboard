@@ -1,0 +1,2 @@
+// JNI ABI adapter for Fcitx5 Android 0.1.3 (LGPL-2.1-or-later upstream).
+package org.fcitx.fcitx5.android.core; public class AddonInfo{public AddonInfo(String a,String b,String c,int d,boolean e,boolean f,boolean g,boolean h,String[] i,String[] j){}}

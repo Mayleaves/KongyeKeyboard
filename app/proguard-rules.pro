@@ -54,3 +54,7 @@
 -keep class kotlin.Pair { *; }
 -keep class kotlin.ranges.** { *; }
 -keep class kotlin.io.** { *; }
+
+# Official Fcitx JNI constructors and callbacks retain their ABI.
+-keep class org.fcitx.fcitx5.android.** { *; }
+-keep class com.kongye.keyboard.FcitxEngine** { *; }

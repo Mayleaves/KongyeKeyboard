@@ -74,8 +74,15 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }, next = { ic()?.performEditorAction(EditorInfo.IME_ACTION_NEXT) },
         changed = { if(root!=null) renderBar() }, notice = ::message,
         searchUi = { startSink(Sink.VAULT_SEARCH,"",null) },
-        appName = { pkg -> runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg,0)).toString() }.getOrDefault(pkg) }
+        appName = { pkg -> runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg,0)).toString() }.getOrDefault(pkg) },
+        panelUi = { vaultResults = vault.panelEntries(); vaultMatches = true; openPanel(Panel.VAULT) },
     ) }
+    /** 面板显示的是本页匹配（true）还是搜索结果（false） */
+    private var vaultMatches = false
+    /** 系统推送的自动填充候选（安卓 11 起）：盖在工具栏上的一排 */
+    private var inlineStrip: android.widget.HorizontalScrollView? = null
+    private var inlineRow: LinearLayout? = null
+    private var inlineGeneration = 0
     private val vaultLock = object:android.content.BroadcastReceiver() {
         override fun onReceive(context:android.content.Context?,intent:Intent?) {
             vault.reset()
@@ -320,6 +327,12 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         barHost.addView(bar,FrameLayout.LayoutParams(MATCH_PARENT,WRAP_CONTENT))
         barHost.addView(languageBar,FrameLayout.LayoutParams(MATCH_PARENT,WRAP_CONTENT))
+        inlineRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
+        inlineStrip=android.widget.HorizontalScrollView(this).apply {
+            visibility=View.GONE;isHorizontalScrollBarEnabled=false
+            addView(inlineRow,FrameLayout.LayoutParams(WRAP_CONTENT,MATCH_PARENT))
+        }
+        barHost.addView(inlineStrip,FrameLayout.LayoutParams(MATCH_PARENT,MATCH_PARENT))
         keyboard = KeyboardView(this).also { it.listener = this }
         panelHost = PanelHost(this).apply {
             visibility = View.GONE
@@ -392,7 +405,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         val loc = IntArray(2)
         col.getLocationInWindow(loc)
         // 停靠时应用只让出键盘那么高；悬浮时不让（键盘浮在应用上面）
-        val top = if (floating || panel==Panel.ADJUST || (adj?.opacity ?: Prefs.opacity(this)) < .99f) r.height else loc[1]
+        val top = if (floating) r.height else loc[1]
         outInsets.contentTopInsets = top
         outInsets.visibleTopInsets = top
         outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_REGION
@@ -415,7 +428,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun positionCandidatePreview() {
         if(!::candidatePreview.isInitialized || !::tab.isInitialized) return
-        val show=!longCandidate.isNullOrEmpty() && tab.visibility==View.VISIBLE && !tab.expanded
+        val show=!longCandidate.isNullOrEmpty() && seq.isNotEmpty() && sink==Sink.NONE &&
+            !(tab.visibility==View.VISIBLE && tab.expanded)
         candidatePreview.visibility=if(show) View.VISIBLE else View.GONE
         if(!show) return
         val r=root ?: return
@@ -433,6 +447,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var editMoveAt = 0L
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         EditorDeletion.cancel()
+        if(!restarting) hideInline()
         super.onStartInputView(info, restarting)
         if (restarting && panel == Panel.ADJUST && adj != null) {
             applyFloat(); applySkin(rebuildPanel=false)
@@ -495,6 +510,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     override fun onFinishInputView(finishingInput: Boolean) {
         EditorDeletion.cancel()
+        hideInline()
         vault.hide()
         super.onFinishInputView(finishingInput)
         resetComposing()
@@ -505,6 +521,74 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         Lexicon.save()
         releaseToolsLater()
+    }
+
+    // —————————— 系统自动填充候选（需求文档 v2 第 9.2 节，安卓 11 起） ——————————
+
+    /** 让系统把自动填充服务（如空叶文档）的候选交给键盘，显示在工具栏；设置里选「系统下拉框」时不要 */
+    @android.annotation.SuppressLint("NewApi")
+    override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle): android.view.inputmethod.InlineSuggestionsRequest? {
+        if (Build.VERSION.SDK_INT < 30 || !prefs.getBoolean(Prefs.VAULT_INLINE, true)) return null
+        return runCatching {
+            val d = resources.displayMetrics.density
+            val style = androidx.autofill.inline.UiVersions.newStylesBuilder().addStyle(
+                androidx.autofill.inline.v1.InlineSuggestionUi.newStyleBuilder()
+                    .setTitleStyle(androidx.autofill.inline.common.TextViewStyle.Builder().setTextColor(skin.keyFg).setTextSize(14f).build())
+                    .setSubtitleStyle(androidx.autofill.inline.common.TextViewStyle.Builder().setTextColor(skin.barFg).setTextSize(12f).build())
+                    .build()
+            ).build()
+            val spec = android.widget.inline.InlinePresentationSpec.Builder(
+                android.util.Size((80 * d).toInt(), (32 * d).toInt()), android.util.Size((300 * d).toInt(), (40 * d).toInt()),
+            ).setStyle(style).build()
+            android.view.inputmethod.InlineSuggestionsRequest.Builder(listOf(spec)).setMaxSuggestionCount(6).build()
+        }.getOrNull()
+    }
+
+    @android.annotation.SuppressLint("NewApi")
+    override fun onInlineSuggestionsResponse(response: android.view.inputmethod.InlineSuggestionsResponse): Boolean {
+        val list = response.inlineSuggestions
+        val pkg = currentInputEditorInfo?.packageName.orEmpty()
+        val generation = ++inlineGeneration
+        if (list.isEmpty() || inlineRow == null) { hideInline(); vault.inlineShown(pkg, false); return true }
+        val d = resources.displayMetrics.density
+        val views = arrayOfNulls<View>(list.size)
+        var remaining = list.size
+        list.forEachIndexed { i, suggestion ->
+            runCatching {
+                suggestion.inflate(this, android.util.Size(WRAP_CONTENT, (36 * d).toInt()), mainExecutor) { view ->
+                    views[i] = view
+                    if (--remaining == 0 && generation == inlineGeneration) showInline(views.filterNotNull(), pkg)
+                }
+            }.onFailure { if (--remaining == 0 && generation == inlineGeneration) showInline(views.filterNotNull(), pkg) }
+        }
+        return true
+    }
+
+    private fun showInline(views: List<View>, pkg: String) {
+        val row = inlineRow ?: return
+        row.removeAllViews()
+        if (views.isEmpty()) { hideInline(); vault.inlineShown(pkg, false); return }
+        val d = resources.displayMetrics.density
+        views.forEach { v -> row.addView(v, LinearLayout.LayoutParams(WRAP_CONTENT, (36 * d).toInt()).apply { marginStart = (6 * d).toInt() }) }
+        // 末尾：密码空间（搜索）和收起
+        row.addView(android.widget.TextView(this).apply {
+            text = "🔑 更多"; textSize = 14f; setTextColor(skin.barFg); gravity = Gravity.CENTER
+            setPadding((12 * d).toInt(), 0, (12 * d).toInt(), 0); contentDescription = "更多密码，搜索密码空间"
+            setOnClickListener { startSink(Sink.VAULT_SEARCH, "", null) }
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, (36 * d).toInt()))
+        row.addView(android.widget.TextView(this).apply {
+            text = "×"; textSize = 18f; setTextColor(skin.barFg); gravity = Gravity.CENTER
+            setPadding((12 * d).toInt(), 0, (14 * d).toInt(), 0); contentDescription = "收起自动填充候选"
+            setOnClickListener { hideInline(); renderBar() }
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, (36 * d).toInt()))
+        vault.inlineShown(pkg, true)
+        renderBar()
+    }
+
+    private fun hideInline() {
+        inlineGeneration++
+        inlineRow?.removeAllViews()
+        inlineStrip?.visibility = View.GONE
     }
 
     override fun onFinishInput() {
@@ -724,7 +808,10 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         return if (id == "more" || id in Prefs.tools(this)) id else "more"
     }
 
-    private fun candItems() = cands.map { CandItem(it.w, it.py, it.mask) }
+    private fun candItems(): List<CandItem> {
+        val show = prefs.getBoolean(Prefs.SHOW_PINYIN, false)
+        return cands.map { CandItem(it.w, if (show) it.py else null, if (show) it.mask else null) }
+    }
 
     private fun renderBar() {
         if (root == null) return
@@ -732,6 +819,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         for(view in listOf(barHost,sinkStrip)) {
             val params=view.layoutParams as LinearLayout.LayoutParams
             if(params.width!=rowWidth) {params.width=rowWidth;params.gravity=Gravity.CENTER_HORIZONTAL;view.layoutParams=params}
+        }
+        inlineStrip?.let { strip ->
+            val show=(inlineRow?.childCount ?: 0)>0 && panel==Panel.NONE && sink==Sink.NONE && seq.isEmpty()
+            strip.visibility=if(show) View.VISIBLE else View.GONE
+            if(show) strip.setBackgroundColor(skin.kbBg)
         }
         val vaultActions = if(panel==Panel.NONE && sink==Sink.NONE) vault.actions() else emptyList()
         val sm = splitMode()
@@ -805,18 +897,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     // —————————— 拼音条 ——————————
 
     private var resolvedKeys: List<String> = emptyList()
-    private fun tabDisplay(): String {
-        val keys = seq.toList()
-        val first = cands.firstOrNull()
-        if (resolvedKeys == keys && first?.inputDisplay != null) {
-            val prefix = first.inputDisplay
-            if (first.n == letterCount()) return prefix
-            val remaining = keys.dropWhileConsumed(first.n)
-            val tail = Lexicon.display(remaining, null)
-            return if (tail.isEmpty()) prefix else "$prefix'$tail"
-        }
-        return Lexicon.display(keys, null)
-    }
+    private fun tabDisplay(): String = Lexicon.streamingDisplay(seq.toList())
     private fun List<String>.dropWhileConsumed(n: Int): List<String> {
         var letters = 0; var index = 0
         while (index < size && letters < n) { if (this[index] != "'") letters++; index++ }
@@ -827,7 +908,10 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun renderTab() {
         if (!::tab.isInitialized) return
         val show = (seq.isNotEmpty() || picks.isNotEmpty()) && sink == Sink.NONE
-        if (!show) { if (tab.visibility != View.GONE) tab.visibility = View.GONE;candidatePreview.visibility=View.GONE;pinyinLens.visibility=View.GONE; return }
+        if (!show) {
+            if (tab.visibility != View.GONE) tab.visibility = View.GONE
+            pinyinLens.visibility=View.GONE;positionCandidatePreview();return
+        }
         if (pyCaret >= seq.size) pyCaret = -1
         val text = pendingText() + tabDisplay()
         tab.set(text, if (pyCaret < 0) -1 else displayIndexOf(pyCaret))
@@ -977,36 +1061,67 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (::tab.isInitialized) tab.reset()
     }
 
-    private val candidateWorker=java.util.concurrent.Executors.newSingleThreadExecutor { task -> Thread(task,"Kongye candidates").apply {isDaemon=true} }
+    private val candidateWorker=java.util.concurrent.ScheduledThreadPoolExecutor(1) { task -> Thread(task,"Kongye candidates").apply {isDaemon=true} }.apply { removeOnCancelPolicy=true }
     private var candidateTask:java.util.concurrent.Future<*>?=null
-    private var candidateRevision=0
+    @Volatile private var candidateRevision=0
     private var candidatesPending=false
     private var pendingPick: Pair<Int,Int>?=null
     private val followingKeys=ArrayDeque<Key>()
-    private fun refreshComposing() {
-        val keys=seq.toList();val revision=++candidateRevision
-        val pending=pendingText();val abbr=flag(Prefs.ABBR)
-        candidatesPending=true
-        val immediate=pending+Lexicon.display(keys,null)
-        composeOut(immediate)
-        candidateTask?.cancel(false)
-        candidateTask=candidateWorker.submit {
-            val result=runCatching {PinyinEngine.candidates(keys,abbr)}.getOrElse {
-                android.util.Log.e("KongyeIME","Candidate query failed",it)
-                listOf(Cand(keys.joinToString("") {it.take(1)},keys.count {it!="'"},null,0f))
-            }
-            bar.postOnAnimation {
-                if(revision!=candidateRevision || seq.toList()!=keys) return@postOnAnimation
-                cands=result;resolvedKeys=keys;candidatesPending=false
+    private var candidateFrame: (() -> Unit)? = null
+    private var candidateFrameScheduled = false
+    private fun showCandidateResult(revision: Int, keys: List<String>, result: List<Cand>, complete: Boolean) {
+        main.post {
+            if(revision!=candidateRevision) return@post
+            // Primary and refined results that finish within one display frame
+            // share a single layout/draw, keeping only the newest candidate list.
+            candidateFrame = frame@{
+                if(revision!=candidateRevision || seq.toList()!=keys) return@frame
+                val growing=resolvedKeys.isNotEmpty() && keys.size>=resolvedKeys.size && keys.take(resolvedKeys.size)==resolvedKeys
+                val updated=result.toMutableList()
+                if(growing && cands.isNotEmpty()) {
+                    val old=cands.first()
+                    if(old.n<=keys.count {it!="'"} && old.w.count {it in '一'..'鿿'}> (updated.firstOrNull()?.w?.count {it in '一'..'鿿'} ?: 0)) {
+                        updated.removeAll {it.w==old.w};updated.add(0,old)
+                    }
+                    // A temporarily unmatched suffix must not collapse the strip
+                    // to a lone literal. Older words retain their prefix boundary.
+                    for(c in cands) if(updated.size<cands.size && updated.none {it.w==c.w}) updated.add(c)
+                }
+                cands=updated;resolvedKeys=keys
+                if(complete) candidatesPending=false
                 renderBar()
-                if(panel==Panel.CANDS) buildPanel()
+                if(panel==Panel.CANDS && complete) buildPanel()
                 val requested=pendingPick
-                if(requested?.first==revision) {
+                if(complete && requested?.first==revision) {
                     pendingPick=null
                     cands.getOrNull(requested.second)?.let {pick(it)}
                     while(followingKeys.isNotEmpty() && pendingPick==null) onKey(followingKeys.removeFirst())
                 }
             }
+            if(!candidateFrameScheduled) {
+                candidateFrameScheduled=true
+                android.view.Choreographer.getInstance().postFrameCallback {
+                    candidateFrameScheduled=false
+                    val frame=candidateFrame;candidateFrame=null;frame?.invoke()
+                }
+            }
+        }
+    }
+    private fun refreshComposing() {
+        val keys=seq.toList();val revision=++candidateRevision
+        val pending=pendingText();val abbr=flag(Prefs.ABBR)
+        candidatesPending=true
+        composeOut(pending+Lexicon.streamingDisplay(keys))
+        candidateTask?.cancel(false)
+        candidateTask=candidateWorker.submit {
+            val result=try { PinyinEngine.candidatesLive(keys,abbr,{ revision==candidateRevision }) { primary ->
+                showCandidateResult(revision,keys,primary,false)
+            } } catch (_: java.util.concurrent.CancellationException) { return@submit }
+            catch (error: Exception) {
+                android.util.Log.e("KongyeIME","Candidate query failed",error)
+                listOf(Cand(keys.joinToString("") {it.take(1)},keys.count {it!="'"},null,0f))
+            }
+            showCandidateResult(revision,keys,result,true)
         }
     }
 
@@ -1026,8 +1141,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun letterCount() = seq.count { it != "'" }
 
     private fun pick(c: Cand) {
-        if (c.n <= 0 || c.n > letterCount()) return
-        val taken = consume(c.n)
+        val consumed=if(c.nativeChoice?.schema=="fcitx/pinyin") runCatching {FcitxEngine.consume(c,learnOn())}.getOrElse {
+            android.util.Log.e("KongyeFcitx","Selection failed",it);return
+        } else c.n
+        if (consumed <= 0 || consumed > letterCount()) return
+        val taken = consume(consumed)
         pyCaret = -1
         val syl = c.e?.syl?.toList() ?: Lexicon.decode(taken.filter { it != "'" })
         picks.add(Pick(c.w, syl, taken, c.e == null))
@@ -1367,7 +1485,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     // —————————— 候选栏与工具栏 ——————————
 
     override fun onCandidate(index: Int) {
-        if(candidatesPending && seq.isNotEmpty()) {pendingPick=candidateRevision to index;return}
+        if (cands.getOrNull(index)!=null || handCands.getOrNull(index)!=null) buzz()
+        if(candidatesPending && seq.isNotEmpty() && resolvedKeys!=seq.toList()) {pendingPick=candidateRevision to index;return}
         if (seq.isEmpty() && (panel == Panel.HAND || panel == Panel.HAND_CANDS)) {
             val w = handCands.getOrNull(index) ?: return
             commitOut(w)
@@ -2026,7 +2145,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 emojiTab=2;finishSink(Panel.EMOJI);return
             }
             Sink.VAULT_SEARCH -> {
-                val query=text.trim();vaultResults=emptyList();finishSink(Panel.VAULT)
+                val query=text.trim();vaultResults=emptyList();vaultMatches=false;finishSink(Panel.VAULT)
                 vault.search(query) { vaultResults=it;if(panel==Panel.VAULT && sink==Sink.NONE) buildPanel(animate=true) };return
             }
             Sink.SEARCH -> clipQuery = text.trim()
@@ -2167,7 +2286,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         val p = prefs
         val v: View = when (panel) {
             Panel.NONE -> return
-            Panel.VAULT -> VaultPanel(this,skin,vaultResults,onPick={ vault.choose(it) },onSearch={startSink(Sink.VAULT_SEARCH,"",null)},onBack={closePanel()})
+            Panel.VAULT -> VaultPanel(this,skin,vaultResults,onPick={ vault.choose(it) },onSearch={startSink(Sink.VAULT_SEARCH,"",null)},onBack={closePanel()},
+                title=if(vaultMatches) "密码空间" else "搜索结果",canGenerate=vaultMatches && vault.canGenerate,onGenerate={ closePanel(); vault.generateFromPanel() })
             Panel.EMOJI -> EmojiPanel(this, skin, recentEmoji(), favEmoji(), emojiTab, ::useEmoji, ::toggleFav,
                 onTab = { emojiTab = it }, onCustom = { startSink(Sink.FAVORITE,"",null) }) { onKey(Key(Kind.DEL)) }
             Panel.CLIP -> ClipboardPanel(
@@ -2217,13 +2337,13 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     },
                     onMove = { x,y -> placeFloat(x,y); a.floatX=col.translationX; a.floatY=col.translationY },
                     onReset = {
-                        adj = Adjust(1f, 1f, 0, 0, 0, floatX = resources.displayMetrics.widthPixels * .07f, floatY = resources.displayMetrics.heightPixels * .45f)
+                        adj = Adjust(1f, a.opacity, 0, 0, 0, floatX = resources.displayMetrics.widthPixels * .07f, floatY = resources.displayMetrics.heightPixels * .45f)
                         floating = false
                         applyFloat(); applySkin()
                         root?.post { adjustOverlay?.bringToFront(); positionAdjustment() }
                     },
                     onDone = {
-                        p.edit().putFloat(Prefs.HEIGHT_SCALE, a.scale).putFloat(Prefs.OPACITY, a.opacity)
+                        p.edit().putFloat(Prefs.HEIGHT_SCALE, a.scale)
                             .putBoolean(Prefs.SPLIT_LAYOUT, a.split).putBoolean(Prefs.FLOAT, a.floating)
                             .putFloat(Prefs.FLOAT_WIDTH, a.floatWidth).putFloat(Prefs.FLOAT_X, a.floatX).putFloat(Prefs.FLOAT_Y, a.floatY)
                             .putInt(Prefs.PAD_L, a.padL).putInt(Prefs.PAD_R, a.padR).putInt(Prefs.PAD_B, a.padB).apply()
@@ -2274,7 +2394,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             ).also { voiceBoard = it; it.update(voiceText.toString() + voicePartial, voiceStatus, listening) }
             Panel.CANDS -> ExpandedCandidates(this, skin, cands.take(120).map { it.w }, candidateFilter,
                 onMode = { candidateFilter=it; buildPanel(animate=true) },
-                onPick = { i -> cands.getOrNull(i)?.let { pick(it) } },
+                onPick = { i -> onCandidate(i) },
                 onDelete = { onKey(Key(Kind.DEL)); if (seq.isEmpty()) closePanel() }, onBack = { closePanel() })
             Panel.HAND_CANDS -> ExpandedCandidates(this, skin, handCands, candidateFilter,
                 onMode = { candidateFilter=it; buildPanel(animate=true) }, onPick = { onCandidate(it) },

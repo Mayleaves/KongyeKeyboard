@@ -23,3 +23,5 @@ app/src/main/assets/rime-data.zip
 app/src/main/assets/voice-streaming/*.onnx
 app/src/main/assets/voice-streaming/bbpe.model
 app/src/main/assets/handwriting-neural/*.onnx
+
+app/src/main/assets/fcitx-data.zip

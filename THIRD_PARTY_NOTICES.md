@@ -63,3 +63,12 @@ Rime 合并库还包含 Boost、glog、LevelDB、marisa、OpenCC、yaml-cpp、Lu
 
 短输入最多纠正一处，六字母及以上最多两处；支持漏字母、多字母、相邻键替换、相邻字母颠倒。
 正确全拼词优先。纠错提供候选，不会直接替换用户原文。
+
+
+## Fcitx5 Android / libime (2.2.2)
+
+26 键默认接入 [Fcitx5 Android 0.1.3](https://github.com/fcitx5-android/fcitx5-android/releases/tag/0.1.3)（发布源提交 048f581c）、其原生 Fcitx5/libime/Chinese Addons 和上游更新的 libime 模型。原生 JNI 与解码器保持上游实现，没有添加例词、例句排序覆盖。JNI ABI 对接类仅实现官方类名、构造签名与回调，未引入上游应用界面。
+
+Fcitx5 Android、Fcitx5、libime 与 Chinese Addons 各组件保留其 LGPL-2.1-or-later / 组件源码中的许可；完整应用仍为 GPL-3.0-only。其他依赖遵守上游各自许可。固定来源、模型版本与全部下载 SHA256 见 `app/src/main/assets/fcitx-sources.json`，获取及复建脚本为 `tools/fetch_fcitx.py`。
+
+为与已有原生模块隔离，上游 libc++ 的库名及依赖名等长改为 `libfcx_shared.so`，未修改算法或模型。9 键、14 键和关闭简拼时暂保留已接入的 Rime 路径，不伪称 Fcitx 原生支持这些布局。

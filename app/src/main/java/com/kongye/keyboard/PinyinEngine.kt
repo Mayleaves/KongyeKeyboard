@@ -22,6 +22,7 @@ object PinyinEngine {
 
     @Synchronized fun initialize(ctx: Context) {
         if (ready) return
+        FcitxEngine.initialize(ctx)
         try {
             val root = File(ctx.filesDir, "rime").apply { mkdirs() }
             val data = File(root, "data-2.1.0-ice-r3")
@@ -85,15 +86,27 @@ object PinyinEngine {
     }
 
     fun candidates(keys: List<String>, abbr: Boolean = true): List<Cand> {
+        if(FcitxEngine.ready && layout(keys)=="26" && abbr) return FcitxEngine.candidates(keys) {true}.let {PinyinExpressions.insert(it,keys)}
         if (!ready) return Lexicon.candidates(keys, abbr)
-        return queryReady(keys, abbr)
+        return queryReady(keys, abbr, { true }, {})
     }
 
-    @Synchronized private fun queryReady(keys: List<String>, abbr: Boolean): List<Cand> {
+    fun candidatesLive(keys: List<String>, abbr: Boolean, current: () -> Boolean, onPrimary: (List<Cand>) -> Unit): List<Cand> {
+        if(FcitxEngine.ready && layout(keys)=="26" && abbr) {
+            val result=FcitxEngine.candidates(keys,current).let {PinyinExpressions.insert(it,keys)}
+            onPrimary(result);return result
+        }
+        if (!ready) return Lexicon.candidates(keys, abbr)
+        return queryReady(keys, abbr, current, onPrimary)
+    }
+
+    @Synchronized private fun queryReady(keys: List<String>, abbr: Boolean, current: () -> Boolean, onPrimary: (List<Cand>) -> Unit): List<Cand> {
+        fun checkCurrent() { if (!current()) throw java.util.concurrent.CancellationException() }
+        checkCurrent()
         val rime = core
         if (!ready || rime == null) return Lexicon.candidates(keys, abbr)
         val cacheKey = keys.joinToString(",") + "/$abbr/" + Lexicon.fuzzyRules.sorted().joinToString(",")
-        cache[cacheKey]?.let { return it }
+        cache[cacheKey]?.let { onPrimary(it); checkCurrent(); return it }
         val layout = layout(keys)
         val raw = encode(keys, layout)
         if (raw.isEmpty()) return emptyList()
@@ -101,17 +114,62 @@ object PinyinEngine {
         val normal = rime.query(schema, raw)
         val normalCandidates = normal.candidates.mapNotNull { convert(it, schema, raw, layout, false) }
         val output = normalCandidates.toMutableList()
+        var resolvedAbbreviation = false
+        var coherentAbbreviation = false
+        checkCurrent()
+        // Resolve a run of initial-only syllables using a real dictionary phrase,
+        // then let Rime decode the whole expanded spelling with its language model.
+        // This keeps common abbreviated words together in mixed full/initial input;
+        // no application-specific phrases or manufactured Chinese sentences.
+        if (abbr && layout == "26" && normal.candidates.firstOrNull()?.type == "sentence") {
+            val tokens = normal.preedit.split(' ', '\'').filter { it.isNotEmpty() }
+            val initials = tokens.takeWhile { it.length == 1 && it[0] !in "aeouv" || it in listOf("zh", "ch", "sh") }
+            val prefixLength = initials.sumOf { it.length }
+            val tail = normalize(raw.drop(prefixLength))
+            coherentAbbreviation = initials.size >= 2 && tail.length >= 2 &&
+                normalize(normal.candidates.first().pinyin.split(' ').drop(initials.size).joinToString("")) == tail
+            // A single following syllable provides too little context: e.g. a
+            // neighboring-key typo must not become an expanded person's name.
+            if ((!coherentAbbreviation || initials.size >= 3) && initials.size >= 2 &&
+                tokens.drop(initials.size).count { it.length >= 2 } >= 2) {
+                val prefix = normal.candidates.filter { it.type in listOf("phrase", "user_phrase") && it.end == prefixLength &&
+                    it.pinyin.split(' ').size == initials.size }.maxByOrNull { it.quality }
+                if (prefix != null) {
+                    val expanded = normalize(prefix.pinyin) + raw.drop(prefixLength)
+                    val result = rime.query(schema, expanded)
+                    checkCurrent()
+                    val resolved = result.candidates.firstOrNull { it.end == expanded.length && it.text.startsWith(prefix.text) &&
+                        normalize(it.pinyin) == normalize(expanded) }
+                    if (resolved != null) convert(resolved, schema, expanded, layout, false)?.let { c ->
+                        output.add(0, Cand(c.w, keys.count { it != "'" }, c.e, c.score, py = c.py,
+                            inputDisplay = Lexicon.display(keys, null), nativeChoice = c.nativeChoice))
+                        resolvedAbbreviation = true
+                    }
+                }
+            }
+        }
+        val learned = Lexicon.userCandidates(keys, abbr)
+        fun complete(source: List<Cand>): List<Cand> {
+            val distinct = (learned + source).distinctBy { it.w + "/" + it.n }.toMutableList()
+            val letters = keys.count { it != "'" }
+            val literal = keys.joinToString("") { if (it == "'") "'" else it.take(1) }
+            if (distinct.none { it.w == literal && it.n == letters }) distinct.add(Cand(literal, letters, null, -100f))
+            return PinyinExpressions.insert(distinct, keys)
+        }
+        onPrimary(complete(output))
+        checkCurrent()
         // A separate full-pinyin graph avoids the combinatorial ambiguity of
         // simultaneously treating every typo as an initial. Correct input keeps
         // its original path; typo alternatives must pass a bounded edit check.
         val primary = normal.candidates.firstOrNull()
         val needsCorrection = primary == null || primary.end < raw.length ||
             (normalize(primary.pinyin) != normalize(raw) && !normalize(primary.pinyin).startsWith(normalize(raw)))
-        if (layout == "26" && raw.length in 3..64 && (needsCorrection || raw.length <= 12)) {
+        if (layout == "26" && raw.length in 3..64 && needsCorrection) {
             val tokens = normal.preedit.split(' ', '\'').filter { it.isNotEmpty() }
             val initialCount = tokens.count { it.length == 1 && it[0] !in "aeouv" || it in listOf("zh", "ch", "sh") }
             if (initialCount <= 2 || raw.length <= 12) {
                 val correction = rime.query("kongye_correction", raw)
+                checkCurrent()
                 val repaired = correction.candidates.filter { it.end == raw.length &&
                     spellingDistance(raw, it.pinyin) <= 2.05 }
                     .mapNotNull { convert(it, "kongye_correction", raw, layout, true) }
@@ -119,7 +177,7 @@ object PinyinEngine {
                 val old = normalCandidates.firstOrNull()
                 // An initial is not a spelling mistake. A full-coverage normal
                 // abbreviation must precede repairs which delete/substitute it.
-                val promote = first != null && (old == null || old.n < keys.count { it != "'" } ||
+                val promote = !resolvedAbbreviation && !coherentAbbreviation && first != null && (old == null || old.n < keys.count { it != "'" } ||
                     primary?.type == "sentence" && initialCount > 0 &&
                     spellingDistance(raw, first.py.orEmpty()) + .1 < spellingDistance(raw, old.py.orEmpty()))
                 if (promote) output.add(0, first)
@@ -130,6 +188,7 @@ object PinyinEngine {
                 // its alternatives cannot replace the normal sentence outright.
                 if (initialCount >= 3 && raw.length <= 12) {
                     val neighbor = rime.query("kongye_neighbor", raw)
+                    checkCurrent()
                     val alternatives = neighbor.candidates.filter { it.end == raw.length &&
                         spellingDistance(raw, it.pinyin) <= 2.05 }
                         .mapNotNull { convert(it, "kongye_neighbor", raw, layout, true) }
@@ -146,6 +205,7 @@ object PinyinEngine {
                 val variants = Lexicon.syllableVariants(pieces[i], i == pieces.lastIndex).filter { it != pieces[i] }
                 for (variant in variants) {
                     if (count++ >= 6) break
+                    checkCurrent()
                     val alternative = pieces.toMutableList().apply { set(i, variant) }.joinToString("")
                     val result = rime.query(schema, alternative)
                     result.candidates.filter { it.end == alternative.length }.take(3).forEach { c ->
@@ -157,13 +217,8 @@ object PinyinEngine {
                 if (count >= 6) break
             }
         }
-        val learned = Lexicon.userCandidates(keys, abbr)
-        output.addAll(0, learned)
-        val distinct = output.distinctBy { it.w + "/" + it.n }.toMutableList()
-        val letters = keys.count { it != "'" }
-        val literal = keys.joinToString("") { if (it == "'") "'" else it.take(1) }
-        if (distinct.none { it.w == literal && it.n == letters }) distinct.add(Cand(literal, letters, null, -100f))
-        val associated=PinyinExpressions.insert(distinct,keys)
+        checkCurrent()
+        val associated = complete(output)
         cache[cacheKey] = associated
         return associated
     }
@@ -190,15 +245,17 @@ object PinyinEngine {
 
     @Synchronized fun recordPick(c: Cand) {
         val choice = c.nativeChoice ?: return
+        if(choice.schema=="fcitx/pinyin") return
         core?.learn(choice.schema, choice.raw, c.w)
         cache.clear()
     }
 
     @Synchronized fun endInput() {
-        cache.clear(); core?.clearInput()
+        cache.clear(); core?.clearInput(); FcitxEngine.clear()
     }
 
     @Synchronized fun clearUser(ctx: Context) {
+        FcitxEngine.clearUser(ctx)
         ready = false; cache.clear(); core?.close(); core = null
         val user = File(ctx.filesDir, "rime/user")
         check(user.canonicalFile.parentFile == File(ctx.filesDir, "rime").canonicalFile)

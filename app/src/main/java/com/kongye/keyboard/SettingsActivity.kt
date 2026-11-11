@@ -649,6 +649,8 @@ class SettingsActivity : ComponentActivity() {
         val r = remember(tick) { listOf(Prefs.ABBR, Prefs.ASSOC, Prefs.LEARN).associateWith { p.getBoolean(it, true) } }
         var forgetHint by remember { mutableStateOf("") }
         Card(pal) {
+            ToggleRow(pal, "候选区显示拼音", "只控制候选词旁的读音，上方拼音条始终保留", p.getBoolean(Prefs.SHOW_PINYIN, false)) { p.edit().putBoolean(Prefs.SHOW_PINYIN, it).apply() }
+            Line(pal)
             ToggleRow(pal, "简拼", "zg → 中国", r[Prefs.ABBR]!!) { p.edit().putBoolean(Prefs.ABBR, it).apply() }
             Line(pal)
             ToggleRow(pal, "联想", null, r[Prefs.ASSOC]!!) { p.edit().putBoolean(Prefs.ASSOC, it).apply() }
@@ -658,7 +660,7 @@ class SettingsActivity : ComponentActivity() {
             Tip(pal, "纠错", "打错时给出正确的词，错的字母标红")
         }
         Card(pal) {
-            Tip(pal, "拼音引擎", "Rime · 万象完整词库与整句语言模型，本机离线解码")
+            Tip(pal, "拼音引擎", "26 键：Fcitx5 · libime 原生排序纠错；其他布局：Rime，全程离线")
             ActionRow(pal, "万象拼音 · CC BY 4.0", "作者、原始项目与许可", "查看") {
                 startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/amzxyz/rime-wanxiang")))
             }
@@ -1125,7 +1127,12 @@ class SettingsActivity : ComponentActivity() {
         Card(pal) {
             ToggleRow(pal,"密码填充","使用空叶文档中的密码空间",enabled) {prefs.edit().putBoolean(Prefs.VAULT,it).apply()}
             BasicText(state,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=19.sp),modifier=Modifier.padding(vertical=8.dp))
-            BasicText("登录时点候选栏中的名称填充；未解锁会打开空叶文档验证。账号填完后尝试跳到密码框。新密码框可生成强密码，确认框在两分钟内可复用。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
+            BasicText("点到账号或密码框时，工具栏出现「🔑 密码空间」，点开选账号即可填入；未解锁会打开空叶文档验证。账号填完后会跳到密码框接着填。注册页可按提示文字的要求生成强密码，确认框两分钟内可复用；提交后提示保存账号、手机号、邮箱和密码。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
+        }
+        Card(pal) {
+            val inline=remember(tick) {prefs.getBoolean(Prefs.VAULT_INLINE,true)}
+            ToggleRow(pal,"自动填充候选显示在工具栏","关闭后用系统下拉框（输入框下面）",inline) {prefs.edit().putBoolean(Prefs.VAULT_INLINE,it).apply()}
+            BasicText("在空叶文档里把它设为系统的自动填充服务后，登录框的账号、注册页的「生成强密码」会由系统推送；开启这一项时显示在键盘工具栏里，此时键盘不再重复列出匹配，也不再弹自己的保存提示。需要 Android 11 及以上。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=8.dp))
         }
         Card(pal) {
             BasicText("密码空间来源",style=TextStyle(color=pal.ink,fontSize=15.sp))

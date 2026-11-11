@@ -165,7 +165,7 @@ class CandidateBar(context: Context) : View(context) {
     private fun updateLongCandidate() {
         text.textSize=17*d
         val word=items.firstOrNull()?.w
-        onLongCandidate(word?.takeIf {mode==Mode.CANDS && width>0 && text.measureText(it)>(width-expandW-2*pad)*.65f})
+        onLongCandidate(word?.takeIf {mode==Mode.CANDS && it.codePointCount(0,it.length)>4})
     }
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int) {
         super.onSizeChanged(w,h,oldw,oldh);updateLongCandidate()

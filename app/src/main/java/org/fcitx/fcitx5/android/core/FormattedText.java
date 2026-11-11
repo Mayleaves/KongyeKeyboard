@@ -1,0 +1,2 @@
+// JNI ABI adapter for Fcitx5 Android 0.1.3 (LGPL-2.1-or-later upstream).
+package org.fcitx.fcitx5.android.core; public class FormattedText{public String[] text;public int cursor; public static FormattedText fromByteCursor(String[] t,int[] f,int c){FormattedText x=new FormattedText();x.text=t;x.cursor=c;return x;}public String toString(){return String.join("",text);}}

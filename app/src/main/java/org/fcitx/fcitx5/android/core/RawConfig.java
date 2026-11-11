@@ -1,0 +1,2 @@
+// JNI ABI adapter for Fcitx5 Android 0.1.3 (LGPL-2.1-or-later upstream).
+package org.fcitx.fcitx5.android.core; public class RawConfig{public String name,value,comment; public RawConfig[] subItems;public RawConfig(String n,String v,String c,RawConfig[] s){name=n;value=c;comment=v;subItems=s;}public void setSubItems(RawConfig[] s){subItems=s;} public String toString(){return name+"="+value+java.util.Arrays.toString(subItems);}}

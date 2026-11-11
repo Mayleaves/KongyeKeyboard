@@ -325,7 +325,6 @@ class AdjustOverlay(
 
     private val card = LinearLayout(context)
     private val sizeInfo = TextView(context)
-    private val opacValue = TextView(context)
     private val blankValue = TextView(context)
     private val buttonViews = ArrayList<LinearLayout>()
     private var resizing = false
@@ -383,26 +382,7 @@ class AdjustOverlay(
         }
         card.addView(header, lp(MATCH, WRAP))
 
-        // 2. 透明度滑条行
-        card.addView(LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(TextView(context).apply {
-                text = "透明度"
-                textSize = 13f
-                setTextColor(titleFg)
-            }, lp((58 * d).toInt(), WRAP))
-            addView(SliderView(
-                context, skin, 1f - a.opacity, 0f, .7f,
-                onChange = { a.opacity = 1f - it; refresh(); onLive() },
-                onDone = { fadeCard(1f) },
-                onStart = { fadeCard(0.45f) },
-            ), lp(0, (30 * d).toInt(), 1f))
-            opacLabelStyle(opacValue)
-            addView(opacValue, lp((42 * d).toInt(), WRAP))
-        }, lp(MATCH, WRAP))
-
-        // 3. 底部留白滑条行（悬浮模式下自动置灰）
+        // 2. 底部留白滑条行（悬浮模式下自动置灰）
         val blankSlider = SliderView(
             context, skin, a.padB.toFloat(), 0f, 48f,
             onChange = {
@@ -422,12 +402,12 @@ class AdjustOverlay(
                 setTextColor(titleFg)
             }, lp((58 * d).toInt(), WRAP))
             addView(blankSlider, lp(0, (30 * d).toInt(), 1f))
-            opacLabelStyle(blankValue)
+            valueLabelStyle(blankValue)
             if (floating) blankValue.setTextColor(subFg)
             addView(blankValue, lp((42 * d).toInt(), WRAP))
         }, lp(MATCH, WRAP))
 
-        // 4. 底部操作按钮行：重置 / 悬浮 / 分体 / 确认（与重置统一灰底）
+        // 3. 底部操作按钮行：重置 / 悬浮 / 分体 / 确认（与重置统一灰底）
         val buttons = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, (8 * d).toInt(), 0, 0)
@@ -516,7 +496,7 @@ class AdjustOverlay(
         refresh()
     }
 
-    private fun opacLabelStyle(tv: TextView) {
+    private fun valueLabelStyle(tv: TextView) {
         tv.setTextColor(accent)
         tv.textSize = 12.5f
         tv.typeface = Typeface.DEFAULT_BOLD
@@ -559,7 +539,6 @@ class AdjustOverlay(
         val widthPct = if (a.floating) kotlin.math.round(a.floatWidth * 100).toInt()
         else kotlin.math.round((screenDp - a.padL - a.padR) / screenDp * 100).toInt().coerceIn(55, 100)
         sizeInfo.text = "高度 ${kotlin.math.round(a.scale * 100).toInt()}%  ·  宽度 $widthPct%"
-        opacValue.text = "${kotlin.math.round((1 - a.opacity) * 100).toInt()}%"
         blankValue.text = if (a.floating) "悬浮" else "${a.padB} dp"
         invalidate()
     }

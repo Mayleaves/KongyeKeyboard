@@ -2,7 +2,9 @@
 
 Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，以及 26 键、14 键和九键布局。
 
-当前版本：**[2.1.0](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v2.1.0)**。Android 8.0 及以上；提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
+当前版本：**[2.2.2](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v2.2.2)**。Android 8.0 及以上；提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
+
+**2.2.2**：26 键默认接入 Fcitx5 Android / libime 官方原生引擎及更新模型，采用上游通用排序与纠错。接入范围与实测记录见 [成熟引擎说明](docs/Fcitx5-成熟引擎接入.md)。
 
 本项目源代码按 [GPL-3.0-only](LICENSE) 开源。第三方代码、模型和数据保留各自许可证，详见 [第三方说明](THIRD_PARTY_NOTICES.md)。
 
@@ -23,7 +25,7 @@ Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，
 - 翻译输入条：真实可拖动光标的输入框；语言选择支持上下淡入淡出，开始输入后收起；空框保留工具栏、拼音时显示候选、选字后显示翻译方向。语言选项为自动、英文、中文、日文、韩文，点“完成”确定；切换其他工具会关闭翻译条。ML Kit 离线翻译，首次使用需联网下载模型。
 - 模糊音（z/zh、c/ch、s/sh、n/l、f/h、r/l、an/ang、en/eng、in/ing、ian/iang、uan/uang），可逐项开关。
 - 纯色日夜配色；液态玻璃沿用 1.5.4 的半透明底与细描边，不使用渐变。
-- 四周拖动调节键盘大小、透明度、悬浮与分体；等宽候选格及字词筛选。横屏编辑使用居中紧凑布局，方向盘不随屏幕拉大。
+- 四周拖动调节键盘大小、底部留白、悬浮与分体；等宽候选格及字词筛选。横屏编辑使用居中紧凑布局，方向盘不随屏幕拉大。
 - 符号、Emoji 和颜文字支持跟手左右滑动切换分类；剪贴板长按以动画覆盖工具，不改变卡片高度。
 - 首页保留启用输入法、选择输入法、通知授权三项准备步骤和状态；通知不会常驻。
 - 检查更新：在应用内读取版本说明、下载安装包并校验版本、签名及可用的 SHA256，交给系统安装器；不跳浏览器。GitHub 仓库另有独立入口。
@@ -49,13 +51,14 @@ Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，
 ```sh
 python tools/fetch_offline_voice.py --engine-only
 python tools/fetch_rime.py
+python tools/fetch_fcitx.py
 python tools/build_expressions.py
 python tools/fetch_handwriting.py
 python tools/fetch_neural_handwriting.py
 python tools/fetch_streaming_voice.py
 ```
 
-语音脚本不加 `--engine-only` 时会另外下载两套高容量模型和公开测试样本，用于手机安装和回归；这两套可选模型不打进 APK。Rime 全量词库、整句模型、神经网络手写及普通话流式预览打进 APK，安装后可离线使用。首次启动在后台解压预编译数据。安装包按架构约为 ARM64 513 MiB、x86_64 524 MiB、universal 625 MiB。
+语音脚本不加 `--engine-only` 时会另外下载两套高容量模型和公开测试样本，用于手机安装和回归；这两套可选模型不打进 APK。Rime 全量词库、整句模型、神经网络手写及普通话流式预览打进 APK，安装后可离线使用。首次启动在后台解压预编译数据。安装包按架构约为 ARM64 498 MiB、x86_64 502 MiB、universal 542 MiB。
 
 Rime 数据生成目前使用官方 Windows x64 工具，其他平台可复制生成的 `app/libs/*.aar`、`rime-data.zip` 及语音模型后构建。原生库来源和重建步骤见 [构建说明](docs/Rime-原生构建.md)。
 
@@ -77,6 +80,8 @@ macOS / Linux：
 
 ## 词库和引擎检查
 
+2.2.2 的默认 26 键简拼模式使用 [Fcitx5 Android 0.1.3](https://github.com/fcitx5-android/fcitx5-android) / [libime](https://github.com/fcitx/libime)，并内置固定版本的官方更新模型。原生核心负责整句解码、排序、QWERTY 纠错与学习；九键、14 键及关闭简拼时保留下述 Rime 路径。来源和边界见 [成熟引擎说明](docs/Fcitx5-成熟引擎接入.md)。
+
 2.1.0 的主输入核心为 [Rime 1.17.0](https://github.com/rime/librime)，使用 [雾凇拼音](https://github.com/iDvel/rime-ice) 原始字表及完整词库（1,873,493 行）与万象 LTS 整句语言模型。
 全拼、简拼、混合简拼、自动分词、整句生成及词频排序由 Rime 解码；26 键、14 键和九键都使用同一完整词库。
 旧 Kotlin 词库用于联想、分词、旧学习记录迁移和启动时的临时兜底，不再承担正常拼音输入的主解码。
@@ -87,7 +92,7 @@ macOS / Linux：
 手写主力使用 [ochwpro](https://github.com/ximeiorg/ochwpro)，声调与多音字来自 [pinyin-data](https://github.com/mozillazg/pinyin-data)，词组注音来自万象。语音仅在打开语音工具时预热，手写和语音退出 30 秒后释放模型；Rime 加载完成后释放旧解码索引，保留联想、分词与个人学习记录。
 来源、固定版本、处理步骤和许可见 [第三方说明](THIRD_PARTY_NOTICES.md)。
 
-主要设备回归：`rime`、`open-handwriting`、`streaming-voice`，以及原有密码填充、剪贴板、编辑和动画模式。
+主要设备回归：`fcitx`、`fcitx-coexist`、`rime`、`open-handwriting`、`streaming-voice`，以及原有密码填充、剪贴板、编辑和动画模式。
 例如：
 
 ```powershell

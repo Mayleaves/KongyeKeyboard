@@ -24,6 +24,8 @@ object Prefs {
     const val MENU = "menu_v2"
     const val SWIPE = "swipe_symbols"
     const val ABBR = "abbr"
+    /** 候选词旁的拼音读音；默认隐藏，上方拼音条与手写注音不受影响。 */
+    const val SHOW_PINYIN = "show_pinyin"
     const val ASSOC = "assoc"
     const val LEARN = "learn"
     /** 中文键盘布局：26、14、9 */
@@ -56,6 +58,8 @@ object Prefs {
     const val VOICE_LANG = "voice_lang"
     const val VAULT = "vault_fill"
     const val VAULT_PACKAGE = "vault_package"
+    /** 系统自动填充候选显示在工具栏（true）还是用系统下拉框（false），安卓 11 起 */
+    const val VAULT_INLINE = "vault_inline"
     const val UPDATE_CHECKED = "update_checked"
     /** 空格长按：0 光标模式，1 连续输入空格，2 开关语音 */
     const val SPACE_LONG = "space_long"

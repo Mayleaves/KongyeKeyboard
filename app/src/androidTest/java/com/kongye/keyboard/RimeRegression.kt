@@ -28,6 +28,10 @@ object RimeRegression {
             "wozhidaole" to "我知道了", "meiyouwenti" to "没有问题",
             "wozhenfuni" to "我真服你", "wozhenfuleni" to "我真服了你",
             "wobuzhidaozenmeban" to "我不知道怎么办",
+            "wsmyoudianka" to "为什么有点卡",
+            "nijuedzggzzmy" to "你觉得这个工作怎么样",
+            "nijeudezggzzmy" to "你觉得这个工作怎么样", "jeude" to "觉得",
+            "wsmzhememan" to "为什么这么慢", "hxbuzhidao" to "好像不知道",
             "qingwenxianzaijidianle" to "请问现在几点了"
         )
         var worst = 0L
@@ -38,6 +42,16 @@ object RimeRegression {
             report(i, "$raw => ${list.take(5).joinToString { "${it.w}(${it.n})" }} [$elapsed ms]")
             check(list.any { it.w == wanted && it.n == raw.length }) { "Missing full candidate $wanted for $raw" }
             check(list.first().n == raw.length) { "Sentence was truncated for $raw" }
+        }
+        for(raw in arrayOf("nihaoshijie","nijuedzggzzmy","nijeudezggzzmy","xianzai","wsmyoudianka")) {
+            var shown=""
+            for(size in 1..raw.length) {
+                val next=Lexicon.streamingDisplay(raw.take(size).map {it.toString()})
+                check(next.startsWith(shown)) {"Pinyin inserted a retroactive separator: $shown -> $next"}
+                check(next.replace("'","")==raw.take(size)) {"Pinyin display rewrote input"}
+                shown=next
+            }
+            report(i,"stable spelling $raw => $shown")
         }
         val m = PinyinEngine.candidates(listOf("m"), true)
         for ((raw,wanted) in listOf("nhaoa" to "你好啊", "budn" to "不懂呢", "nh" to "你好", "wsm" to "为什么", "wzdl" to "我知道了")) {
@@ -78,6 +92,26 @@ object RimeRegression {
         check(fourteen.any { it.w == "键盘" && it.n == 7 }) { "14-key decoder failed" }
         check(Lexicon.pinyinOf("呒") == "fu") { "Handwriting reading was not migrated" }
         check(Lexicon.assoc("大").isNotEmpty()) { "Associations were lost when releasing the old decoder" }
+        PinyinEngine.endInput()
+        val timings = ArrayList<Long>()
+        for (raw in arrayOf("nihao", "jianpan", "nhaoa", "budn", "wsmyoudianka", "wozhenfukni")) {
+            var primaryAt = -1L
+            val at = SystemClock.elapsedRealtime()
+            val result = PinyinEngine.candidatesLive(raw.map { it.toString() }, true, { true }) {
+                primaryAt = SystemClock.elapsedRealtime() - at
+                check(it.isNotEmpty())
+            }
+            timings.add(primaryAt)
+            check(primaryAt >= 0 && result.isNotEmpty()) { "Primary candidates were not published" }
+            report(i, "live $raw primary=$primaryAt ms total=${SystemClock.elapsedRealtime()-at} ms first=${result.first().w}")
+        }
+        var cancelled = false
+        var current = true
+        try {
+            PinyinEngine.candidatesLive("zhrmbang".map { it.toString() }, true, { current }) { current = false }
+        } catch (_: java.util.concurrent.CancellationException) { cancelled = true }
+        check(cancelled) { "Obsolete lookup continued into secondary correction work" }
+        report(i, "Primary timings: $timings; obsolete refinement cancelled")
         report(i, "Sentence/abbreviation/typo/partial-candidate/layout checks passed; worst query $worst ms")
     }
 }

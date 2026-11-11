@@ -50,6 +50,16 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("fcitx-coexist".equals(mode)) {
+                FcitxRegression.INSTANCE.run(this);
+                PinyinEngine.INSTANCE.initialize(ctx);
+                HandwritingRegression.INSTANCE.run(this);
+                StreamingVoiceRegression.INSTANCE.run(this);
+                report("ALL FCITX / RIME / HANDWRITING / VOICE COEXISTENCE CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("fcitx".equals(mode)) {
+                FcitxRegression.INSTANCE.run(this);report("ALL OFFICIAL FCITX ENGINE CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
             if ("rime".equals(mode)) {
                 RimeRegression.INSTANCE.run(this);report("ALL NATIVE RIME DECODER CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
             }

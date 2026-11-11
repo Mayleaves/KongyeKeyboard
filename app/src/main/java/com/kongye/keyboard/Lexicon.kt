@@ -511,6 +511,26 @@ object Lexicon {
         return if (keys.lastOrNull() == "'") "$text'" else text
     }
 
+    /** Streaming display: appending a letter never inserts/removes a separator
+     * between earlier letters. Candidate completion cannot resegment this line. */
+    fun streamingDisplay(keys: List<String>): String {
+        if (keys.any { it.length != 1 }) return display(keys,null)
+        val out=StringBuilder()
+        var syllable=""
+        for (key in keys) {
+            if (key=="'") {
+                if (out.isNotEmpty() && out.last()!='\'') out.append('\'')
+                syllable="";continue
+            }
+            val next=syllable+key
+            if (syllable.isNotEmpty() && syllables.none {it.startsWith(next)}) {
+                out.append('\'');syllable=key
+            } else syllable=next
+            out.append(key)
+        }
+        return out.toString()
+    }
+
     fun display(raw: String, top: Cand?): String = display(raw.map { it.toString() }, top)
 
     /** 显示分隔不依赖异步候选；完整音节优先，也允许连续声母简拼 n'h'y。 */

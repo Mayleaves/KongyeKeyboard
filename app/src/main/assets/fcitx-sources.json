@@ -1,0 +1,34 @@
+{
+  "engine": "Fcitx5 Android 0.1.3 / libime",
+  "repository": "https://github.com/fcitx5-android/fcitx5-android",
+  "release": "0.1.3",
+  "source_revision": "048f581c",
+  "model": {
+    "repository": "fcitx5-android/prebuilt",
+    "revision": "3f987c60ae1485a7b2a2cf7db301726af4700f29"
+  },
+  "artifacts": {
+    "fcitx-arm64.apk": {
+      "url": "https://github.com/fcitx5-android/fcitx5-android/releases/download/0.1.3/org.fcitx.fcitx5.android-0.1.3-0-g048f581c-arm64-v8a-release.apk",
+      "sha256": "8e5de1036aea1f55895b39b4fc25a2d563e7b0663fa2708c86598f81768b106d",
+      "upstream_digest": "sha256:8e5de1036aea1f55895b39b4fc25a2d563e7b0663fa2708c86598f81768b106d"
+    },
+    "fcitx-x86_64.apk": {
+      "url": "https://github.com/fcitx5-android/fcitx5-android/releases/download/0.1.3/org.fcitx.fcitx5.android-0.1.3-0-g048f581c-x86_64-release.apk",
+      "sha256": "aaeb569fc3e9e8ec532b0ea33be39ce77b143c8add824d172f17356ddc3b9ed2",
+      "upstream_digest": "sha256:aaeb569fc3e9e8ec532b0ea33be39ce77b143c8add824d172f17356ddc3b9ed2"
+    },
+    "sc.dict": {
+      "url": "https://raw.githubusercontent.com/fcitx5-android/prebuilt/3f987c60ae1485a7b2a2cf7db301726af4700f29/libime/data/sc.dict",
+      "sha256": "38b9ca9a350b68fb3c4dd1028ccb9a4f4fb9a14d01a6a71839aa074bdd34ef10"
+    },
+    "zh_CN.lm": {
+      "url": "https://raw.githubusercontent.com/fcitx5-android/prebuilt/3f987c60ae1485a7b2a2cf7db301726af4700f29/libime/data/zh_CN.lm",
+      "sha256": "3588b3942c8fd62e1a6bd3bae8c7cadc0faf928c175b245224ed475862218387"
+    },
+    "zh_CN.lm.predict": {
+      "url": "https://raw.githubusercontent.com/fcitx5-android/prebuilt/3f987c60ae1485a7b2a2cf7db301726af4700f29/libime/data/zh_CN.lm.predict",
+      "sha256": "7d624104952b7ed91baed3ee0655184f13d1fc431e306a8a3718f6822628563d"
+    }
+  }
+}
