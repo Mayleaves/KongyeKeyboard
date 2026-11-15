@@ -2,7 +2,6 @@ package com.kongye.keyboard
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -20,7 +19,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.HorizontalScrollView
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -180,6 +178,7 @@ class ClipboardPanel(
 ) : LinearLayout(context) {
     private val d = resources.displayMetrics.density
     private val overlays = HashMap<Clip, View>()
+    private val activeThumbnails=HashSet<ClipThumbnailView>()
     private val previewLineHeight = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 13.5f * resources.displayMetrics.scaledDensity
     }.fontMetricsInt.let { it.descent - it.ascent + 2 * d }
@@ -215,8 +214,8 @@ class ClipboardPanel(
             view.animate().cancel()
             if (entry === clip) {
                 view.visibility = View.VISIBLE
-                view.animate().translationY(0f).alpha(1f).setDuration(200).start()
-            } else view.animate().translationY(32*d).alpha(0f).setDuration(160).withEndAction { view.visibility = View.INVISIBLE }.start()
+                view.animate().translationY(0f).alpha(1f).setDuration(NativeMotion.DURATION).start()
+            } else view.animate().translationY(32*d).alpha(0f).setDuration(NativeMotion.DURATION).withEndAction { view.visibility = View.INVISIBLE }.start()
         }
         onExpand(clip)
     }
@@ -280,7 +279,10 @@ class ClipboardPanel(
             queryRow = q
             addView(q, lp(MATCH, WRAP))
         }
-        recordsScroll = ScrollView(context).apply { isVerticalScrollBarEnabled = false }
+        recordsScroll = ScrollView(context).apply {
+            isVerticalScrollBarEnabled = false
+            setOnScrollChangeListener {_,_,_,_,_->activeThumbnails.toList().forEach {it.releaseIfOffscreen()} }
+        }
         addView(recordsScroll, lp(MATCH, 0, 1f))
         renderRecords()
     }
@@ -309,7 +311,7 @@ class ClipboardPanel(
                 val tabs=ClipStore.tabs();val direction=if(dx<0) 1 else -1
                 val target=tabs.indexOf(activeTab)+direction
                 if(event.actionMasked==MotionEvent.ACTION_UP && abs(dx)>max(32*d,width*.12f) && target in tabs.indices) selectTab(tabs[target],direction)
-                else recordsScroll.animate().translationX(0f).setDuration(150).start()
+                else recordsScroll.animate().translationX(0f).setDuration(NativeMotion.DURATION).start()
                 swiping=false;swipeEligible=false;parent?.requestDisallowInterceptTouchEvent(false)
             }
         }
@@ -344,7 +346,7 @@ class ClipboardPanel(
             }
         }
         recordsAnimator=android.animation.ValueAnimator.ofFloat(0f,1f).apply {
-            duration=240;interpolator=android.view.animation.DecelerateInterpolator(1.25f)
+            duration=NativeMotion.DURATION;interpolator=android.view.animation.DecelerateInterpolator(1.25f)
             addUpdateListener {
                 val fraction=it.animatedValue as Float
                 recordsScroll.translationX=start*(1-fraction)
@@ -366,7 +368,7 @@ class ClipboardPanel(
         underlineAnimator?.cancel();underlineAnimator=null
         if(!animate || !underlineX.isFinite() || !android.animation.ValueAnimator.areAnimatorsEnabled()) {underlineX=target;tabStrip.invalidate();return}
         underlineAnimator=android.animation.ValueAnimator.ofFloat(underlineX,target).apply {
-            duration=220;interpolator=android.view.animation.DecelerateInterpolator()
+            duration=NativeMotion.DURATION;interpolator=android.view.animation.DecelerateInterpolator()
             addUpdateListener {underlineX=it.animatedValue as Float;tabStrip.invalidate()}
             addListener(object:android.animation.AnimatorListenerAdapter() {override fun onAnimationEnd(animation:android.animation.Animator) {underlineAnimator=null}})
             start()
@@ -445,10 +447,8 @@ class ClipboardPanel(
         }
         val img = ClipStore.imageFile(clip)
         if (img != null && img.exists()) {
-            BitmapFactory.decodeFile(img.path, BitmapFactory.Options().apply { inSampleSize = 4 })?.let { bmp ->
-                card.addView(ImageView(context).apply { setImageBitmap(bmp); scaleType = ImageView.ScaleType.CENTER_CROP },
-                    android.widget.FrameLayout.LayoutParams(MATCH, cardHeight))
-            }
+            card.addView(ClipThumbnailView(context,img,activeThumbnails),
+                android.widget.FrameLayout.LayoutParams(MATCH,cardHeight))
         } else card.addView(TextView(context).apply {
             text = clip.text; textSize = 13.5f; maxLines = 4; ellipsize = TextUtils.TruncateAt.END
             includeFontPadding = false
@@ -733,11 +733,11 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
             visibility=View.VISIBLE;alpha=0f;translationY=8*d
             if(localEditing) editor.requestFocus()
             post {
-                if(generation==motion) animate().alpha(1f).translationY(0f).setDuration(200)
+                if(generation==motion) animate().alpha(1f).translationY(0f).setDuration(NativeMotion.DURATION)
                     .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f)).withLayer().start()
             }
         } else if(visibility==View.VISIBLE) {
-            animate().alpha(0f).translationY(8*d).setDuration(160).withLayer().withEndAction {
+            animate().alpha(0f).translationY(8*d).setDuration(NativeMotion.DURATION).withLayer().withEndAction {
                 if(generation==motion) { visibility=View.GONE;alpha=1f;translationY=0f }
             }.start()
         }

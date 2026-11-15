@@ -165,7 +165,7 @@ class CandidateBar(context: Context) : View(context) {
     private fun updateLongCandidate() {
         text.textSize=17*d
         val word=items.firstOrNull()?.w
-        onLongCandidate(word?.takeIf {mode==Mode.CANDS && it.codePointCount(0,it.length)>4})
+        onLongCandidate(word?.takeIf {mode==Mode.CANDS && !expanded && width>0 && text.measureText(it)>width-expandW-2*pad})
     }
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int) {
         super.onSizeChanged(w,h,oldw,oldh);updateLongCandidate()
@@ -217,8 +217,6 @@ class CandidateBar(context: Context) : View(context) {
         c.drawText(shown, left, cy - (fm.ascent + fm.descent) / 2, text)
         // 分词：圆形图标按钮
         val sx = clipSplitLeft() + 22 * d
-        fill.color = if (clipPressedZone == 2) skin.keyDown else skin.modBg
-        c.drawCircle(sx, cy, 15 * d, fill)
         icons.draw(c, R.drawable.ic_split, sx, cy, 17f, skin.modFg)
         if (clipPressedZone == 3) {
             fill.color = skin.keyDown

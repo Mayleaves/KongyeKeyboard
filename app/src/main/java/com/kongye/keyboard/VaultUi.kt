@@ -9,13 +9,14 @@ import android.widget.TextView
 
 /**
  * 「密码空间」面板（需求文档 v2 第 9.2 节，样式参照下拉框）：
- * 每行首字头像 + 账号（空叶文档给的打码账号）+「名称 · ********」；注册页最上面是「生成强密码」，最下面是「更多密码」（搜索）。
+ * 每行首字头像 + 账号（空叶文档给的打码账号）+「名称 · ********」；注册页最上面是「生成随机密码」，最下面是「更多密码」（搜索）。
  * Search results contain metadata only. Never create a password TextView.
  */
 class VaultPanel(
     context: Context, skin: Skin, entries: List<VaultFill.Entry>,
     onPick: (VaultFill.Entry) -> Unit, onSearch: () -> Unit, onBack: () -> Unit,
     title: String = "密码空间", canGenerate: Boolean = false, onGenerate: () -> Unit = {},
+    canRemember:Boolean=false,onRememberedPick:(VaultFill.Entry)->Unit=onPick,
 ) : LinearLayout(context) {
     init {
         val d = resources.displayMetrics.density
@@ -25,6 +26,14 @@ class VaultPanel(
         head.addView(TextView(context).apply { text = title; textSize = 15f; setTextColor(skin.keyFg) }, lp(0, WRAP, 1f))
         head.addView(IconButton(context, R.drawable.ic_search, skin.barFg, 22f, onSearch).apply { contentDescription = "搜索密码空间" }, lp((42 * d).toInt(), (40 * d).toInt()))
         addView(head, lp(MATCH, WRAP))
+        var remember=false
+        if(canRemember) addView(android.widget.CheckBox(context).apply {
+            text="记住所选账号用于此 App";textSize=13f;setTextColor(skin.barFg)
+            setPadding((12*d).toInt(),0,(12*d).toInt(),0)
+            contentDescription="记住用于此 App，默认关闭；关闭时仅本次填入"
+            setOnCheckedChangeListener {_,checked ->remember=checked}
+        },lp(MATCH,(38*d).toInt()))
+        addView(TextView(context).apply {text=if(canRemember) "默认仅本次填入；选错后可重新搜索其他账号。" else "网页账号不按浏览器 App 关联。";textSize=11.5f;setTextColor(skin.barFg);setPadding((14*d).toInt(),0,(10*d).toInt(),(5*d).toInt())},lp(MATCH,WRAP))
         val list = LinearLayout(context).apply { orientation = VERTICAL; setPadding((12 * d).toInt(), 0, (12 * d).toInt(), (8 * d).toInt()) }
 
         fun row(avatar: String, line1: String, line2: String, warn: Boolean = false, click: () -> Unit) = LinearLayout(context).apply {
@@ -39,19 +48,19 @@ class VaultPanel(
             addView(LinearLayout(context).apply {
                 orientation = VERTICAL; setPadding((12 * d).toInt(), 0, 0, 0)
                 addView(TextView(context).apply { text = line1; textSize = 15f; setTextColor(skin.keyFg); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
-                addView(TextView(context).apply { text = line2; textSize = 12.5f; setTextColor(if (warn) 0xFFE5534B.toInt() else skin.barFg); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+                addView(TextView(context).apply { text = line2; visibility=if(line2.isBlank())android.view.View.GONE else android.view.View.VISIBLE; textSize = 12.5f; setTextColor(if (warn) 0xFFE5534B.toInt() else skin.barFg); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
             }, lp(0, WRAP, 1f))
             setOnClickListener { click() }
         }
 
-        if (canGenerate) list.addView(row("+", "生成强密码", "按页面提示的要求生成，填入新密码框") { onGenerate() }, lp(MATCH, (54 * d).toInt()).apply { bottomMargin = (6 * d).toInt() })
+        if (canGenerate) list.addView(row("+", "生成随机密码", "") { onGenerate() }, lp(MATCH, (54 * d).toInt()).apply { bottomMargin = (6 * d).toInt() })
         if (entries.isEmpty() && !canGenerate) list.addView(TextView(context).apply {
             text = "没有找到匹配项，点「更多密码」搜索"; textSize = 14f; setTextColor(skin.barFg); gravity = Gravity.CENTER; setPadding(0, (20 * d).toInt(), 0, (12 * d).toInt())
         })
         entries.forEach { entry ->
             val line1 = entry.account.ifEmpty { entry.name }
             val line2 = if (entry.certMismatch) "${entry.name} · ⚠ 签名和上次不同" else "${entry.name} · ********"
-            list.addView(row(entry.name.trim().take(1).ifEmpty { "#" }, line1, line2, entry.certMismatch) { onPick(entry) },
+            list.addView(row(entry.name.trim().take(1).ifEmpty { "#" }, line1, line2, entry.certMismatch) {if(remember)onRememberedPick(entry) else onPick(entry)},
                 lp(MATCH, (54 * d).toInt()).apply { bottomMargin = (6 * d).toInt() })
         }
         list.addView(TextView(context).apply {

@@ -8,6 +8,9 @@ import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import androidx.annotation.Keep
+import com.k2fsa.sherpa.onnx.OfflinePunctuation
+import com.k2fsa.sherpa.onnx.OfflinePunctuationConfig
+import com.k2fsa.sherpa.onnx.OfflinePunctuationModelConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineParaformerModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
@@ -136,6 +139,18 @@ object OfflineVoice {
     @Volatile private var cachedDialect = -1
     private var cachedEngine: OfflineRecognizer? = null
     private var streamingEngine: OnlineRecognizer? = null
+    private var punctuationEngine:OfflinePunctuation?=null
+
+    /** Called on the decoder worker while engineLock is held. */
+    private fun punctuate(ctx:Context,text:String):String {
+        if(text.isBlank()) return text
+        val model=punctuationEngine ?: OfflinePunctuation(ctx.assets,
+            OfflinePunctuationConfig(OfflinePunctuationModelConfig(
+                ctTransformer="voice-punctuation/model.int8.onnx",numThreads=1))).also {punctuationEngine=it}
+        return model.addPunctuation(text)
+    }
+
+    fun punctuateSample(ctx:Context,text:String):String=engineLock.withLock {punctuate(ctx,text)}
     private val warmRequests = HashSet<Int>()
     @Volatile private var preferredDialect = 0
 
@@ -175,6 +190,7 @@ object OfflineVoice {
             if (preferredDialect != -1) return@withLock
             cachedDialect=-1; cachedEngine?.release(); cachedEngine=null
             streamingEngine?.release(); streamingEngine=null
+            punctuationEngine?.release();punctuationEngine=null
         } },"KongyeVoiceRelease").start()
     }
 
@@ -300,7 +316,10 @@ object OfflineVoice {
                             }
                             if(spoken && length>3200) {
                                 val result=if(loaded!=null) decode(loaded,samples.copyOf(length)) else streamed
-                                if(result.isNotBlank()) post { listener.result(result) }
+                                if(result.isNotBlank()) {
+                                    val punctuated=punctuate(ctx,result)
+                                    post {listener.result(punctuated)}
+                                }
                             }
                             length=0; spoken=false; silence=0; partialAt=0; lastPartial=""
                         }

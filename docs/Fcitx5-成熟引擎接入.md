@@ -1,5 +1,7 @@
 # Fcitx5 成熟引擎接入
 
+本文记录 2.2.2 的接入范围。2.3.0 的通用拼写距离保护、展开查询与滑行适配见 [2.3.0 功能说明](2.3.0-候选与手势.md)。
+
 用户要求直接采用高关注度开源项目的通用排序与纠错。本版采用 Fcitx5 Android 官方 0.1.3 原生运行库、libime 解码器及官方 prebuilt 仓库的更新模型。调研时 Fcitx5 Android 约 5,900 stars；不会把 star 数当作所有输入都正确的保证。
 
 微软 GitHub 的 Windows-classic-samples/Samples/IME/cpp/SampleIME 是输入法接口/词表查询示例，不是 Windows 自带微软拼音的完整中文模型。没有复制微软闭源库。

@@ -91,21 +91,23 @@ object VaultRegression {
         check(filled.last()=="test@example.test")
         ui {vault.focus(info(password,11))}
         waitFor("next-field password") {filled.last()=="Synthetic-Only!9" && filled.size==3}
-        ui {vault.search("test") {list ->check(list.size==1);vault.choose(list.first())}}
+        Thread.sleep(80)
+        check(calls.none {it=="bind"}) {"A one-time fill silently created a lasting app binding"}
+        ui {vault.search("test") {list ->check(list.size==1);vault.choose(list.first(),remember=true)}}
         waitFor("first search binding") {calls.contains("bind")}
         ui {vault.focus(info(InputType.TYPE_CLASS_TEXT,12,"账号"))}
-        waitFor("search account ready") {vault.actions().isNotEmpty()}
+        waitFor("search account ready") {vault.diagnosticState().contains("available=true")}
         val bindsBeforeNext=calls.count {it=="bind"}
         ui {
             nextHook={vault.focus(info(password,13))}
-            vault.choose(VaultFill.Entry("entry","Fixture","te***@example.test","search"))
+            vault.choose(VaultFill.Entry("entry","Fixture","te***@example.test","search"),remember=true)
         }
         waitFor("search binding survives immediate next field") {calls.count {it=="bind"}>bindsBeforeNext}
         waitFor("search account next password") {filled.last()=="Synthetic-Only!9"}
         ui {nextHook={}}
         ui {vault.focus(info(password,20,"新密码"))}
-        waitFor("generator action") {vault.actions().any {it.label=="生成强密码"}}
-        ui {vault.actions().first {it.label=="生成强密码"}.run()}
+        waitFor("generator action") {vault.actions().any {it.label=="生成随机密码"}}
+        ui {vault.actions().first {it.label=="生成随机密码"}.run()}
         waitFor("generated fill") {filled.last()=="Generated-Only!8"}
         ui {vault.hide();vault.focus(info(password,21,"确认密码"))}
         waitFor("confirm reuse") {vault.actions().any {it.label=="使用刚生成的密码"}}
@@ -114,20 +116,20 @@ object VaultRegression {
         waitFor("explicit save") {saved}
         ui {check(vault.actions().none {it.label.startsWith("保存到空叶文档？")})}
         ui {vault.focus(info(password,30))}
-        waitFor("typed focus") {vault.actions().isNotEmpty()}
+        waitFor("typed focus") {vault.diagnosticState().contains("available=true")}
         ui {vault.typed("typed-only");vault.invalidateCapture();vault.submitted();check(vault.actions().none {it.label.startsWith("保存到空叶文档？")})}
         ui {vault.focus(info(password,31))}
-        waitFor("manual capture status") {vault.actions().isNotEmpty()}
+        waitFor("manual capture status") {vault.diagnosticState().contains("available=true")}
         val savesBefore=calls.count {it=="save"}
         ui {vault.typed("never-save");vault.submitted();check(vault.actions().any {it.label.startsWith("保存到空叶文档？")});vault.discard();check(vault.actions().none {it.label.startsWith("保存到空叶文档？")})}
         check(calls.count {it=="save"}==savesBefore) {"Typing saved without explicit consent"}
         ui {vault.focus(info(password,32,"新密码"))}
-        waitFor("second generation") {vault.actions().any {it.label=="生成强密码"}}
+        waitFor("second generation") {vault.actions().any {it.label=="生成随机密码"}}
         val beforeSecondGeneration=filled.size
-        ui {vault.actions().first {it.label=="生成强密码"}.run()}
+        ui {vault.actions().first {it.label=="生成随机密码"}.run()}
         waitFor("second generator response") {filled.size>beforeSecondGeneration && filled.last()=="Generated-Only!8"}
         ui {clock+=120001;vault.hide();vault.focus(info(password,33,"确认密码"))}
-        waitFor("expired confirmation ready") {vault.actions().isNotEmpty()}
+        waitFor("expired confirmation ready") {vault.diagnosticState().contains("available=true")}
         ui {check(vault.actions().none {it.label=="使用刚生成的密码"});vault.discard()}
         hold=CountDownLatch(1);entered=CountDownLatch(1)
         ui {vault.focus(info(password,40))}
@@ -148,11 +150,12 @@ object VaultRegression {
         hold!!.countDown();hold=null
         Thread.sleep(80);inst.waitForIdleSync();check(filled.size==beforeTypingRace) {"Delayed password replaced newer typing"}
         ui {vault.discard();vault.focus(info(password,46),emptyField=false)}
-        waitFor("existing password ready") {vault.actions().isNotEmpty()}
+        waitFor("existing password ready") {vault.diagnosticState().contains("available=true")}
         ui {vault.typed("partial");vault.submitted();check(vault.actions().none {it.label.startsWith("保存到空叶文档？")})}
         val matchesBefore=calls.count {it=="match"}
         ui {vault.focus(info(password,47,pkg="browser.fixture"),browser=true)}
-        waitFor("browser search ready") {vault.actions().any {it.label.startsWith("🔑 密码空间")}}
+        waitFor("browser search ready") {vault.diagnosticState().contains("available=true")}
+        check(vault.actions().none {it.label.startsWith("🔑 密码空间")}) {"Removed keyboard vault entry reappeared"}
         check(calls.count {it=="match"}==matchesBefore) {"Browser auto-matched without a domain"}
         val browserBinds = calls.count { it == "bind" }
         val beforeBrowserReveal = filled.size
@@ -160,10 +163,10 @@ object VaultRegression {
         waitFor("browser reveal") { filled.size > beforeBrowserReveal }
         // 排队的 status 会在 reveal 的回调完成后执行，确保 bind 检查覆盖异步调用。
         ui { vault.focus(info(password, 48, "新密码", "browser.fixture"), browser=true) }
-        waitFor("browser generation ready") { vault.actions().any { it.label == "生成强密码" } }
+        waitFor("browser generation ready") { vault.actions().any { it.label == "生成随机密码" } }
         check(calls.count { it == "bind" } == browserBinds)
         val beforeBrowserGeneration = filled.size
-        ui { vault.actions().first { it.label == "生成强密码" }.run() }
+        ui { vault.actions().first { it.label == "生成随机密码" }.run() }
         waitFor("browser generated capture") { filled.size > beforeBrowserGeneration && filled.last() == "Generated-Only!8" }
         ui { vault.submitted(); check(vault.actions().any { it.label.contains("需补网址") }); vault.actions().first { it.label.contains("需补网址") }.run() }
         waitFor("browser save without package") { browserSaved }
@@ -228,7 +231,7 @@ object VaultRegression {
         ui {v.focus(info(password,60,pkg="shop.app"))}
         waitFor("mismatch entry") {v.panelEntries().isNotEmpty()}
         @Suppress("DEPRECATION") check(last("match")!!.getStringArrayList("features")?.contains("match.cert")==true)
-        check(v.actions().first {it.label.startsWith("🔑 密码空间")}.label=="🔑 密码空间") {"mismatched entries must not count as recommendations"}
+        check(v.actions().isEmpty()) {"A signature mismatch must not surface as a keyboard recommendation"}
         ui {v.choose(v.panelEntries().first())}
         check(last("reveal")==null && notices.last().contains("签名")) {"first tap must only warn"}
         ui {v.choose(v.panelEntries().first())}
@@ -238,8 +241,8 @@ object VaultRegression {
         // 注册：手机号 → 设置密码（提示文字交给空叶文档解析，手机号不能出现在密码里）→ 确认密码 → 提交后一次保存
         ui {v.focus(info(InputType.TYPE_CLASS_PHONE,61,"手机号",pkg="reg.app"));v.typed("13800001234")}
         ui {v.focus(info(password,62,"设置密码，8-16位字母和数字",pkg="reg.app"))}
-        waitFor("generator") {v.actions().any {it.label=="生成强密码"}}
-        ui {v.actions().first {it.label=="生成强密码"}.run()}
+        waitFor("generator") {v.actions().any {it.label=="生成随机密码"}}
+        ui {v.actions().first {it.label=="生成随机密码"}.run()}
         waitFor("generated") {filled.lastOrNull()=="RuleGen7x"}
         last("generate")!!.let {g -> @Suppress("DEPRECATION") check(g.getString("ruleText")!!.contains("8-16位") && g.getStringArrayList("avoid")==arrayListOf("13800001234")) {"rule text / avoid"}}
         check(notices.last().contains("16 位"))

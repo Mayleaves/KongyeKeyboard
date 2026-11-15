@@ -25,3 +25,7 @@ app/src/main/assets/voice-streaming/bbpe.model
 app/src/main/assets/handwriting-neural/*.onnx
 
 app/src/main/assets/fcitx-data.zip
+
+app/libs/markdown-*.jar
+
+app/src/main/assets/voice-punctuation/*.onnx

@@ -66,7 +66,7 @@ class KeyboardView(context: Context) : View(context) {
         change()
         oldNormalKeys=before;languageProgress=0f
         languageAnimator=ValueAnimator.ofFloat(0f,1f).apply {
-            duration=180
+            duration=NativeMotion.DURATION
             addUpdateListener {
                 languageProgress=it.animatedValue as Float
                 if(languageProgress>=1f) {oldNormalKeys?.recycle();oldNormalKeys=null}
@@ -77,6 +77,9 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     interface Listener {
+        fun onGlide(trace:GlideTrace) {}
+        fun onGlidePreview(trace:GlideTrace) {}
+        fun onGlideCancel() {}
         fun onKey(key: Key)
         fun onLongKey(key: Key)
         fun onPress(key: Key)
@@ -98,6 +101,8 @@ class KeyboardView(context: Context) : View(context) {
     var zh = true
     /** 中文组字时大写键变成“分词” */
     var splitMode = false
+    var clearCompositionOnHold = false
+    var glideEnabled = false
     var swipeEnabled = true
     var enterIcon = R.drawable.ic_enter
     var heightScale = 1f
@@ -117,7 +122,8 @@ class KeyboardView(context: Context) : View(context) {
     private var sidePressed = -1
 
     var splitLayout = false
-    private var cursorMode = false
+    var cursorMode = false
+        private set
 
     private val d get() = resources.displayMetrics.density * heightScale
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
@@ -169,6 +175,9 @@ class KeyboardView(context: Context) : View(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         layoutKeys()
+        if(android.os.Build.VERSION.SDK_INT>=29 && !preview) {
+            systemGestureExclusionRects=listOf(android.graphics.Rect(0,0,w,h))
+        }
     }
 
     private fun layoutKeys() {
@@ -263,8 +272,13 @@ class KeyboardView(context: Context) : View(context) {
             c.drawBitmap(previous,0f,0f,transitionPaint)
             for(row in rows) for(k in row.keys) if(k.look==Look.MOD) drawKey(c,k,pressMap[k])
         }
+        val trace=presses.values.firstOrNull {it.gliding}?.trace
+        if(trace!=null && trace.size>1) {
+            val line=Path();line.moveTo(trace[0].x,trace[0].y);trace.drop(1).forEach {line.lineTo(it.x,it.y)}
+            stroke.color=withAlpha(skin.candHi,150);stroke.strokeWidth=3*d;stroke.strokeCap=Paint.Cap.ROUND;c.drawPath(line,stroke)
+        }
         side?.let { drawSide(c, it) }
-        for (p in presses.values) p.popup?.let { drawPopup(c, p, it) }
+        syncPopupOverlay()
     }
 
     /** 长按字母弹出的一排：小写、大写和角标符号；左右滑选，松手输入 */
@@ -276,8 +290,40 @@ class KeyboardView(context: Context) : View(context) {
         // 默认选中的那格（大写）对准按下的键
         var left = k.centerX() - cw * (p.popDefault + 0.5f)
         left = left.coerceIn(2 * d, width - total - 2 * d)
-        val top = max(0f, k.top - h - 6 * d)
+        val top = k.top - h - 6 * d
         return RectF(left, top, left + total, top + h)
+    }
+
+    val popupAboveKeyboard:Int
+        get()=if(rows.firstOrNull()?.keys?.any {it.kind==Kind.LETTER}==true) rowH().toInt() else 0
+    private var popupRoot:View?=null
+    private val popupOverlay=object:android.graphics.drawable.Drawable() {
+        override fun draw(canvas:Canvas) {
+            val host=popupRoot ?: return
+            val origin=IntArray(2);val base=IntArray(2)
+            getLocationOnScreen(origin);host.getLocationOnScreen(base)
+            canvas.save();canvas.translate((origin[0]-base[0]).toFloat(),(origin[1]-base[1]).toFloat())
+            for(press in presses.values) press.popup?.let {drawPopup(canvas,press,it)}
+            canvas.restore()
+        }
+        override fun setAlpha(alpha:Int) {}
+        override fun setColorFilter(filter:android.graphics.ColorFilter?) {}
+        @Deprecated("Legacy Drawable API")
+        override fun getOpacity()=android.graphics.PixelFormat.TRANSLUCENT
+    }
+
+    private fun syncPopupOverlay() {
+        if(presses.values.none {it.popup!=null}) {
+            popupRoot?.overlay?.remove(popupOverlay);popupRoot=null
+            return
+        }
+        val host=rootView
+        if(popupRoot!==host) {
+            popupRoot?.overlay?.remove(popupOverlay);popupRoot=host
+            host.overlay.add(popupOverlay)
+        }
+        popupOverlay.setBounds(0,0,host.width,host.height)
+        popupOverlay.invalidateSelf()
     }
 
     private fun drawPopup(c: Canvas, p: Press, items: List<String>) {
@@ -336,6 +382,7 @@ class KeyboardView(context: Context) : View(context) {
         val prog = p?.prog ?: 0f
         val dir = p?.swipe ?: 0
         when (k.kind) {
+            Kind.ACTION -> drawText(c,k.label,cx,cy,14f,fg)
             Kind.LETTER -> {
                 val label = when {
                     k.label.length > 1 -> k.label.uppercase()
@@ -508,6 +555,8 @@ class KeyboardView(context: Context) : View(context) {
     // —————————— 触摸 ——————————
 
     private class Press(val id: Int, var key: Key, val x0: Float, val y0: Float) {
+        val trace=ArrayList<GlidePoint>().apply {add(GlidePoint(x0,y0))}
+        var gliding=false
         var long = false
         var fired = false
         var dragging = false
@@ -548,6 +597,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun cancelAll(retainRepeat: Runnable?=null) {
+        if(presses.values.any {it.gliding}) listener?.onGlideCancel()
         longTask?.let { handler.removeCallbacks(it) }
         repeatTask?.takeIf {it!==retainRepeat}?.let { handler.removeCallbacks(it) }
         removeCallbacks(delReleaseAnim)
@@ -556,6 +606,7 @@ class KeyboardView(context: Context) : View(context) {
         longTask = null
         repeatTask = retainRepeat
         presses.clear()
+        syncPopupOverlay()
         if (cursorMode) {
             cursorMode = false
             listener?.onCursorModeChange(false)
@@ -640,6 +691,7 @@ class KeyboardView(context: Context) : View(context) {
                 override fun run() {
                     if(presses[p.id]!==p || p.swipe!=0) return
                     p.fired = true
+                    if(clearCompositionOnHold && !p.long) {p.long=true;listener?.onLongKey(p.key);return}
                     listener?.onKey(p.key)
                     if(presses[p.id]===p && repeatTask===this) handler.postDelayed(this,55)
                 }
@@ -666,7 +718,7 @@ class KeyboardView(context: Context) : View(context) {
                 popLong -> {
                     // 小写、大写，再加上角标的符号
                     val letters = k.letters.map { it.toString() }
-                    val opts = (letters + letters.map { it.uppercase() } + listOfNotNull(k.hint, k.hint2)).distinct()
+                    val opts = (letters + letters.map { it.uppercase() } + listOfNotNull(k.hint.takeIf {k.downAction?.command==null}, k.hint2.takeIf {k.upAction?.command==null})).distinct()
                     p.popup = opts
                     p.popDefault = if (letters.size == 1 && opts.size > 1) 1 else 0
                     p.popSel = p.popDefault
@@ -714,6 +766,25 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun move(p: Press, x: Float, y: Float) {
+        if(glideEnabled && p.key.kind==Kind.LETTER && !p.long) {
+            val last=p.trace.last()
+            if(kotlin.math.hypot(x-last.x,y-last.y)>2*d && p.trace.size<512) p.trace.add(GlidePoint(x,y))
+            val next=findKey(x,y)
+            val dx=abs(x-p.x0);val dy=abs(y-p.y0)
+            val crossed=next?.kind==Kind.LETTER && next!==p.key &&
+                ((dx>p.key.rect.width()*.7f) || (dy>rowH()*1.15f))
+            if(!p.gliding && crossed) {
+                p.gliding=true;p.swipe=0;p.prog=0f
+                longTask?.let {handler.removeCallbacks(it)};longTask=null
+                parent?.requestDisallowInterceptTouchEvent(true)
+            }
+            if(p.gliding) {
+                val letters=rows.flatMap {it.keys}.filter {it.kind==Kind.LETTER && it.letters.length==1}
+                if(letters.size==26) listener?.onGlidePreview(GlideTrace(p.trace.toList(),letters.associate {it.letters[0] to GlidePoint(it.rect.centerX(),it.rect.centerY())},letters.first().rect.width()))
+                invalidate();return
+            }
+        }
+
         val k = p.key
         p.popup?.let { items ->
             val r = popupRect(p, items.size)
@@ -776,7 +847,7 @@ class KeyboardView(context: Context) : View(context) {
         val k2 = findKey(x, y) ?: return
         if (k2 === k || abs(dx) < abs(dy)) return
         val slidable = { q: Key -> q.kind == Kind.LETTER || q.kind == Kind.CHAR }
-        if (slidable(k) && slidable(k2)) {
+        if (slidable(k) && slidable(k2) && !(glideEnabled && k.kind==Kind.LETTER)) {
             p.key = k2
             scheduleLong(p)
             invalidate()
@@ -785,6 +856,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun release(p: Press, fire: Boolean) {
         presses.remove(p.id)
+        syncPopupOverlay()
         longTask?.let { handler.removeCallbacks(it) }
         longTask = null
         if (p.key.kind == Kind.DEL || p.key.repeat || p.repeating) {
@@ -802,7 +874,14 @@ class KeyboardView(context: Context) : View(context) {
             listener?.onCursorModeChange(false)
         }
         invalidate()
+        if(!fire && p.gliding) listener?.onGlideCancel()
         if (!fire || p.fired) return
+        if(p.gliding) {
+            val letters=rows.flatMap {it.keys}.filter {it.kind==Kind.LETTER && it.letters.length==1}
+            if(letters.size==26) listener?.onGlide(GlideTrace(p.trace.toList(),letters.associate {it.letters[0] to GlidePoint(it.rect.centerX(),it.rect.centerY())},letters.first().rect.width()))
+            parent?.requestDisallowInterceptTouchEvent(false)
+            return
+        }
         val k = p.key
         p.popup?.let { items -> items.getOrNull(p.popSel)?.let { listener?.onKey(Key(Kind.CHAR, it)) }; return }
         // 滑得够远（进度过 0.12）才算滑动输入，不够就当普通点击
@@ -810,7 +889,11 @@ class KeyboardView(context: Context) : View(context) {
         if (p.long && k.hint != null) { listener?.onKey(Key(Kind.CHAR, k.hint)); return }
         if (swiped) {
             if (k.kind == Kind.DEL) listener?.onSwipeDel(p.swipe > 0)
-            else (if (p.swipe > 0) k.hint else k.hint2)?.let { listener?.onKey(Key(Kind.CHAR, it)) }
+            else {
+                val action=if(p.swipe>0) k.downAction else k.upAction
+                if(action?.command!=null) listener?.onKey(Key(Kind.ACTION,action.label,out=action.command!!))
+                else (action?.text ?: if(p.swipe>0) k.hint else k.hint2)?.let {listener?.onKey(Key(Kind.CHAR,it))}
+            }
             return
         }
         if (!p.dragging) listener?.onKey(k)

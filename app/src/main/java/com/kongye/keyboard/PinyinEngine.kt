@@ -86,14 +86,14 @@ object PinyinEngine {
     }
 
     fun candidates(keys: List<String>, abbr: Boolean = true): List<Cand> {
-        if(FcitxEngine.ready && layout(keys)=="26" && abbr) return FcitxEngine.candidates(keys) {true}.let {PinyinExpressions.insert(it,keys)}
+        if(FcitxEngine.ready && layout(keys)=="26" && abbr) return FcitxEngine.primaryCandidates(keys) {true}.let {PinyinExpressions.insert(it,keys)}
         if (!ready) return Lexicon.candidates(keys, abbr)
         return queryReady(keys, abbr, { true }, {})
     }
 
     fun candidatesLive(keys: List<String>, abbr: Boolean, current: () -> Boolean, onPrimary: (List<Cand>) -> Unit): List<Cand> {
         if(FcitxEngine.ready && layout(keys)=="26" && abbr) {
-            val result=FcitxEngine.candidates(keys,current).let {PinyinExpressions.insert(it,keys)}
+            val result=FcitxEngine.primaryCandidates(keys,current).let {PinyinExpressions.insert(it,keys)}
             onPrimary(result);return result
         }
         if (!ready) return Lexicon.candidates(keys, abbr)
@@ -245,7 +245,7 @@ object PinyinEngine {
 
     @Synchronized fun recordPick(c: Cand) {
         val choice = c.nativeChoice ?: return
-        if(choice.schema=="fcitx/pinyin") return
+        if(choice.schema.startsWith("fcitx/")) return
         core?.learn(choice.schema, choice.raw, c.w)
         cache.clear()
     }

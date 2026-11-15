@@ -7,7 +7,7 @@ import java.util.zip.ZipInputStream
 import org.fcitx.fcitx5.android.core.Fcitx
 import org.fcitx.fcitx5.android.core.RawConfig
 
-/** The official Fcitx5 Android + libime decoder; no frontend word re-ranking. */
+/** Official libime decoding with bounded spelling-path fallback, never example-word overrides. */
 object FcitxEngine {
     @Volatile var ready=false; private set
     @Volatile var failure:String?=null; private set
@@ -79,7 +79,9 @@ object FcitxEngine {
         }
         Fcitx.flush()
     }
-    fun candidates(keys:List<String>,current:()->Boolean):List<Cand> = native {
+    fun candidates(keys:List<String>,current:()->Boolean):List<Cand> = query(keys,current,true)
+    fun primaryCandidates(keys:List<String>,current:()->Boolean):List<Cand> = query(keys,current,false)
+    private fun query(keys:List<String>,current:()->Boolean,includeShort:Boolean):List<Cand> = native {
         check(ready)
         if(!current()) throw java.util.concurrent.CancellationException()
         if(fuzzy!=Lexicon.fuzzyRules) configure(Lexicon.fuzzyRules)
@@ -88,16 +90,67 @@ object FcitxEngine {
         if(!current()) throw java.util.concurrent.CancellationException()
         val tokens=Fcitx.preedit.split(' ', '\'').filter {it.isNotEmpty()}
         val count=raw.count {it!='\''}
-        val words=Fcitx.getFcitxCandidates(0,40).orEmpty().mapNotNull {c ->
-            if(c.text.isEmpty() || c.text.all {it.code<128}) null else {
-                val chars=c.text.codePointCount(0,c.text.length)
-                val estimated=tokens.take(chars).sumOf {token->token.count {it in 'a'..'z'}}.coerceIn(1,count.coerceAtLeast(1))
-                Cand(c.text,estimated,null,0f,py=Lexicon.pinyinOf(c.text),inputDisplay=Lexicon.streamingDisplay(keys),
-                    nativeChoice=RimeChoice("fcitx/pinyin",raw))
+        fun collect(query:String,source:String,limit:Int=80):List<Cand> {
+            val parts=Fcitx.preedit.split(' ', '\'').filter {it.isNotEmpty()}
+            val length=source.count {it!='\''}
+            return Fcitx.getFcitxCandidates(0,limit).orEmpty().mapNotNull {c ->
+                if(c.text.isEmpty() || c.text.all {it.code<128}) null else {
+                    val chars=c.text.codePointCount(0,c.text.length)
+                    val estimated=parts.take(chars).sumOf {token->token.count {it in 'a'..'z'}}.coerceIn(1,length.coerceAtLeast(1))
+                    Cand(c.text,estimated,null,0f,py=Lexicon.pinyinOf(c.text),inputDisplay=Lexicon.streamingDisplay(keys),
+                        nativeChoice=RimeChoice("fcitx/pinyin",query,source),correction=query!=source)
+                }
             }
         }
-        words + Cand(raw,count,null,-100f)
+        val original=collect(raw,raw,if(includeShort) 80 else 40)
+        val result=original.toMutableList()
+        // Only phonotactically broken spellings enter the adjacent-transposition
+        // lattice; native dictionary/model decoding still supplies the words.
+        try {
+            val variants=SpellingAssist.transpositions(raw)
+            val baseline=if(variants.isEmpty()) 1000 else original.firstOrNull()?.let {SpellingAssist.wordCost(raw,it.py.orEmpty())} ?: 1000
+            val repairs=ArrayList<Cand>()
+            // Trust a native sentence already explained by a swap/near-key edit.
+            // Replaying whole alternative spellings in this case only adds delay.
+            for(variant in if(baseline<=15) emptyList() else variants) {
+                if(!current()) throw java.util.concurrent.CancellationException()
+                prepare(variant,current)
+                val alternatives=collect(variant,raw,12)
+                val full=alternatives.firstOrNull()
+                if(full!=null) repairs.add(full)
+                for(c in alternatives.take(3)) if(result.none {it.w==c.w}) result.add(c)
+            }
+            val best=repairs.minByOrNull {SpellingAssist.wordCost(raw,it.py.orEmpty())}
+            if(best!=null && SpellingAssist.wordCost(raw,best.py.orEmpty())<baseline) {
+                result.removeAll {it.w==best.w};result.add(0,best)
+            }
+            // Ask the native dictionary for real short prefix phrases as well.
+            // A full-sentence-heavy native page must not hide all 3/2/1-char words.
+            if(includeShort && tokens.size>3) for(size in listOf(3,2,1)) {
+                val prefix=tokens.take(size).joinToString("").filter {it in 'a'..'z'}
+                if(prefix.isEmpty() || !raw.startsWith(prefix)) continue
+                prepare(prefix,current)
+                val short=collect(prefix,prefix,40).filter {it.w.codePointCount(0,it.w.length)==size}.take(8)
+                for(c in short) if(result.none {it.w==c.w}) result.add(c)
+            }
+        } finally {prepare(raw,current)}
+        result + Cand(raw,count,null,-100f)
     }
+
+    /** Keep alternate dictionary spellings selectable after a gesture. Only
+     * their full-word candidates may replace the primary gesture spelling. */
+    fun glideCandidates(matches:List<GlideDecoder.Match>,current:()->Boolean):List<Cand> {
+        if(matches.isEmpty() || !ready) return emptyList()
+        val source=matches.first().spelling
+        val base=primaryCandidates(source.map {it.toString()},current)
+        val alternatives=matches.drop(1).take(2).mapNotNull {match ->
+            val c=primaryCandidates(match.spelling.map {it.toString()},current).firstOrNull {it.nativeChoice!=null} ?: return@mapNotNull null
+            Cand(c.w,source.length,null,c.score,py=c.py,
+                nativeChoice=RimeChoice("fcitx/glide",match.spelling,source))
+        }
+        return (base.take(1)+alternatives+base.drop(1)).distinctBy {it.w}
+    }
+
     /** The native selected preedit is authoritative for how many keys a word eats. */
     fun consume(c:Cand,learn:Boolean):Int = native {
         val raw=c.nativeChoice!!.raw
@@ -112,8 +165,9 @@ object FcitxEngine {
             val remaining=if(Fcitx.committed.isNotEmpty()) "" else Fcitx.preedit.filter {it in 'a'..'z'}
             val n=raw.count {it!='\''}-remaining.length
             check(n>0) {"Native candidate did not consume input"}
+            if(c.nativeChoice!!.schema=="fcitx/glide") check(n==raw.count {it!='\''}) {"Alternate glide candidate did not consume its full spelling"}
             if(learn) Fcitx.saveFcitxState()
-            n
+            if(c.nativeChoice!!.source!=raw && n==raw.count {it!='\''}) c.nativeChoice!!.source.count {it!='\''} else n
         } finally {
             Fcitx.setCapabilityFlags(SENSITIVE);Fcitx.resetInputContext();Fcitx.flush();input=""
         }

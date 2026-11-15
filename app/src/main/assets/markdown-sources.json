@@ -1,0 +1,37 @@
+[
+  {
+    "file": "markdown-core-4.6.2.aar",
+    "url": "https://repo.maven.apache.org/maven2/io/noties/markwon/core/4.6.2/core-4.6.2.aar",
+    "sha256": "29e4c1de9aefa3d3c7f8a7948ba24c3696adc34b29e3d7d106eb35e8fa2c85fd"
+  },
+  {
+    "file": "markdown-ext-tables-4.6.2.aar",
+    "url": "https://repo.maven.apache.org/maven2/io/noties/markwon/ext-tables/4.6.2/ext-tables-4.6.2.aar",
+    "sha256": "8ae267e82d66026b815cfc00a53f8262e775b585377825dca651912edbcf5759"
+  },
+  {
+    "file": "markdown-ext-tasklist-4.6.2.aar",
+    "url": "https://repo.maven.apache.org/maven2/io/noties/markwon/ext-tasklist/4.6.2/ext-tasklist-4.6.2.aar",
+    "sha256": "68d30ba2a5b7035a84e527e54b6c65604a48c78d2fbb5d564f7d52eaf2d89900"
+  },
+  {
+    "file": "markdown-ext-strikethrough-4.6.2.aar",
+    "url": "https://repo.maven.apache.org/maven2/io/noties/markwon/ext-strikethrough/4.6.2/ext-strikethrough-4.6.2.aar",
+    "sha256": "222b87862dae20706ca8c5c853c831440d9062088ed27d4eccb0ed80f8df1d38"
+  },
+  {
+    "file": "markdown-commonmark-0.13.0.jar",
+    "url": "https://repo.maven.apache.org/maven2/com/atlassian/commonmark/commonmark/0.13.0/commonmark-0.13.0.jar",
+    "sha256": "fd38aecef680649894ffd7b434e10081fc609e260c63e16c4323a3eaa2a9f096"
+  },
+  {
+    "file": "markdown-commonmark-ext-gfm-tables-0.13.0.jar",
+    "url": "https://repo.maven.apache.org/maven2/com/atlassian/commonmark/commonmark-ext-gfm-tables/0.13.0/commonmark-ext-gfm-tables-0.13.0.jar",
+    "sha256": "b4709a5149cd3cbfb9762216955ba0576abc88b52973b30dd6f697a7a6290d15"
+  },
+  {
+    "file": "markdown-commonmark-ext-gfm-strikethrough-0.13.0.jar",
+    "url": "https://repo.maven.apache.org/maven2/com/atlassian/commonmark/commonmark-ext-gfm-strikethrough/0.13.0/commonmark-ext-gfm-strikethrough-0.13.0.jar",
+    "sha256": "5f3ad6d147eeab88f99b4f0f7be42969e1e876d4d3b851abd57a71b4af80ea6f"
+  }
+]

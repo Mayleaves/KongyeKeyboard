@@ -72,3 +72,20 @@ Rime 合并库还包含 Boost、glog、LevelDB、marisa、OpenCC、yaml-cpp、Lu
 Fcitx5 Android、Fcitx5、libime 与 Chinese Addons 各组件保留其 LGPL-2.1-or-later / 组件源码中的许可；完整应用仍为 GPL-3.0-only。其他依赖遵守上游各自许可。固定来源、模型版本与全部下载 SHA256 见 `app/src/main/assets/fcitx-sources.json`，获取及复建脚本为 `tools/fetch_fcitx.py`。
 
 为与已有原生模块隔离，上游 libc++ 的库名及依赖名等长改为 `libfcx_shared.so`，未修改算法或模型。9 键、14 键和关闭简拼时暂保留已接入的 Rime 路径，不伪称 Fcitx 原生支持这些布局。
+
+
+## 2.3.0 英文滑行词典
+
+滑行词形检索使用现有中文辅助词库及雾凇拼音固定提交 `99662ba01e3affa6a0f009174ca530b887bac3b6` 的 `en_dicts/en.dict.yaml`。英文提取结果保留 21,212 个单词，记录见 `app/src/main/assets/glide-sources.json`，可用 `tools/build_glide_dictionary.py` 从原文件重建。雾凇原始注释列明其英文表来自 first20hours/google-10000-english 与 tumuyan/rime-melt 等来源，原始文件随已有 Rime 依赖源码交付，保留原许可。手势几何检索与界面适配为本项目代码，按 GPL-3.0-only 提供。
+
+
+## 2.4.0 Markdown 渲染
+
+- Markwon 4.6.2（core、tables、tasklist、strikethrough），Apache-2.0，来源 https://github.com/noties/Markwon 。
+- commonmark-java 0.13.0 及 GFM 表格、删除线扩展，BSD-2-Clause，来源 https://github.com/commonmark/commonmark-java 。
+
+固定 Maven Central 文件与 SHA256 见 `app/src/main/assets/markdown-sources.json`；许可证内置在 `assets/licenses/Markwon-LICENSE.txt` 和 `CommonMark-LICENSE.txt`，`tools/fetch_markdown.py` 可恢复二进制依赖。原始 source JAR 随本地第三方源码附件提供。
+
+## Offline punctuation
+
+CT-Transformer Chinese/English punctuation model, distributed by k2-fsa/sherpa-onnx. Model origin iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch (FunASR). Apache-2.0 model license. Pinned download, size and SHA-256 are recorded in app/src/main/assets/voice-punctuation/source.json. The original model card and conversion README are bundled alongside the model.

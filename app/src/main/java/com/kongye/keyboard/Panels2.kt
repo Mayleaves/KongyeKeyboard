@@ -181,7 +181,7 @@ class ArrangeView(
         if(android.animation.ValueAnimator.areAnimatorsEnabled()) {
             progress=0f
             settle=android.animation.ValueAnimator.ofFloat(0f,1f).apply {
-                duration=200;interpolator=android.view.animation.DecelerateInterpolator(1.4f)
+                duration=NativeMotion.DURATION;interpolator=android.view.animation.DecelerateInterpolator(1.4f)
                 addUpdateListener {progress=it.animatedValue as Float;invalidate()}
                 start()
             }

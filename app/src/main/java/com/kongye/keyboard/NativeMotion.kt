@@ -10,9 +10,15 @@ import android.widget.ImageView
 
 /** 只在用户切换页面时过渡；设置刷新和每帧拖动不重播动画。 */
 object NativeMotion {
+    const val DURATION=110L
     private val bases=java.util.WeakHashMap<View,Float>()
     private val swaps=java.util.WeakHashMap<View,Triple<ImageView,Bitmap,Float>>()
     private val changing=java.util.WeakHashMap<View,Boolean>()
+    fun finishSwap(host:FrameLayout?,content:View) {
+        swaps.remove(content)?.let {(cover,bitmap,target)->
+            cover.animate().cancel();host?.removeView(cover);cover.setImageDrawable(null);bitmap.recycle();content.alpha=target
+        }
+    }
     /** One layout change, then a compositor crossfade of the complete keyboard. */
     fun swap(host: FrameLayout?, content: View, change: () -> Unit) {
         // A tool change can close an input strip and open a panel in one step.
@@ -39,7 +45,7 @@ object NativeMotion {
             override fun onPreDraw():Boolean {
                 content.viewTreeObserver.removeOnPreDrawListener(this)
                 if(swaps[content]?.first!==cover) return true
-                cover.animate().alpha(0f).setDuration(220).withLayer().withEndAction {
+                cover.animate().alpha(0f).setDuration(DURATION).withLayer().withEndAction {
                     host.removeView(cover);cover.setImageDrawable(null);before.recycle()
                     if(swaps[content]?.first===cover) swaps.remove(content)
                 }.start()
@@ -55,7 +61,7 @@ object NativeMotion {
         update()
         val base=view.translationX
         view.alpha=1f;view.translationX=base+6f*view.resources.displayMetrics.density
-        view.animate().translationX(base).setDuration(180).setInterpolator(DecelerateInterpolator()).start()
+        view.animate().translationX(base).setDuration(DURATION).setInterpolator(DecelerateInterpolator()).start()
     }
     fun enter(view: View, distance: Float=7f) {
         if (!ValueAnimator.areAnimatorsEnabled()) return
@@ -63,7 +69,7 @@ object NativeMotion {
         val base=bases.getOrPut(view) { view.translationY }
         view.alpha=1f
         view.translationY=base+distance*view.resources.displayMetrics.density
-        view.animate().translationY(base).setDuration(200)
+        view.animate().translationY(base).setDuration(DURATION)
             .setInterpolator(DecelerateInterpolator(1.5f)).withEndAction { bases.remove(view) }.start()
     }
     fun pulse(view: View) {
@@ -87,7 +93,7 @@ object NativeMotion {
         }
         host.addView(cover, FrameLayout.LayoutParams(-1,-1))
         enter(content)
-        cover.animate().alpha(0f).setDuration(170).withEndAction {
+        cover.animate().alpha(0f).setDuration(DURATION).withEndAction {
             host.removeView(cover); cover.setImageDrawable(null); previous.recycle()
         }.start()
     }

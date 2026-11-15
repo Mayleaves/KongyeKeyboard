@@ -2,7 +2,7 @@ package com.kongye.keyboard
 
 import android.graphics.RectF
 
-enum class Kind { LETTER, CHAR, SHIFT, DEL, ENTER, SPACE, SYM, NUM, ABC, LANG, SEP, RESET }
+enum class Kind { ACTION, LETTER, CHAR, SHIFT, DEL, ENTER, SPACE, SYM, NUM, ABC, LANG, SEP, RESET }
 
 /** 按键外形：普通键、功能键 */
 enum class Look { NORMAL, MOD }
@@ -25,6 +25,8 @@ class Key(
     /** 字母键代表的字母集合：全键盘是一个字母，14 键是两个，九键是三四个 */
     val letters: String = label.lowercase(),
 ) {
+    var downAction: KeyGestures.Action? = null
+    var upAction: KeyGestures.Action? = null
     val rect = RectF()
     val hit = RectF()
 }
@@ -37,22 +39,22 @@ object Layouts {
     private val ROW1_UP = listOf("!", "@", "#", "$", "%", "^", "&", "*", "(", ")")
 
     // 中文：右上（下滑）/ 左下（上滑）
-    private val ZH2_DOWN = listOf("～", "—", "…", "·", "¥", "、", "【", "】", "！")
-    private val ZH2_UP = listOf("~", "-", "_", "'", "=", "\\", "[", "]", "/")
-    private val ZH3_DOWN = listOf("（", "）", "：", "；", "《", "》", "？")
-    private val ZH3_UP = listOf("\"", "`", ":", ";", "<", ">", "?")
+    private val ZH2_DOWN = listOf("`", "~", "…", "—", "（", "）", "【", "】", "|")
+    private val ZH2_UP = listOf("`", "~", ".", "_", "'", "\"", "[", "]", "|")
+    private val ZH3_DOWN = listOf("！", "？", "：", "；", "《", "》", "`")
+    private val ZH3_UP = listOf("-", "=", ":", ";", "<", ">", "/")
 
     // 英文
-    private val EN2_DOWN = listOf("~", "-", "…", "·", "¥", "\\", "[", "]", "!")
-    private val EN2_UP = listOf("≈", "+", "_", "'", "=", "|", "{", "}", "/")
-    private val EN3_DOWN = listOf("(", ")", ":", ";", "<", ">", "?")
+    private val EN2_DOWN = listOf("`", "~", "…", "-", "(", ")", "[", "]", "|")
+    private val EN2_UP = listOf("~", "+", "_", "'", "=", "|", "{", "}", "/")
+    private val EN3_DOWN = listOf("!", "?", ":", ";", "<", ">", "\\")
     private val EN3_UP = listOf("\"", "`", "×", "÷", "≤", "≥", "°")
 
     /** 所有皮肤共用的底行（空叶布局）：123、中/英、逗号、空格、句号、回车 */
     private fun bottom(zh: Boolean): List<Key> = listOf(
         Key(Kind.NUM, "123", w = 1.3f, look = Look.MOD),
         Key(Kind.LANG, w = 1f, look = Look.MOD),
-        Key(Kind.CHAR, if (zh) "，" else ",", hint = if (zh) "," else null, longEmoji = true),
+        Key(Kind.CHAR, if (zh) "，" else ",", hint = if (zh) "," else null, longEmoji = false),
         Key(Kind.SPACE, w = 3.6f),
         Key(Kind.CHAR, if (zh) "。" else ".", hint = if (zh) "." else null),
         Key(Kind.ENTER, w = 1.6f, look = Look.MOD),
@@ -60,24 +62,32 @@ object Layouts {
 
     private fun del(w: Float = 1.5f) = Key(Kind.DEL, hint = "清空", w = w, look = Look.MOD, repeat = true)
 
-    fun letters(zh: Boolean): List<Row> {
+    fun letters(zh: Boolean, context: android.content.Context? = null): List<Row> {
         val d2 = if (zh) ZH2_DOWN else EN2_DOWN
         val u2 = if (zh) ZH2_UP else EN2_UP
         val d3 = if (zh) ZH3_DOWN else EN3_DOWN
         val u3 = if (zh) ZH3_UP else EN3_UP
-        val r1 = "qwertyuiop".mapIndexed { i, c -> Key(Kind.LETTER, c.toString(), hint = DIGITS[i], hint2 = ROW1_UP[i]) }
-        val r2 = "asdfghjkl".mapIndexed { i, c -> Key(Kind.LETTER, c.toString(), hint = d2[i], hint2 = u2[i]) }
+        fun letter(c:Char,down:String,up:String):Key {
+            val a=KeyGestures.action(context,zh,c,true,down)
+            val b=KeyGestures.action(context,zh,c,false,up)
+            return Key(Kind.LETTER,c.toString(),hint=a?.label,hint2=b?.label).apply {downAction=a;upAction=b}
+        }
+        val r1 = "qwertyuiop".mapIndexed {i,c -> letter(c,DIGITS[i],ROW1_UP[i])}
+        val r2 = "asdfghjkl".mapIndexed { i, c -> letter(c,d2[i],u2[i]) }
         val r3 = listOf(Key(Kind.SHIFT, w = 1.5f, look = Look.MOD)) +
-            "zxcvbnm".mapIndexed { i, c -> Key(Kind.LETTER, c.toString(), hint = d3[i], hint2 = u3[i]) } + del()
+            "zxcvbnm".mapIndexed { i, c -> letter(c,d3[i],u3[i]) } + del()
         return listOf(Row(r1), Row(r2, indent = true), Row(r3), Row(bottom(zh)))
     }
 
     /** 14 键：两个字母合一个键（只用于中文） */
     fun fourteen(): List<Row> {
+        // 26-key customization must not alter the existing paired-key legends.
+        val d2=listOf("～","…","¥","【","！");val u2=listOf("~","_","=","[","/")
+        val d3=listOf("（","：","《","？");val u3=listOf("\"",":","<","?")
         val r1 = listOf("QW", "ER", "TY", "UI", "OP").mapIndexed { i, t -> Key(Kind.LETTER, t, hint = DIGITS[i * 2], hint2 = DIGITS[i * 2 + 1]) }
-        val r2 = listOf("AS", "DF", "GH", "JK", "L").mapIndexed { i, t -> Key(Kind.LETTER, t, hint = ZH2_DOWN[i * 2], hint2 = ZH2_UP[i * 2]) }
+        val r2 = listOf("AS", "DF", "GH", "JK", "L").mapIndexed { i, t -> Key(Kind.LETTER, t, hint = d2[i], hint2 = u2[i]) }
         val r3 = listOf(Key(Kind.SHIFT, w = 1.2f, look = Look.MOD)) +
-            listOf("ZX", "CV", "BN", "M").mapIndexed { i, t -> Key(Kind.LETTER, t, hint = ZH3_DOWN[i * 2], hint2 = ZH3_UP[i * 2]) } + del(1.2f)
+            listOf("ZX", "CV", "BN", "M").mapIndexed { i, t -> Key(Kind.LETTER, t, hint = d3[i], hint2 = u3[i]) } + del(1.2f)
         return listOf(Row(r1), Row(r2), Row(r3), Row(bottom(true)))
     }
 

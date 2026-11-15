@@ -2,15 +2,19 @@
 
 Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，以及 26 键、14 键和九键布局。
 
-当前版本：**[2.2.2](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v2.2.2)**。Android 8.0 及以上；提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
+当前版本：**[2.4.7](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v2.4.7)**。Android 8.0 及以上；提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
+
+**2.4.7**：拼音气泡为已选未上屏的字加实线下划线。删除可依次还原原始拼音并恢复对应候选，避免纠错标记闪现。展开候选区用“词/字”切换，选字后自动回到词模式。
 
 **2.2.2**：26 键默认接入 Fcitx5 Android / libime 官方原生引擎及更新模型，采用上游通用排序与纠错。接入范围与实测记录见 [成熟引擎说明](docs/Fcitx5-成熟引擎接入.md)。
+
+**2.4.0**：普通打字界面可点击的长候选全文气泡、完整错拼音节与贴近的标记、实时滑行候选与中文拼音下划线、真实键帽角标预览及清空映射、粘贴后最近使用置前、180 毫秒统一切换、Markdown 更新历史详情，以及默认仅本次填入的密码关联选项。包含此前 2.3.0 / 2.3.1 改动，详情见 [2.4.0 说明](docs/2.4.0-输入与更新界面.md)。
 
 本项目源代码按 [GPL-3.0-only](LICENSE) 开源。第三方代码、模型和数据保留各自许可证，详见 [第三方说明](THIRD_PARTY_NOTICES.md)。
 
 ## 密码填充（v2）
 
-在设置中打开“密码填充”，并在同签名的空叶文档中允许读取密码空间。键盘识别账号、密码和注册确认框，在候选栏显示打码的匹配项；解锁后填充，账号会尝试跳到下一框填密码。也支持搜索绑定、生成强密码和明确确认后保存本次键盘输入。
+在设置中打开“密码填充”，并在同签名的空叶文档中允许读取密码空间。键盘识别账号、密码和注册确认框，在候选栏显示打码的匹配项；解锁后填充，账号会尝试跳到下一框填密码。也支持搜索绑定、生成随机密码和明确确认后保存本次键盘输入。
 
 功能默认关闭；关闭时不调用密码接口。密码不进撤销历史、词库学习、联想和剪贴板历史。明文仅在内存中短暂使用，生成密码仅供同一应用两分钟内复用，锁屏立即清除。粘贴的密码不记录，移动光标或修改已有密码后不猜测完整密码，不提示保存不完整内容。
 
@@ -52,13 +56,14 @@ Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，
 python tools/fetch_offline_voice.py --engine-only
 python tools/fetch_rime.py
 python tools/fetch_fcitx.py
+python tools/fetch_markdown.py
 python tools/build_expressions.py
 python tools/fetch_handwriting.py
 python tools/fetch_neural_handwriting.py
 python tools/fetch_streaming_voice.py
 ```
 
-语音脚本不加 `--engine-only` 时会另外下载两套高容量模型和公开测试样本，用于手机安装和回归；这两套可选模型不打进 APK。Rime 全量词库、整句模型、神经网络手写及普通话流式预览打进 APK，安装后可离线使用。首次启动在后台解压预编译数据。安装包按架构约为 ARM64 498 MiB、x86_64 502 MiB、universal 542 MiB。
+语音脚本不加 `--engine-only` 时会另外下载两套高容量模型和公开测试样本，用于手机安装和回归；这两套可选模型不打进 APK。Rime 全量词库、整句模型、神经网络手写及普通话流式预览打进 APK，安装后可离线使用。首次启动在后台解压预编译数据。安装包按架构约为 ARM64 557 MiB、x86_64 560 MiB、universal 601 MiB。
 
 Rime 数据生成目前使用官方 Windows x64 工具，其他平台可复制生成的 `app/libs/*.aar`、`rime-data.zip` 及语音模型后构建。原生库来源和重建步骤见 [构建说明](docs/Rime-原生构建.md)。
 
@@ -192,3 +197,5 @@ python -I tools/check_lexicon.py
 
 
 三软件密码联动的开启方式、日常操作和手机测试清单见[联动使用说明](docs/三软件联动使用与手机测试.md)。
+
+离线语音标点模型可运行 `python tools/fetch_voice_punctuation.py` 恢复，脚本按内置 SHA-256 清单校验下载。

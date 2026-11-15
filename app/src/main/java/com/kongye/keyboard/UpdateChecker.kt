@@ -80,6 +80,41 @@ object UpdateChecker {
             return Release(json.optString("tag_name"), json.optString("body"), apk, json.optString("html_url").ifEmpty { RELEASES },digest,assetApi)
     }
 
+    /** Published stable releases only, newest version first. Notes remain Markdown. */
+    fun history(body:String,supportedAbis:List<String> = android.os.Build.SUPPORTED_ABIS.toList()):List<Release> {
+        val array=JSONArray(body)
+        return (0 until array.length()).mapNotNull {index ->
+            runCatching {parseReleases(JSONArray().put(array.getJSONObject(index)).toString(),supportedAbis)}.getOrNull()
+        }.distinctBy {it.tag}.sortedWith {a,b ->when {newer(a.version,b.version)->-1;newer(b.version,a.version)->1;else->0}}
+    }
+    fun localRelease(ctx:Context):Release? = runCatching {
+        val notes=ctx.assets.open("release-current.md").bufferedReader().use {it.readText()}
+        Release("v"+currentVersion(ctx),notes,null,RELEASES)
+    }.getOrNull()
+    fun storedHistory(ctx:Context):List<Release> {
+        val cached=java.io.File(ctx.filesDir,"release-history.json")
+        val raw=runCatching {if(cached.isFile)cached.readText() else ctx.assets.open("release-history.json").bufferedReader().use {it.readText()}}.getOrDefault("[]")
+        return runCatching {history(raw)}.getOrDefault(emptyList())
+    }
+    fun fetchHistory(ctx:Context):List<Release> {
+        val all=JSONArray()
+        for(page in 1..5) {
+            val c=URL("https://api.github.com/repos/$REPO/releases?per_page=100&page=$page").openConnection() as HttpURLConnection
+            val entries=try {
+                c.connectTimeout=10000;c.readTimeout=15000;c.setRequestProperty("Accept","application/vnd.github+json");c.setRequestProperty("User-Agent","KongyeKeyboard")
+                check(c.responseCode==200) {"GitHub 返回 ${c.responseCode}"}
+                val body=c.inputStream.bufferedReader().use {it.readText()};check(body.length<=4_000_000);JSONArray(body)
+            } finally {c.disconnect()}
+            for(i in 0 until entries.length())all.put(entries.getJSONObject(i))
+            if(entries.length()<100)break
+        }
+        val parsed=history(all.toString())
+        val file=java.io.File(ctx.filesDir,"release-history.json")
+        val atomic=android.util.AtomicFile(file);val stream=atomic.startWrite()
+        try {stream.write(all.toString().toByteArray());atomic.finishWrite(stream)} catch(e:Exception) {atomic.failWrite(stream);throw e}
+        return parsed
+    }
+
     /** a 比 b 新吗（按点分的数字比较，1.10.0 > 1.9.2） */
     fun newer(a: String, b: String): Boolean {
         val x = a.split('.', '-').map { it.toIntOrNull() ?: 0 }

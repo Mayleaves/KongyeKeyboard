@@ -28,7 +28,39 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
     var skin: Skin = Skins.KONGYE
         set(value) { field=value; invalidate() }
     private var text = ""
+    private var errors=BooleanArray(0)
+    private var swaps=emptyList<Int>()
+    fun feedback(value:SpellingAssist.Feedback) {
+        if(errors.contentEquals(value.errors) && swaps==value.swaps) return
+        errors=value.errors;swaps=value.swaps;invalidate()
+    }
+    var selectedPrefixLength=0
+        set(value) {val next=value.coerceAtLeast(0);if(field!=next){field=next;invalidate()}}
+    var glideUnderline=false
+        set(value) {if(field!=value){field=value;invalidate()}}
     private var caret = -1
+    private var caretVisible=true
+    private var caretBlink:Runnable?=null
+
+    private fun restartCaretBlink() {
+        caretBlink?.let {removeCallbacks(it)}
+        caretBlink=null
+        caretVisible=true
+        if(!expanded || !isAttachedToWindow || !isShown || text.isEmpty()) return
+        val task=object:Runnable {
+            override fun run() {
+                if(!expanded || !isAttachedToWindow || !isShown || text.isEmpty()) {
+                    caretBlink=null
+                    return
+                }
+                caretVisible=!caretVisible
+                invalidate()
+                postDelayed(this,500)
+            }
+        }
+        caretBlink=task
+        postDelayed(task,500)
+    }
     private var offsetX = 0f
     private var offsetY = 0f
     var expanded = false
@@ -47,21 +79,24 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
     private val slop=ViewConfiguration.get(context).scaledTouchSlop
     private val size get() = (if(expanded) 22f else 15f)*d
     private val pad get() = (if(expanded) 10f else 5f)*d
-    private val top get() = (if(expanded) 10f else 1f)*d
+    private val top get() = (if(expanded) 10f else 5f)*d
     private val right get() = width-(if(expanded) 13f else 1f)*d
     private val bodyLeft get() = d+pad
-    private val bodyTop get() = top+5*d
+    private val compactLeft get()=max(bodyLeft,(width-textPaint.measureText(text))/2f)-offsetX
+    private val bodyTop get() = top+12*d
     private val bodyWidth get() = max(1,(right-bodyLeft-pad).toInt())
     private val bodyHeight get() = max(1f,height-bodyTop-5*d)
     private val focus get() = if(caret<0) text.length else caret.coerceIn(0,text.length)
 
     fun reset() {
-        stopDrag();expanded=false;text="";caret=-1;offsetX=0f;offsetY=0f;layout=null
-        requestLayout();invalidate();onExpanded()
+        stopDrag();expanded=false;text="";selectedPrefixLength=0;caret=-1;offsetX=0f;offsetY=0f;layout=null;errors=BooleanArray(0);swaps=emptyList()
+        restartCaretBlink();requestLayout();invalidate();onExpanded()
     }
     fun set(text: String, caret: Int) {
         if(text==this.text && caret==this.caret) return
         this.text=text;this.caret=caret
+        restartCaretBlink()
+        contentDescription=(if(glideUnderline) "滑行拼音：" else "拼音：")+text
         if(text.isEmpty()) {expanded=false;stopDrag()}
         requestLayout();invalidate()
     }
@@ -70,19 +105,19 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
         textPaint.textSize=size
         val maxWidth=max(1,limit-(16*d).toInt())
         val cap=if(expanded) maxWidth else min(maxWidth,(176*d).toInt())
-        val want=ceil(textPaint.measureText(text)+2*pad+(if(expanded) 15 else 7)*d).toInt().coerceIn(min((if(expanded) 62*d else 32*d).toInt(),cap),cap)
+        val want=ceil(textPaint.measureText(text)+2*pad+(if(expanded) 15 else 2)*d).toInt().coerceIn(min((if(expanded) 62*d else 32*d).toInt(),cap),cap)
         if(expanded) {
             val contentWidth=max(1,(want-2*pad-14*d).toInt())
             layout=StaticLayout.Builder.obtain(text,0,text.length,textPaint,contentWidth)
-                .setIncludePad(false).build()
+                .setIncludePad(false).setLineSpacing(6*d,1f).build()
             val l=layout!!
             val lines=min(3,l.lineCount)
-            val h=ceil(top+10*d+l.getLineBottom(lines-1)).toInt()
+            val h=ceil(bodyTop+5*d+l.getLineBottom(lines-1)).toInt()
             setMeasuredDimension(want,h)
             ensureFocusVisible()
         } else {
             layout=null;offsetY=0f
-            setMeasuredDimension(want,(24*d).toInt())
+            setMeasuredDimension(want,(30*d).toInt())
             offsetX=max(0f,textPaint.measureText(text)-max(1f,want-2*pad-2*d))
         }
     }
@@ -109,14 +144,17 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
             val l=layout
             if(l!=null) {
                 c.translate(bodyLeft,bodyTop-offsetY);l.draw(c)
+                for(line in 0 until l.lineCount) drawFeedback(c,l.getLineBaseline(line).toFloat(),0f,l.getLineStart(line),l.getLineEnd(line))
                 val line=l.getLineForOffset(focus.coerceAtMost(l.text.length))
                 val x=l.getPrimaryHorizontal(focus.coerceAtMost(l.text.length))
                 fill.color=skin.candHi
-                c.drawRect(x,l.getLineTop(line).toFloat(),x+1.8f*d,l.getLineBottom(line).toFloat(),fill)
+                if(caretVisible)c.drawRect(x,l.getLineTop(line).toFloat(),x+1.8f*d,l.getLineBottom(line).toFloat(),fill)
             }
         } else {
             val fm=textPaint.fontMetrics
-            c.drawText(text,bodyLeft-offsetX,(top+height)/2f+d-(fm.ascent+fm.descent)/2f,textPaint)
+            val baseline=height-3*d-fm.descent
+            c.drawText(text,compactLeft,baseline,textPaint)
+            drawFeedback(c,baseline,compactLeft)
         }
         c.restore()
         if(expanded) {
@@ -126,17 +164,54 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
             stroke.strokeWidth=2.2f*d;c.drawLine(x-4.8f*d,y,x+4.8f*d,y,stroke)
         }
     }
+    private fun drawFeedback(c:Canvas,baseline:Float,left:Float,start:Int=0,end:Int=text.length) {
+        val selectedEnd=min(end,selectedPrefixLength.coerceAtMost(text.length))
+        if(selectedEnd>start) {
+            stroke.color=skin.candFg;stroke.strokeWidth=1*d
+            c.drawLine(left,baseline+3*d,left+textPaint.measureText(text,start,selectedEnd),baseline+3*d,stroke)
+        }
+        if(glideUnderline && end>start) {
+            stroke.color=skin.candFg;stroke.strokeWidth=1*d
+            c.drawLine(left,baseline+3*d,left+textPaint.measureText(text,start,end),baseline+3*d,stroke)
+        }
+        if(swaps.isEmpty() && errors.none {it}) return
+        val positions=text.indices.filter {text[it] in 'a'..'z' || text[it] in 'A'..'Z'}
+        stroke.color=Color.rgb(230,57,70);stroke.strokeWidth=1.1f*d
+        fun x(i:Int)=left+textPaint.measureText(text,start,i.coerceIn(start,end))
+        errors.forEachIndexed {i,error ->
+            val at=positions.getOrNull(i)
+            if(error && at!=null && at in start until end) {
+                val from=x(at);val to=x(at+1);val y=baseline+2.5f*d
+                path.reset();path.moveTo(from,y)
+                val steps=kotlin.math.ceil((to-from)/(2*d)).toInt().coerceAtLeast(2)
+                for(j in 1..steps) path.lineTo(from+(to-from)*j/steps,y+(if(j%2==0) 0f else 1.6f*d))
+                c.drawPath(path,stroke)
+            }
+        }
+        for(i in swaps) {
+            val a=positions.getOrNull(i) ?: continue;val b=positions.getOrNull(i+1) ?: continue
+            if(a !in start until end || b !in start until end) continue
+            val from=x(a)+textPaint.measureText(text.substring(a,a+1))/2
+            val to=x(b)+textPaint.measureText(text.substring(b,b+1))/2
+            val y=baseline+textPaint.fontMetrics.ascent+4*d
+            stroke.strokeWidth=1.1f*d
+            path.reset();path.moveTo(from,y);path.cubicTo(from,y-6*d,to,y-6*d,to,y)
+            path.moveTo(from-2*d,y-2*d);path.lineTo(from,y);path.lineTo(from+2*d,y-2*d)
+            path.moveTo(to-2*d,y-2*d);path.lineTo(to,y);path.lineTo(to+2*d,y-2*d)
+            c.drawPath(path,stroke)
+        }
+    }
     private fun at(x:Float,y:Float):Int {
         val l=layout
         if(expanded && l!=null) return l.getOffsetForHorizontal(l.getLineForVertical((y-bodyTop+offsetY).toInt().coerceIn(0,l.height-1)),x-bodyLeft).coerceIn(0,text.length)
         textPaint.textSize=size
-        val target=x-bodyLeft+offsetX
+        val target=x-compactLeft
         return (0..text.length).minByOrNull {abs(textPaint.measureText(text,0,it)-target)} ?: 0
     }
     private fun select(position:Int) {
         val next=position.coerceIn(0,text.length)
         val changed=next!=focus || caret<0
-        caret=next;if(changed) onCaret(next);ensureFocusVisible();invalidate()
+        caret=next;if(changed) onCaret(next);restartCaretBlink();ensureFocusVisible();invalidate()
     }
     private fun publishPreview() {
         val l=layout ?: return
@@ -179,7 +254,7 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
             }
             MotionEvent.ACTION_UP -> {
                 if(minusPressed) {
-                    expanded=false;caret=-1;offsetY=0f;onCaret(text.length)
+                    expanded=false;caret=-1;offsetY=0f;restartCaretBlink();onCaret(text.length)
                     requestLayout();invalidate();onExpanded()
                 }
                 stopDrag();parent?.requestDisallowInterceptTouchEvent(false)
@@ -188,7 +263,17 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
         }
         return true
     }
-    override fun onDetachedFromWindow() {stopDrag();super.onDetachedFromWindow()}
+    override fun onVisibilityChanged(changedView:View,visibility:Int) {
+        super.onVisibilityChanged(changedView,visibility)
+        restartCaretBlink()
+    }
+    override fun onAttachedToWindow() {super.onAttachedToWindow();restartCaretBlink()}
+    override fun onDetachedFromWindow() {
+        stopDrag()
+        caretBlink?.let {removeCallbacks(it)}
+        caretBlink=null
+        super.onDetachedFromWindow()
+    }
 }
 
 /** Passive circular lens above the spelling editor; no system popup or focus change. */

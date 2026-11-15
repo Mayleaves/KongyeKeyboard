@@ -328,6 +328,7 @@ class VaultFill(
     }
 
     /** 「密码空间」面板：注册 / 改密码页最上面是生成；系统候选在显示时不再列自己的匹配 */
+    val canRemember:Boolean get()=target?.browser==false
     val canGenerate: Boolean get() = target?.kind.let { it == VaultFields.Kind.NEW_PASSWORD || it == VaultFields.Kind.CONFIRM }
     fun panelEntries(): List<Entry> = if (target?.let { autofillActive(it.pkg) } == true) emptyList() else entries
 
@@ -351,9 +352,7 @@ class VaultFill(
         val result = ArrayList<Action>()
         if (t.kind == VaultFields.Kind.CONFIRM && generatedPkg == t.pkg && generated.isNotEmpty() && clock()-generatedAt < 120000)
             result.add(Action("使用刚生成的密码") { useGenerated() })
-        if (t.kind == VaultFields.Kind.NEW_PASSWORD || t.kind == VaultFields.Kind.CONFIRM) result.add(Action("生成强密码", ::generate))
-        val n = panelEntries().count { !it.certMismatch }
-        result.add(Action(if (n > 0) "🔑 密码空间 · $n" else "🔑 密码空间", panelUi))
+        if (t.kind == VaultFields.Kind.NEW_PASSWORD || t.kind == VaultFields.Kind.CONFIRM) result.add(Action("生成随机密码", ::generate))
         return result
     }
     fun search(query: String, result: (List<Entry>) -> Unit) {
@@ -363,12 +362,12 @@ class VaultFill(
     }
 
     /** 面板或搜索里选中一条；签名不同的要再点一次 */
-    fun choose(entry: Entry) {
+    fun choose(entry: Entry, remember:Boolean=false) {
         if (entry.certMismatch && !(armedCert == entry.id && clock() < armedUntil)) { armCert(entry.id, entry.name); return }
         val confirm = entry.certMismatch || (armedCert == entry.id && clock() < armedUntil)
         armedCert = ""
-        // 关联一次：搜索来的记住这个 App；已关联的补记签名证书（空叶文档 v1.1）
-        reveal(entry.id, bind = true, confirmCert = confirm)
+        // Filling alone never creates a persistent association; the panel opt-in controls bind.
+        reveal(entry.id, bind = remember, confirmCert = confirm)
     }
     private fun armCert(id: String, name: String) {
         armedCert = id; armedUntil = clock() + 10000
@@ -410,7 +409,7 @@ class VaultFill(
             }
         }
     }
-    /** 面板里的「生成强密码」 */
+    /** 面板里的「生成随机密码」 */
     fun generateFromPanel() { if (canGenerate) generate() }
     private fun generate() {
         val t = target ?: return

@@ -14,7 +14,7 @@ class Entry(val syl: Array<String>, val w: String, val sc: Int, val user: Boolea
     val key: String get() = "$w\t$p"
 }
 
-class RimeChoice(val schema: String, val raw: String)
+class RimeChoice(val schema: String, val raw: String, val source: String = raw)
 
 /**
  * 候选：n 是它吃掉了多少个输入键；abbr 表示按简拼匹配；
@@ -85,6 +85,7 @@ object Lexicon {
     private val words = HashSet<String>()
     private var syllables: List<String> = emptyList()
     private var sylSet: Set<String> = emptySet()
+    internal fun pinyinSyllables():List<String> = syllables
     private val userFreq = HashMap<String, Int>()
     private val userWords = ArrayList<Entry>()
     private var dirty = false

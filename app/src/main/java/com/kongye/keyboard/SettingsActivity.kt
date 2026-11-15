@@ -103,7 +103,7 @@ private val DARK = Pal(Color(0xFF0F1013), Color(0xFF1A1B20), Color(0xFFF4F5F8), 
 
 private enum class Page(val title: String) {
     MAIN("空叶键盘 设置"), LAYOUT("键盘布局"), KEYS("按键与手势"), PINYIN("拼音"), LOOK("主题与外观"), HEIGHT("键盘高度"),
-    ARRANGE("工具栏与菜单"), CLIP("剪贴板"), TIPS("小技巧"), TRY("试一试"), NUMPAD("数字键盘"), VAULT("密码填充"), UPDATE("检查更新")
+    FLICKS("26 键上下滑"), ARRANGE("工具栏与菜单"), CLIP("剪贴板"), TIPS("小技巧"), TRY("试一试"), NUMPAD("数字键盘"), VAULT("密码填充"), UPDATE("检查更新"), HISTORY("更新历史"), RELEASE("更新详情")
 }
 
 /** 主页上的一行：可以被搜索 */
@@ -116,6 +116,7 @@ class SettingsActivity : ComponentActivity() {
     private var confirmAt = 0L
     private var confirmWhat = ""
     private val micRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick.intValue++ }
+    private val smsRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> Prefs.of(this).edit().putBoolean(Prefs.SMS_CODE,granted).apply();tick.intValue++ }
     private val notificationRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick.intValue++ }
     private var checkingUpdate=false
     private val downloadState=mutableStateOf("")
@@ -125,6 +126,22 @@ class SettingsActivity : ComponentActivity() {
     /** 检查更新的状态：显示在“检查更新”那一行 */
     private val updateState = mutableStateOf("")
     private val release = mutableStateOf<UpdateChecker.Release?>(null)
+    private val historyState=mutableStateOf<List<UpdateChecker.Release>>(emptyList())
+    private val historyMessage=mutableStateOf("")
+    private val historyLoading=mutableStateOf(false)
+    private val selectedRelease=mutableStateOf<UpdateChecker.Release?>(null)
+    private fun loadHistory() {
+        if(historyLoading.value)return
+        historyLoading.value=true;historyMessage.value="正在读取更新历史…"
+        Thread {
+            val result=runCatching {UpdateChecker.fetchHistory(applicationContext)}
+            runOnUiThread {
+                historyLoading.value=false
+                result.onSuccess {historyState.value=it;historyMessage.value="${it.size} 个已发布版本"}
+                    .onFailure {historyMessage.value="暂时无法刷新，显示本地历史"}
+            }
+        }.start()
+    }
 
     private fun checkUpdate(silent: Boolean) {
         if (checkingUpdate) {if(!silent) updateState.value="检查中…";return}
@@ -137,7 +154,7 @@ class SettingsActivity : ComponentActivity() {
                 Prefs.of(this).edit().putLong(Prefs.UPDATE_CHECKED, System.currentTimeMillis()).apply()
                 r.onSuccess { rel ->
                     val newer = UpdateChecker.newer(rel.version, UpdateChecker.currentVersion(this))
-                    release.value = if (newer) rel else null
+                    release.value = rel
                     updateState.value = if (newer) "有新版本 ${rel.tag}" else if (silent) "" else "已是最新"
                 }.onFailure { e -> if (!silent) updateState.value = "检查失败：${e.message ?: "网络不通"}" }
             }
@@ -184,7 +201,9 @@ class SettingsActivity : ComponentActivity() {
             PinyinEngine.initialize(applicationContext)
         }, "Kongye Rime preload").start()
         enableEdgeToEdge()
+        historyState.value=UpdateChecker.storedHistory(this)
         ClipStore.load(this)
+        SmsCodeClipboard.schedule(this)
         Prefs.of(this).registerOnSharedPreferenceChangeListener(prefListener)
         if (intent?.getBooleanExtra("grant_mic", false) == true && !micGranted()) micRequest.launch(Manifest.permission.RECORD_AUDIO)
         setContent { Screen(tick.intValue) }
@@ -196,7 +215,7 @@ class SettingsActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    override fun onResume() { super.onResume(); tick.intValue++ }
+    override fun onResume() { super.onResume(); SmsCodeClipboard.expire(this); tick.intValue++ }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
@@ -253,8 +272,8 @@ class SettingsActivity : ComponentActivity() {
             AnimatedContent(
                 targetState=page,
                 transitionSpec={
-                    (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { it/12 }) togetherWith
-                        (fadeOut(tween(130)) + slideOutHorizontally(tween(220)) { -it/12 })
+                    (fadeIn(tween(180)) + slideInHorizontally(tween(180)) { it/12 }) togetherWith
+                        (fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { -it/12 })
                 }, label="settingsPage",
             ) { shownPage ->
             if (shownPage == Page.MAIN) {
@@ -292,7 +311,8 @@ class SettingsActivity : ComponentActivity() {
                     ) {
                         when (shownPage) {
                             Page.LAYOUT -> LayoutPage(pal, tick)
-                            Page.KEYS -> KeysPage(pal, tick)
+                            Page.KEYS -> KeysPage(pal, tick) {navigateTo(Page.FLICKS)}
+                            Page.FLICKS -> FlicksPage(pal,tick)
                             Page.PINYIN -> PinyinPage(pal, tick)
                             Page.LOOK -> LookPage(pal, tick)
                             Page.HEIGHT -> HeightPage(pal, tick)
@@ -302,7 +322,9 @@ class SettingsActivity : ComponentActivity() {
                             Page.TRY -> TryPage(pal)
                             Page.NUMPAD -> NumpadPage(pal, tick)
                             Page.VAULT -> VaultPage(pal,tick)
-                            Page.UPDATE -> UpdatePage(pal)
+                            Page.UPDATE -> UpdatePage(pal) {navigateTo(Page.HISTORY);loadHistory()}
+                            Page.HISTORY -> HistoryPage(pal) {selectedRelease.value=it;navigateTo(Page.RELEASE)}
+                            Page.RELEASE -> ReleasePage(pal)
                             Page.MAIN -> Unit
                         }
                         Spacer(Modifier.height(20.dp))
@@ -474,19 +496,28 @@ class SettingsActivity : ComponentActivity() {
             if (System.currentTimeMillis() - p.getLong(Prefs.UPDATE_CHECKED, 0L) > 24 * 3600_000L) checkUpdate(silent = true)
         }
 
-        // 顶部：图标、名字、版本、今日字数
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF181920)), contentAlignment = Alignment.Center) {
-                Image(painterResource(R.drawable.ic_launcher_fg), null, Modifier.size(36.dp))
+        Card(pal) {
+            Row(Modifier.fillMaxWidth().padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+                Box(Modifier.size(52.dp).clip(RoundedCornerShape(17.dp)).background(Color(0xFF181920)),contentAlignment=Alignment.Center) {
+                    Image(painterResource(R.drawable.ic_launcher_fg),null,Modifier.size(47.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    BasicText("空叶键盘",style=TextStyle(color=pal.ink,fontSize=25.sp,fontWeight=FontWeight.Bold))
+                    BasicText("让输入顺手一点 · v$version",style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=3.dp))
+                }
+                Column(horizontalAlignment=Alignment.End) {
+                    BasicText("$today",style=TextStyle(color=pal.accent,fontSize=24.sp,fontWeight=FontWeight.Medium))
+                    BasicText("今日输入",style=TextStyle(color=pal.text2,fontSize=11.sp))
+                }
             }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                BasicText("空叶键盘", style = TextStyle(color = pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold))
-                BasicText("v$version", style = TextStyle(color = pal.text2, fontSize = 12.sp))
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                BasicText("$today", style = TextStyle(color = pal.ink, fontSize = 18.sp, fontWeight = FontWeight.Medium))
-                BasicText("今日字数", style = TextStyle(color = pal.text2, fontSize = 11.sp))
+            Row(Modifier.fillMaxWidth().padding(bottom=12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(pal.accent.copy(alpha=.09f)).clickable {go(Page.TRY)}.padding(14.dp)) {
+                    Column {BasicText("试一试",style=TextStyle(color=pal.accent,fontSize=16.sp,fontWeight=FontWeight.Medium));BasicText("立即体验当前键盘",style=TextStyle(color=pal.text2,fontSize=11.5.sp),modifier=Modifier.padding(top=4.dp))}
+                }
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(pal.tile).clickable {go(Page.FLICKS)}.padding(14.dp)) {
+                    Column {BasicText("自定义按键",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium));BasicText("上下滑符号与编辑功能",style=TextStyle(color=pal.text2,fontSize=11.5.sp),modifier=Modifier.padding(top=4.dp))}
+                }
             }
         }
 
@@ -556,15 +587,16 @@ class SettingsActivity : ComponentActivity() {
             Item("外观", R.drawable.ic_palette, cLook, "主题", "配色 深色 液态玻璃 透明度 皮肤", theme.name, null) { go(Page.LOOK) },
             Item("外观", R.drawable.ic_float, cLook, "键盘高度", "高度 大小", "${(scale * 100).roundToInt()}%", null) { go(Page.HEIGHT) },
             Item("外观", R.drawable.ic_float, cLook, "悬浮键盘", "悬浮 拖动", if (floating) "开" else "关", null) { p.edit().putBoolean(Prefs.FLOAT, !floating).apply() },
-            Item("其他", R.drawable.ic_key, cTool, "密码填充", "空叶文档 密码空间 登录 生成 保存", if(p.getBoolean(Prefs.VAULT,false)) "已开启" else "关闭", null) { go(Page.VAULT) },
-            Item("其他", R.drawable.ic_toolbar, cTool, "工具栏", "工具栏 菜单 排序", null, null) { go(Page.ARRANGE) },
-            Item("其他", R.drawable.ic_clip, cTool, "剪贴板", "剪贴板 分类 置顶", null, null) { go(Page.CLIP) },
-            Item("其他", R.drawable.ic_settings, cAbout, "使用技巧", "帮助 技巧 手写 翻译", null, null) { go(Page.TIPS) },
-            Item("其他", R.drawable.ic_download, cAbout, "检查更新", "更新 版本", upd.ifEmpty { null }, if (upd.startsWith("有新版本")) pal.accent else null) {
+            Item("工具与隐私", R.drawable.ic_key, cTool, "密码填充", "空叶文档 密码空间 登录 生成 保存", if(p.getBoolean(Prefs.VAULT,false)) "已开启" else "关闭", null) { go(Page.VAULT) },
+            Item("工具与隐私", R.drawable.ic_toolbar, cTool, "工具栏", "工具栏 菜单 排序", null, null) { go(Page.ARRANGE) },
+            Item("工具与隐私", R.drawable.ic_clip, cTool, "剪贴板", "剪贴板 分类 置顶", null, null) { go(Page.CLIP) },
+            Item("关于与帮助", R.drawable.ic_settings, cAbout, "使用技巧", "帮助 技巧 手写 翻译", null, null) { go(Page.TIPS) },
+            Item("关于与帮助", R.drawable.ic_download, cAbout, "检查更新", "更新 版本", upd.ifEmpty { null }, if (upd.startsWith("有新版本")) pal.accent else null) {
                 go(Page.UPDATE)
                 checkUpdate(silent = false)
             },
-            Item("其他", R.drawable.ic_globe, cAbout, "GitHub", "开源 源码 仓库", null, null) {openUrl(UpdateChecker.REPOSITORY)},
+            Item("关于与帮助",R.drawable.ic_refresh,cAbout,"更新历史","历史版本 完整更新内容",null,null) {go(Page.HISTORY);loadHistory()},
+            Item("关于与帮助", R.drawable.ic_globe, cAbout, "GitHub", "开源 源码 仓库", null, null) {openUrl(UpdateChecker.REPOSITORY)},
         )
         val shown = items.filter { query.isBlank() || it.title.contains(query) || it.sub.contains(query) || it.section.contains(query) }
         for ((section, rows) in shown.groupBy { it.section }) {
@@ -611,7 +643,7 @@ class SettingsActivity : ComponentActivity() {
     private fun key(k: Int, content: @Composable () -> Unit) = androidx.compose.runtime.key(k) { content() }
 
     @Composable
-    private fun KeysPage(pal: Pal, tick: Int) {
+    private fun KeysPage(pal: Pal, tick: Int, onFlicks:()->Unit) {
         val p = Prefs.of(this)
         val vib = remember(tick) { p.getInt(Prefs.VIB_STRENGTH, 2) }
         val sound = remember(tick) { p.getBoolean(Prefs.SOUND, false) }
@@ -627,7 +659,11 @@ class SettingsActivity : ComponentActivity() {
             Line(pal)
             ToggleRow(pal, "上下滑输入符号", "下滑右上角，上滑左下角", swipe) { p.edit().putBoolean(Prefs.SWIPE, it).apply() }
             Line(pal)
-            Tip(pal, "删除键", "下滑清空，上滑撤销")
+            ToggleRow(pal,"滑行输入","26 键跨键滑动输入，默认关闭",p.getBoolean(Prefs.GLIDE,false)) {p.edit().putBoolean(Prefs.GLIDE,it).apply()}
+            Line(pal)
+            ActionRow(pal,"26 键上下滑","分别自定义中英文的符号或编辑功能","设置",onFlicks)
+            Line(pal)
+            Tip(pal, "删除键", "下滑清空，上滑撤销；组字时长按清空拼音")
             Line(pal)
             Column(Modifier.padding(vertical = 10.dp)) {
                 BasicText("空格长按", style = TextStyle(color = pal.ink, fontSize = 16.sp))
@@ -804,10 +840,18 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun ClipPage(pal: Pal, tick: Int) {
+        val p=Prefs.of(this)
         var hint by remember { mutableStateOf("") }
         val count = remember(tick, hint) { ClipStore.items.size }
         val pinned = remember(tick, hint) { ClipStore.items.count { it.pinned } }
         val images = remember(tick, hint) { ClipStore.items.count { it.image != null } }
+        Card(pal) {
+            val allowed=checkSelfPermission(Manifest.permission.RECEIVE_SMS)==PackageManager.PERMISSION_GRANTED
+            ToggleRow(pal,"短信验证码自动复制","仅处理新短信，10 分钟后清除，不进入历史剪贴板",p.getBoolean(Prefs.SMS_CODE,false) && allowed) {enable ->
+                if(enable && !allowed) smsRequest.launch(Manifest.permission.RECEIVE_SMS)
+                else p.edit().putBoolean(Prefs.SMS_CODE,enable).apply()
+            }
+        }
         Card(pal) {
             BasicText("共 $count 条（置顶 $pinned 条，图片 $images 张），普通历史最多 ${ClipStore.MAX} 条，满了淘汰最旧的历史；置顶和自定义分类长期保存。", style = TextStyle(color = pal.ink, fontSize = 15.sp, lineHeight = 22.sp))
             BasicText("只保存在这台手机上", style = TextStyle(color = pal.text2, fontSize = 12.5.sp), modifier = Modifier.padding(top = 6.dp))
@@ -815,6 +859,58 @@ class SettingsActivity : ComponentActivity() {
             ActionRow(pal, "清空历史（保留置顶和自定义分类）", hint.ifEmpty { null }, "清空") {
                 if (confirmed("clips")) { ClipStore.clearUnpinned(); hint = "已清空" } else hint = "再点一次“清空”确认"
             }
+        }
+    }
+
+    @Composable
+    private fun FlicksPage(pal:Pal,tick:Int) {
+        @Suppress("UNUSED_VARIABLE") val settingsRevision=tick
+        var zh by remember {mutableStateOf(true)}
+        var letter by remember {mutableStateOf('q')}
+        var down by remember {mutableStateOf(true)}
+        var content by remember {mutableStateOf("")}
+        var pendingCommand by remember {mutableStateOf<String?>(null)}
+        var pendingSymbol by remember {mutableStateOf(false)}
+        var clearHint by remember {mutableStateOf("")}
+        var mappingRevision by remember {mutableIntStateOf(0)}
+        val revision=mappingRevision
+        val key=Layouts.letters(zh,this).flatMap {it.keys}.first {it.kind==Kind.LETTER && it.label==letter.toString()}
+        val action=if(down) key.downAction else key.upAction
+        val preview=pendingCommand?.let {KeyGestures.commands[it]}.orEmpty().ifEmpty {content}
+        fun resetDraft() {content="";pendingCommand=null;pendingSymbol=false;clearHint=""}
+        Card(pal) {
+            Segment(pal,listOf("中文","英文"),if(zh) 0 else 1) {zh=it==0;resetDraft()}
+            Spacer(Modifier.height(12.dp))
+            AndroidView(factory={ctx ->FlickPreviewView(ctx)},
+                update={it.onPick={c->letter=c;resetDraft()};it.submit(zh,letter,down,preview,revision,pendingSymbol)},
+                modifier=Modifier.fillMaxWidth().height(178.dp))
+            Spacer(Modifier.height(12.dp))
+            Segment(pal,listOf("下滑 · 右上角","上滑 · 左下角"),if(down) 0 else 1) {down=it==0;resetDraft()}
+            Spacer(Modifier.height(12.dp))
+            Tip(pal,"当前 ${letter.uppercaseChar()} ${if(down) "下滑" else "上滑"}",if(pendingSymbol && content.isEmpty()) "未设置" else preview.ifEmpty {action?.label.orEmpty().ifEmpty {"未设置"}})
+            ActionRow(pal,"自定义符号","输入后预览，保存后应用","保存") {
+                if(pendingSymbol) {KeyGestures.save(this@SettingsActivity,zh,letter,down,"text:$content");mappingRevision++;resetDraft()}
+            }
+            BasicTextField(content,{value ->
+                content=value.take(24)
+                pendingCommand=null
+                pendingSymbol=true
+            },textStyle=TextStyle(color=pal.ink,fontSize=18.sp),modifier=Modifier.fillMaxWidth().background(pal.tile,RoundedCornerShape(12.dp)).padding(14.dp),
+                decorationBox={inner ->if(content.isEmpty()) BasicText("输入自定义符号或文字",style=TextStyle(color=pal.text2,fontSize=15.sp));inner()})
+            Line(pal)
+            ActionRow(pal,"编辑功能",null,"保存") {
+                pendingCommand?.let {KeyGestures.save(this@SettingsActivity,zh,letter,down,"edit:$it");mappingRevision++;resetDraft()}
+            }
+            KeyGestures.commands.entries.chunked(4).forEach {row ->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
+                row.forEach {(id,label) ->Pill(pal,label,(pendingCommand ?: action?.command)==id) {pendingCommand=id;pendingSymbol=false;content=""}}
+            }}
+            Line(pal)
+            ActionRow(pal,"清空${if(zh) "中文" else "英文"}上下滑","仅清空当前语言的 26 键映射","清空") {
+                if(confirmed("flick-clear-$zh")) {KeyGestures.clear(this,zh);mappingRevision++;resetDraft()}
+                else clearHint="再点一次清空${if(zh) "中文" else "英文"}映射，可用重置恢复。"
+            }
+            if(clearHint.isNotEmpty()) BasicText(clearHint,style=TextStyle(color=pal.accent,fontSize=12.sp))
+            ActionRow(pal,"恢复${if(zh) "中文" else "英文"}默认",null,"重置") {KeyGestures.reset(this,zh);mappingRevision++;resetDraft()}
         }
     }
 
@@ -1080,7 +1176,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun UpdatePage(pal: Pal) {
+    private fun UpdatePage(pal: Pal,onHistory:()->Unit) {
         val version = remember { UpdateChecker.currentVersion(this) }
         val state = updateState.value
         val rel = release.value
@@ -1090,16 +1186,64 @@ class SettingsActivity : ComponentActivity() {
             if (rel != null && rel.notes.isNotBlank()) {
                 Line(pal, top = 10.dp)
                 BasicText("更新内容", style = TextStyle(color = pal.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium), modifier = Modifier.padding(top = 10.dp))
-                BasicText(rel.notes.trim().take(1500), style = TextStyle(color = pal.text2, fontSize = 13.sp, lineHeight = 19.sp), modifier = Modifier.padding(top = 4.dp))
+                MarkdownBody(pal,rel.notes)
+            }
+            val local=UpdateChecker.localRelease(this)
+            if(local!=null) {
+                Line(pal,top=10.dp)
+                BasicText("本机版本更新内容",style=TextStyle(color=pal.ink,fontSize=15.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=10.dp))
+                MarkdownBody(pal,local.notes)
             }
             Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (rel != null && rel.apkUrl!=null && !downloading.value && downloadedApk.value==null) Pill(pal, "下载 ${rel.tag}", true) {downloadUpdate(rel)}
+                if (rel != null && UpdateChecker.newer(rel.version,version) && rel.apkUrl!=null && !downloading.value && downloadedApk.value==null) Pill(pal, "下载 ${rel.tag}", true) {downloadUpdate(rel)}
                 if(downloadedApk.value!=null) Pill(pal,"安装更新",true) {installUpdate()}
                 if(downloading.value) Pill(pal,"取消下载",false) {updateDownloadCancelled=true}
                 Pill(pal, "重新检查", rel == null) { checkUpdate(silent = false) }
             }
             if(downloadState.value.isNotBlank()) BasicText(downloadState.value,style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(bottom=8.dp))
+            ActionRow(pal,"历史更新内容","按版本查看完整 Markdown 说明","查看",onHistory)
             BasicText("覆盖安装，设置和词库保留", style = TextStyle(color = pal.text2, fontSize = 12.5.sp), modifier = Modifier.padding(bottom = 8.dp))
+        }
+    }
+
+    @Composable
+    private fun MarkdownBody(pal:Pal,source:String) {
+        AndroidView(factory={ctx->MarkdownTextView(ctx)},update={it.render(source,pal.ink.toArgb(),pal.accent.toArgb())},modifier=Modifier.fillMaxWidth().padding(vertical=8.dp))
+    }
+    @Composable
+    private fun HistoryPage(pal:Pal,onPick:(UpdateChecker.Release)->Unit) {
+        val local=UpdateChecker.localRelease(this)
+        val releases=listOfNotNull(local)+historyState.value.filter {it.version!=local?.version}
+        Card(pal) {
+            ActionRow(pal,"版本记录",historyMessage.value.ifEmpty {"包含本地缓存，可离线阅读"},if(historyLoading.value)"读取中" else "刷新") {loadHistory()}
+        }
+        var query by remember {mutableStateOf("")}
+        var page by remember {mutableIntStateOf(0)}
+        val filtered=releases.filter {query.isBlank() || it.tag.contains(query,true) || it.notes.contains(query,true)}
+        val pages=maxOf(1,(filtered.size+9)/10)
+        val current=page.coerceAtMost(pages-1)
+        Card(pal) {
+            BasicTextField(query,{query=it;page=0},singleLine=true,
+                textStyle=TextStyle(color=pal.ink,fontSize=16.sp),
+                modifier=Modifier.fillMaxWidth().background(pal.tile,RoundedCornerShape(12.dp)).padding(14.dp),
+                decorationBox={inner ->if(query.isEmpty()) BasicText("搜索版本或更新内容",style=TextStyle(color=pal.text2,fontSize=16.sp));inner()})
+            Row(Modifier.fillMaxWidth().padding(top=12.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                Pill(pal,"上一页",false) {page=(current-1).coerceAtLeast(0)}
+                BasicText("${current+1} / $pages",style=TextStyle(color=pal.text2,fontSize=14.sp))
+                Pill(pal,"下一页",false) {page=(current+1).coerceAtMost(pages-1)}
+            }
+        }
+        filtered.drop(current*10).take(10).forEach {item ->Card(pal) {
+            ActionRow(pal,item.tag,item.notes.lineSequence().firstOrNull {it.isNotBlank()}?.trimStart('#',' ')?.take(72),"详情") {onPick(item)}
+        }}
+        if(filtered.isEmpty()) Card(pal) {Tip(pal,"没有匹配的版本","试试其他关键词。")}
+    }
+    @Composable
+    private fun ReleasePage(pal:Pal) {
+        val item=selectedRelease.value ?: return
+        Card(pal) {
+            BasicText(item.tag,style=TextStyle(color=pal.accent,fontSize=22.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(top=12.dp))
+            MarkdownBody(pal,item.notes.ifBlank {"此版本没有提供更新说明。"})
         }
     }
 
@@ -1127,12 +1271,16 @@ class SettingsActivity : ComponentActivity() {
         Card(pal) {
             ToggleRow(pal,"密码填充","使用空叶文档中的密码空间",enabled) {prefs.edit().putBoolean(Prefs.VAULT,it).apply()}
             BasicText(state,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=19.sp),modifier=Modifier.padding(vertical=8.dp))
-            BasicText("点到账号或密码框时，工具栏出现「🔑 密码空间」，点开选账号即可填入；未解锁会打开空叶文档验证。账号填完后会跳到密码框接着填。注册页可按提示文字的要求生成强密码，确认框两分钟内可复用；提交后提示保存账号、手机号、邮箱和密码。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
+            BasicText("登录、注册时直接点击键盘工具栏里的系统候选即可填入；「更多密码」可打开空叶文档的密码搜索页。未解锁时会先验证身份。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
         }
         Card(pal) {
-            val inline=remember(tick) {prefs.getBoolean(Prefs.VAULT_INLINE,true)}
-            ToggleRow(pal,"自动填充候选显示在工具栏","关闭后用系统下拉框（输入框下面）",inline) {prefs.edit().putBoolean(Prefs.VAULT_INLINE,it).apply()}
-            BasicText("在空叶文档里把它设为系统的自动填充服务后，登录框的账号、注册页的「生成强密码」会由系统推送；开启这一项时显示在键盘工具栏里，此时键盘不再重复列出匹配，也不再弹自己的保存提示。需要 Android 11 及以上。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=8.dp))
+            BasicText("系统自动填充候选",style=TextStyle(color=pal.ink,fontSize=15.sp))
+            BasicText("在系统设置中选空叶文档作为自动填充服务，候选会显示在键盘工具栏，不再弹输入框下方的密码框。需要 Android 11 及以上。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=8.dp))
+        }
+        Card(pal) {
+            Tip(pal,"选错账号会怎样？","通过键盘工具栏的系统候选填入时，空叶文档会记录账号与 App 或网站的关联。误选后仍可打开「更多密码」改选正确账号，可点击候选旁的设置图标，直接管理此页面推荐。")
+            Line(pal)
+            Tip(pal,"关联到哪里？","系统自动填充按 App 或网站匹配账号。同一 App 内的不同页面可共用推荐。可在键盘的推荐管理中解除 App 关联，或停止在当前网站推荐。再次通过「更多密码」手动选择该账号即可重新关联。")
         }
         Card(pal) {
             BasicText("密码空间来源",style=TextStyle(color=pal.ink,fontSize=15.sp))
@@ -1144,7 +1292,7 @@ class SettingsActivity : ComponentActivity() {
         }
         Card(pal) {
             BasicText("输入的密码只暂存在内存，粘贴内容不记录；点击保存才写入空叶文档。关闭提示、锁屏或超时会清除暂存。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
-            BasicText("浏览器无法向键盘提供网站域名，网页登录请搜索密码空间。系统安全键盘可能替换第三方键盘，可在系统设置中关闭；银行等应用的自绘键盘不支持填充。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=8.dp))
+            BasicText("网页账号由空叶文档的系统自动填充服务按网站匹配。系统安全键盘可能替换第三方键盘，可在系统设置中关闭；银行等应用的自绘键盘不支持填充。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=8.dp))
         }
     }
 

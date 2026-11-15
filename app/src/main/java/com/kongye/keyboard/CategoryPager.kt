@@ -80,8 +80,7 @@ class CategoryPager(context:Context):FrameLayout(context) {
         if(!ValueAnimator.areAnimatorsEnabled()) {finish(commit);return}
         animator=ValueAnimator.ofFloat(start,end).apply {
             val distance=abs(end-start)
-            duration=if(abs(speed)>500*density) (distance/abs(speed)*1000).toLong().coerceIn(130,230)
-                else (230*(distance/width.coerceAtLeast(1)).coerceIn(.55f,1f)).toLong()
+            duration=NativeMotion.DURATION
             interpolator=DecelerateInterpolator(1.25f)
             addUpdateListener {position(it.animatedValue as Float)}
             addListener(object:android.animation.AnimatorListenerAdapter() {

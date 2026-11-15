@@ -58,3 +58,38 @@
 # Official Fcitx JNI constructors and callbacks retain their ABI.
 -keep class org.fcitx.fcitx5.android.** { *; }
 -keep class com.kongye.keyboard.FcitxEngine** { *; }
+
+# Release-device coverage of candidate spans, gesture persistence and one-time SMS clipboard.
+-keep class com.kongye.keyboard.Glide** { *; }
+-keep class com.kongye.keyboard.SpellingAssist** { *; }
+-keep class com.kongye.keyboard.KeyGestures** { *; }
+-keep class com.kongye.keyboard.SmsCode** { *; }
+-keep class com.kongye.keyboard.ExpandedCandidates { *; }
+-keep class com.kongye.keyboard.CandFlowView { *; }
+-keep class com.kongye.keyboard.KeyboardView** { *; }
+-keep class com.kongye.keyboard.Key { *; }
+-keep class com.kongye.keyboard.Layouts { *; }
+-keep class com.kongye.keyboard.Row { *; }
+-keep class com.kongye.keyboard.Kind { *; }
+
+-keep class com.kongye.keyboard.Skin** { *; }
+
+# Release-device UI coverage for the new Markdown and editable keycap previews.
+-keep class com.kongye.keyboard.MarkdownTextView { *; }
+-keep class com.kongye.keyboard.FlickPreviewView { *; }
+-keep class com.kongye.keyboard.CandidateBar** { *; }
+-keep class com.kongye.keyboard.VaultPanel { *; }
+-keep class com.kongye.keyboard.NativeMotion { *; }
+
+-keep class com.kongye.keyboard.ClipStore { *; }
+
+-keepclassmembers class com.kongye.keyboard.KongyeIME { java.lang.String liveGlideRaw; }
+
+-keep class com.kongye.keyboard.CandItem { *; }
+-keep class com.kongye.keyboard.Prefs { *; }
+
+-keepclassmembers class com.kongye.keyboard.KongyeIME { private void loadAssociations(); }
+
+-keep class com.kongye.keyboard.CandidateHost { *; }
+
+-keepclassmembers class com.kongye.keyboard.PinyinTab { boolean caretVisible; }

@@ -101,16 +101,22 @@ class SliderView(
 
 /** 按住连发的按钮（删除） */
 @SuppressLint("ClickableViewAccessibility")
-private fun View.repeatOnHold(action: () -> Unit) {
-    val h = Handler(Looper.getMainLooper())
-    val task = object : Runnable { override fun run() { action(); h.postDelayed(this, 60) } }
+internal fun View.repeatOnHold(action: () -> Unit) {
+    var held = false
+    val task = object : Runnable {
+        override fun run() { if (!held || !isAttachedToWindow) return; action(); if (held && isAttachedToWindow) postDelayed(this, 60) }
+    }
     setOnTouchListener { v, e ->
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { v.isPressed = true; action(); h.postDelayed(task, 420) }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.isPressed = false; h.removeCallbacks(task) }
+            MotionEvent.ACTION_DOWN -> { held=true; v.isPressed=true; action(); if (held && v.isAttachedToWindow) v.postDelayed(task,420) }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { held=false; v.isPressed=false; v.removeCallbacks(task) }
         }
         true
     }
+    addOnAttachStateChangeListener(object: View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v:View) {}
+        override fun onViewDetachedFromWindow(v:View) { held=false; v.removeCallbacks(task) }
+    })
 }
 
 /**

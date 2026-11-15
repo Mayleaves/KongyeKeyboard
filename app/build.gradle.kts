@@ -11,8 +11,8 @@ android {
         applicationId = "com.kongye.keyboard"
         minSdk = 26
         targetSdk = 36
-        versionCode = 29
-        versionName = "2.2.2"
+        versionCode = 39
+        versionName = "2.4.7"
         testInstrumentationRunner = "com.kongye.keyboard.OfflineResourcesCheck"
         // ML Kit 的识别、翻译带原生库；只要 64 位 ARM，安装包小很多
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
@@ -53,6 +53,7 @@ android {
 }
 
 dependencies {
+    implementation(fileTree("libs") { include("markdown-*.aar", "markdown-*.jar") })
     implementation(files("libs/sherpa-onnx-2.0.1.aar", "libs/fcitx5-0.1.3.aar"))
     implementation(files("libs/jna-5.17.0.aar", "libs/rime-1.17.0.aar"))
     implementation(files("libs/onnxruntime-java-1.28.0.aar"))

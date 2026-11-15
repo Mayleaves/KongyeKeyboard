@@ -79,6 +79,12 @@ object ClipStore {
         save()
     }
 
+    fun usedText(text:String) {items.firstOrNull {it.image==null && it.text==text}?.let {used(it)}}
+    fun used(c:Clip) {
+        val actual=stored(c) ?: return
+        items.remove(actual);actual.time=maxOf(System.currentTimeMillis(),(items.maxOfOrNull {it.time} ?: 0L)+1)
+        items.add(0,actual);save()
+    }
     fun addImage(fileName: String) {
         items.add(0, Clip("[图片]", false, System.currentTimeMillis(), image = fileName))
         trim()
@@ -152,7 +158,7 @@ object ClipStore {
         else -> "文本"
     }
 
-    /** 置顶的排在前面，其余按时间倒序 */
+    /** 最近复制/粘贴的排在最前；置顶属性和分类保留。 */
     fun list(tab: String, query: String): List<Clip> {
         val q = query.trim()
         return items.filter { c ->
@@ -162,6 +168,6 @@ object ClipStore {
                 "文本", "图片" -> kind(c) == tab
                 else -> c.cat == tab
             }
-        }.sortedWith(compareByDescending<Clip> { it.pinned }.thenByDescending { it.time })
+        }.sortedByDescending {it.time}
     }
 }

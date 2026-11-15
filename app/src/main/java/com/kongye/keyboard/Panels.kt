@@ -169,9 +169,9 @@ class CellGridView(context: Context) : View(context) {
 }
 
 /** 展开的候选：自动换行的格子 */
-class CandFlowView(context: Context, private val skin: Skin, private val items: List<String>, private val subtitles: List<String?> = emptyList(), private val onPick: (Int) -> Unit) : View(context) {
+class CandFlowView(context: Context, private val skin: Skin, private var items: List<String>, private var subtitles: List<String?> = emptyList(), private val onPick: (Int) -> Unit) : View(context) {
     private val d = resources.displayMetrics.density
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = 18 * d }
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = 16 * d }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val boxes = ArrayList<RectF>()
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
@@ -182,26 +182,38 @@ class CandFlowView(context: Context, private val skin: Skin, private val items: 
     private val hintPaint=android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {textSize=10*d}
     private val hintLayouts=ArrayList<android.text.StaticLayout?>()
 
+    var onOverflow:(String?)->Unit = {}
+    private val shown=ArrayList<String>()
+    fun submit(items:List<String>,subtitles:List<String?> = emptyList()) {
+        this.items=items;this.subtitles=subtitles;pressed=-1;requestLayout();invalidate()
+    }
     private fun layoutBoxes(w: Int): Int {
-        boxes.clear()
-        hintLayouts.clear()
-        val gap = 6 * d
-        val pad = 6 * d
-        val cols = if (w / d < 280) 3 else 4
-        val bw = (w - 2 * pad - (cols - 1) * gap) / cols
-        items.forEachIndexed { i, _ ->
-            val x = pad + i % cols * (bw + gap)
-            val y = pad + i / cols * (cellH + gap)
-            boxes.add(RectF(x, y, x + bw, y + cellH))
+        boxes.clear();hintLayouts.clear();shown.clear()
+        val gap=6*d;val pad=6*d;val cols=4
+        val unit=((w-2*pad-(cols-1)*gap)/cols).coerceAtLeast(1f)
+        var row=0;var col=0
+        text.textSize=16*d
+        var overflow:String?=null
+        items.forEachIndexed { i, word ->
+            val span=kotlin.math.ceil((text.measureText(word)+12*d+gap)/(unit+gap)).toInt().coerceIn(1,cols)
+            if(col+span>cols) {row++;col=0}
+            val bw=span*unit+(span-1)*gap
+            val x=pad+col*(unit+gap);val y=pad+row*(cellH+gap)
+            boxes.add(RectF(x,y,x+bw,y+cellH))
+            val visible=TextUtils.ellipsize(word,android.text.TextPaint(text),bw-12*d,TextUtils.TruncateAt.END).toString()
+            shown.add(visible)
+            if(visible!=word && overflow==null) overflow=word
             val hint=subtitles.getOrNull(i)
             hintLayouts.add(hint?.let {
                 android.text.StaticLayout.Builder.obtain(it,0,it.length,hintPaint,(bw-10*d).toInt().coerceAtLeast(1))
                     .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER).setIncludePad(false).setMaxLines(3)
                     .setEllipsize(android.text.TextUtils.TruncateAt.END).build()
             })
+            col+=span
         }
-        val y = pad + ((items.size - 1).coerceAtLeast(0) / cols) * (cellH + gap)
-        return (y + cellH + pad).toInt()
+        val full=overflow
+        post {if(isAttachedToWindow) onOverflow(full)}
+        return (pad*2+(row+1)*(cellH+gap)-gap).toInt()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -226,12 +238,11 @@ class CandFlowView(context: Context, private val skin: Skin, private val items: 
                 else -> skin.keyFg
             }
             text.typeface = Typeface.DEFAULT
-            text.textSize = 18 * d
-            while (text.measureText(items[i]) > r.width() - 12 * d && text.textSize > 10 * d) text.textSize -= d
+            text.textSize = 16 * d
             val tfm = text.fontMetrics
             val hint=hintLayouts.getOrNull(i)
             val cy=if(hint==null) r.centerY() else r.top+21*d
-            c.drawText(items[i], r.centerX(), cy - (tfm.ascent + tfm.descent) / 2, text)
+            c.drawText(shown.getOrElse(i) {items[i]}, r.centerX(), cy - (tfm.ascent + tfm.descent) / 2, text)
             if(hint!=null) {
                 hintPaint.color=withAlpha(if(kongyeFirst) Color.WHITE else skin.barFg,210)
                 c.save();c.translate(r.left+5*d,r.top+37*d);hint.draw(c);c.restore()

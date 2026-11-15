@@ -50,6 +50,22 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("partial-delete".equals(mode)) {PartialSelectionDeleteRegression.INSTANCE.run(this);report("PARTIAL SELECTION PINYIN RESTORE PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("candidate-mode".equals(mode)) {CandidateModeRegression.INSTANCE.run(this);report("CANDIDATE WORD/CHARACTER MODE PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("autofill-transition".equals(mode)) {
+                AutofillTransitionRegression.INSTANCE.run(this);report("BROWSER AUTOFILL AND FIELD TRANSITIONS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("settings-241".equals(mode)) {SettingsInteraction241Regression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("association-ui".equals(mode)) {AssociationUiRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("live-240".equals(mode)) {
+                LiveInteraction240Regression.INSTANCE.run(this);report("ALL 2.4 LIVE BUBBLE / GROUPING / GESTURE CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("interaction-240".equals(mode)) {
+                Interaction240Regression.INSTANCE.run(this);report("ALL 2.4 GROUPING / PREVIEW / MARKDOWN / RECENCY CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("interaction-230".equals(mode)) {
+                Interaction230Regression.INSTANCE.run(this);report("ALL 2.3 CANDIDATE / GESTURE / SMS CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
             if ("fcitx-coexist".equals(mode)) {
                 FcitxRegression.INSTANCE.run(this);
                 PinyinEngine.INSTANCE.initialize(ctx);

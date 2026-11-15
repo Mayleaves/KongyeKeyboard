@@ -22,6 +22,8 @@ object Prefs {
     const val FAV_EMOJI = "fav_emoji"
     const val TOOLS = "tools_v2"
     const val MENU = "menu_v2"
+    const val GLIDE = "glide_input"
+    const val SMS_CODE = "sms_code_copy"
     const val SWIPE = "swipe_symbols"
     const val ABBR = "abbr"
     /** 候选词旁的拼音读音；默认隐藏，上方拼音条与手写注音不受影响。 */
