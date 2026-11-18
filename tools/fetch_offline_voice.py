@@ -29,7 +29,7 @@ def fetch(url, dest, expected=None):
     if dest.exists() and (not expected or hashlib.sha256(dest.read_bytes()).hexdigest() == expected):
         return dest
     partial = dest.with_suffix(dest.suffix + '.part')
-    request = urllib.request.Request(url, headers={'User-Agent': 'KongyeKeyboard-offline-resources', 'Cache-Control': 'no-cache'})
+    request = urllib.request.Request(url, headers={'User-Agent': 'KongyeKeyboard-offline-resources', 'Cache-Control': 'no-cache', 'Accept': 'application/octet-stream'})
     digest = hashlib.sha256()
     print('Downloading ' + dest.name, flush=True)
     with urllib.request.urlopen(request, timeout=90) as response, partial.open('wb') as output:

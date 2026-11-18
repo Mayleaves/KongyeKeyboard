@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "packs": [
+    {
+      "id": "grammar",
+      "title": "整句增强词库",
+      "summary": "用于九键、14 键和 Rime 整句排序；基础拼音可直接使用。",
+      "files": [
+        {
+          "name": "wanxiang-lts-zh-hans.gram",
+          "url": "https://api.github.com/repos/amzxyz/rime-wanxiang-data/releases/assets/747939897",
+          "path": "files:rime/data-2.1.0-ice-r3/wanxiang-lts-zh-hans.gram",
+          "bytes": 407160876,
+          "sha256": "d4f64356231764ff27b79c9b0db79cd9d665013464cf5544e2fbd9a71e0f1c5a"
+        }
+      ]
+    },
+    {
+      "id": "streaming",
+      "title": "普通话实时听写",
+      "summary": "边说边显示文字，下载后无需联网。",
+      "files": [
+        {
+          "name": "model.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/resolve/a5f60fe00dcfbaf68fcc1c6b5cf53061e144d6da/model.int8.onnx",
+          "path": "private:resources/streaming/model.int8.onnx",
+          "bytes": 26342340,
+          "sha256": "68c9c943840f7d9cf3e8a4970ba50f404feb5277f611fa82b7e72267786fa84a"
+        }
+      ]
+    },
+    {
+      "id": "punctuation",
+      "title": "离线语音标点",
+      "summary": "为普通话、四川话听写补充标点。",
+      "files": [
+        {
+          "name": "model.int8.onnx",
+          "url": "https://huggingface.co/lorneluo/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8/resolve/fc2be466e3c11927b306a31cdee23c9c38da44cc/model.int8.onnx",
+          "path": "private:resources/punctuation/model.int8.onnx",
+          "bytes": 75519198,
+          "sha256": "65a3fb9f5ad7bfb96bf69e0dc4481df97f6ee60513c1d94ce981ba6effd524b1"
+        }
+      ]
+    },
+    {
+      "id": "mandarin",
+      "title": "普通话精校模型",
+      "summary": "普通话听写结束后进一步识别，可选下载。",
+      "files": [
+        {
+          "name": "model.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09/resolve/63ddc3cd0f2810b68289a7b3876e62ef5d53d6df/model.int8.onnx",
+          "path": "voice:mandarin/model.int8.onnx",
+          "bytes": 81828675,
+          "sha256": "3ef6c19369b912f7caf3cef8e545c5ccd1a33d9d7ec792a46668dc41c4b229ec"
+        },
+        {
+          "name": "tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09/resolve/63ddc3cd0f2810b68289a7b3876e62ef5d53d6df/tokens.txt",
+          "path": "voice:mandarin/tokens.txt",
+          "bytes": 75352,
+          "sha256": "4b2d964e18b9cf139b473003b6698fb2ed9a2a5ec55b93daa677b28f578897aa"
+        }
+      ]
+    },
+    {
+      "id": "sichuan",
+      "title": "四川话离线听写",
+      "summary": "川渝口音专用模型，下载后无需联网。",
+      "files": [
+        {
+          "name": "model.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-int8-2025-10-07/resolve/52f0cdb5bdde9533c62f2a49c9ec073ab8139820/model.int8.onnx",
+          "path": "voice:sichuan/model.int8.onnx",
+          "bytes": 238429929,
+          "sha256": "53813ee1d41722cc6370a571c887e6d0b391d25b8312cf714a31af85ea603812"
+        },
+        {
+          "name": "tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-int8-2025-10-07/resolve/52f0cdb5bdde9533c62f2a49c9ec073ab8139820/tokens.txt",
+          "path": "voice:sichuan/tokens.txt",
+          "bytes": 75756,
+          "sha256": "59aba8873a2ed1e122c25fee421e25f283b63290efbde85c1f01a853d83cb6e6"
+        }
+      ]
+    },
+    {
+      "id": "handwriting",
+      "title": "离线笔迹识别",
+      "summary": "神经网络手写识别，支持倾斜和连带笔画。",
+      "files": [
+        {
+          "name": "ochwpro.onnx",
+          "url": "https://www.modelscope.cn/models/bikeand/ochwpro/resolve/master/ochwpro.onnx",
+          "path": "private:resources/handwriting/ochwpro.onnx",
+          "bytes": 7001270,
+          "sha256": "eb04d62a314c7d7bac4e34d6ce0c24137474d30ff94b929115a621385420ce13"
+        }
+      ]
+    },
+    {
+      "id": "polish",
+      "title": "离线语句润色",
+      "summary": "Qwen3 0.6B，在本机整理语句；可选择联网润色替代。",
+      "files": [
+        {
+          "name": "Qwen3-0.6B-Q8_0.gguf",
+          "url": "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/23749fefcc72300e3a2ad315e1317431b06b590a/Qwen3-0.6B-Q8_0.gguf",
+          "path": "private:voice-polish/Qwen3-0.6B-Q8_0.gguf",
+          "bytes": 639446688,
+          "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031"
+        }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,31 @@ import kotlin.math.*
 /** Bounded spelling-lattice repairs. The Chinese words and their order come from libime. */
 object SpellingAssist {
     data class Feedback(val errors:BooleanArray,val swaps:List<Int>)
+    data class Edit(val kind:Int,val from:String,val to:String)
+    /** Derive error totals only from aligned selected readings, excluding valid abbreviations/fuzzy pairs. */
+    fun edits(raw:String,reading:String):List<Edit> {
+        val result=ArrayList<Edit>()
+        for(g in align(raw,reading) ?: return emptyList()) {
+            val a=g.typed;val b=g.expected
+            if(fuzzyEquivalent(a,b) || a==b.take(1) || (a in listOf("zh","ch","sh") && b.startsWith(a)))continue
+            val d=Array(a.length+1){IntArray(b.length+1)}
+            for(i in 0..a.length)d[i][0]=i
+            for(j in 0..b.length)d[0][j]=j
+            for(i in 1..a.length)for(j in 1..b.length) {
+                d[i][j]=min(d[i-1][j-1]+if(a[i-1]==b[j-1])0 else 1,min(d[i-1][j]+1,d[i][j-1]+1))
+                if(i>1 && j>1 && a[i-1]==b[j-2] && a[i-2]==b[j-1])d[i][j]=min(d[i][j],d[i-2][j-2]+1)
+            }
+            var i=a.length;var j=b.length
+            while(i>0 || j>0) {
+                if(i>0 && j>0 && a[i-1]==b[j-1] && d[i][j]==d[i-1][j-1]) {i--;j--}
+                else if(i>1 && j>1 && a[i-1]==b[j-2] && a[i-2]==b[j-1] && d[i][j]==d[i-2][j-2]+1) {result.add(Edit(3,a.substring(i-2,i),b.substring(j-2,j)));i-=2;j-=2}
+                else if(i>0 && j>0 && d[i][j]==d[i-1][j-1]+1) {result.add(Edit(0,a[i-1].toString(),b[j-1].toString()));i--;j--}
+                else if(i>0 && d[i][j]==d[i-1][j]+1) {result.add(Edit(2,a[i-1].toString(),""));i--}
+                else {result.add(Edit(1,"",b[j-1].toString()));j--}
+            }
+        }
+        return result
+    }
     private fun quality(raw:String):Float {
         val syllables=Lexicon.pinyinSyllables();if(syllables.isEmpty()) return 0f
         val dp=FloatArray(raw.length+1) {1000f};dp[0]=0f
@@ -117,6 +142,114 @@ object SpellingAssist {
             result.add(Aligned(input.substring(at,end),syllables[t-1]));end=at
         }
         return result.reversed()
+    }
+
+    @Volatile var correctionFlags=15
+    fun configure(ctx:android.content.Context) {
+        correctionFlags=if(!V3Prefs.enabled(ctx,V3Prefs.CORRECTION_ENABLED))0 else listOf(V3Prefs.CORRECT_NEAR,V3Prefs.CORRECT_SWAP,V3Prefs.CORRECT_EXTRA,V3Prefs.CORRECT_MISSING)
+            .mapIndexed {index,key->if(V3Prefs.enabled(ctx,key)) 1 shl index else 0}.fold(0){a,b->a or b}
+    }
+    fun allows(raw:String,reading:String):Boolean {
+        if(correctionFlags==15)return true
+        val groups=align(raw,reading) ?: return false
+        return groups.all {group->
+            val a=group.typed;val b=group.expected
+            if(fuzzyEquivalent(a,b) || a==b.take(1) || (a in listOf("zh","ch","sh") && b.startsWith(a))) true
+            else if(b.startsWith(a)) true
+            else {val allowed=permittedDistance(a,b);allowed<=2 && allowed==unrestrictedDistance(a,b)}
+        }
+    }
+    private fun unrestrictedDistance(a:String,b:String):Int {
+        val w=b.length+1;val dp=IntArray((a.length+1)*w)
+        for(i in 0..a.length)dp[i*w]=i
+        for(j in 0..b.length)dp[j]=j
+        for(i in 1..a.length)for(j in 1..b.length) {
+            dp[i*w+j]=minOf(dp[(i-1)*w+j]+1,dp[i*w+j-1]+1,dp[(i-1)*w+j-1]+if(a[i-1]==b[j-1])0 else 1)
+            if(i>1&&j>1&&a[i-1]==b[j-2]&&a[i-2]==b[j-1])dp[i*w+j]=min(dp[i*w+j],dp[(i-2)*w+j-2]+1)
+        }
+        return dp.last()
+    }
+
+    /** One edit only; native dictionaries still decide the words and ranking. */
+    fun repairs(raw:String):List<String> {
+        if(correctionFlags==0 || raw.length !in 3..32 || raw.any {it !in 'a'..'z'})return emptyList()
+        val syllables=Lexicon.pinyinSyllables().toHashSet()
+        fun score(word:String):Int {
+            val dp=IntArray(word.length+1){10000};dp[0]=0
+            for(i in word.indices)if(dp[i]<10000)for(n in 1..min(6,word.length-i)) {
+                val part=word.substring(i,i+n)
+                if(part in syllables)dp[i+n]=min(dp[i+n],dp[i]+10+if(n==1)8 else 0)
+            }
+            return dp.last()
+        }
+        val variants=LinkedHashSet<String>()
+        if(correctionFlags and 4!=0)for(i in raw.indices)variants.add(raw.removeRange(i,i+1))
+        if(correctionFlags and 8!=0)for(i in 0..raw.length)for(c in 'a'..'z')variants.add(raw.substring(0,i)+c+raw.substring(i))
+        if(correctionFlags and 2!=0)variants.addAll(transpositions(raw))
+        return variants.asSequence().filter {it!=raw}.map {it to score(it)}.filter {it.second<10000}.sortedBy {it.second}.take(12).map {it.first}.toList()
+    }
+
+    private fun fuzzyEquivalent(input:String,target:String):Boolean {
+        var a=input;var b=target
+        for(rule in Lexicon.fuzzyRules) {
+            val pair=rule.split('-');if(pair.size!=2)continue
+            val from=pair[1];val to=pair[0]
+            if(rule in setOf("z-zh","c-ch","s-sh","n-l","f-h","r-l")) {
+                if(a.startsWith(from))a=to+a.removePrefix(from)
+                if(b.startsWith(from))b=to+b.removePrefix(from)
+            } else {
+                if(a.endsWith(from))a=a.removeSuffix(from)+to
+                if(b.endsWith(from))b=b.removeSuffix(from)+to
+            }
+        }
+        return a==b
+    }
+    private fun permittedDistance(a:String,b:String):Int {
+        val rows=listOf("qwertyuiop","asdfghjkl","zxcvbnm")
+        fun near(x:Char,y:Char):Boolean {
+            val rx=rows.indexOfFirst {x in it};val ry=rows.indexOfFirst {y in it}
+            if(rx<0||ry<0)return false
+            val px=rows[rx].indexOf(x)+rx*.5f;val py=rows[ry].indexOf(y)+ry*.5f
+            return kotlin.math.abs(rx-ry)<=1 && kotlin.math.abs(px-py)<=1.5f
+        }
+        val width=b.length+1;val costs=IntArray((a.length+1)*width){1000};costs[0]=0
+        for(i in 0..a.length) for(j in 0..b.length) {
+            if(i>0 && correctionFlags and 4!=0)costs[i*width+j]=min(costs[i*width+j],costs[(i-1)*width+j]+1)
+            if(j>0 && correctionFlags and 8!=0)costs[i*width+j]=min(costs[i*width+j],costs[i*width+j-1]+1)
+            if(i>0&&j>0&&(a[i-1]==b[j-1] || correctionFlags and 1!=0 && near(a[i-1],b[j-1])))
+                costs[i*width+j]=min(costs[i*width+j],costs[(i-1)*width+j-1]+if(a[i-1]==b[j-1])0 else 1)
+            if(i>1&&j>1&&correctionFlags and 2!=0&&a[i-1]==b[j-2]&&a[i-2]==b[j-1])
+                costs[i*width+j]=min(costs[i*width+j],costs[(i-2)*width+j-2]+1)
+        }
+        return costs.last()
+    }
+
+    /** Full spelling, abbreviations, unfinished suffixes and configured fuzzy spellings are valid input. */
+    fun matchesTypedReading(raw: String, reading: String): Boolean {
+        val input = plain(raw)
+        val syllables = reading.split(' ', '\'').map(::plain).filter { it.isNotEmpty() }
+        if (input.isEmpty() || syllables.isEmpty() || input == syllables.joinToString("")) return true
+        var positions = setOf(0)
+        for (syllable in syllables) {
+            positions = buildSet {
+                for (start in positions) {
+                    if (input.startsWith(syllable, start)) add(start + syllable.length)
+                    if (input[start] == syllable.first()) add(start + 1)
+                    if (syllable.startsWith(input.substring(start))) add(input.length)
+                    if (syllable.startsWith("zh") || syllable.startsWith("ch") || syllable.startsWith("sh")) {
+                        if (input.startsWith(syllable.take(2), start)) add(start + 2)
+                    }
+                    if (Lexicon.fuzzyRules.isNotEmpty()) {
+                        for (end in start + 1..min(input.length, start + syllable.length + 2)) {
+                            if (fuzzyEquivalent(input.substring(start, end), syllable)) add(end)
+                        }
+                    }
+                }
+            }
+            if (input.length in positions) return true
+            if (positions.isEmpty()) return false
+        }
+        return false
     }
 
     fun presentation(raw:String,reading:String,fallback:String):String {

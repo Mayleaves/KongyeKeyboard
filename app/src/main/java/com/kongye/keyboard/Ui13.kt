@@ -34,70 +34,46 @@ class SliderView(
     private var value: Float,
     private val min: Float,
     private val max: Float,
+    private val format: (Float) -> String,
     private val onChange: (Float) -> Unit,
     private val onDone: (Float) -> Unit = {},
     private val onStart: () -> Unit = {},
 ) : View(context) {
     private val d = resources.displayMetrics.density
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private var dragging = false
-    private val padEnd get() = 10 * d
+    private val drawing = SliderDrawing()
 
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) =
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), (28 * d).toInt())
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), (46 * d).toInt())
+    }
 
-    private fun pos() = (padEnd + (value - min) / (max - min) * (width - 2 * padEnd).coerceAtLeast(1f))
-        .coerceIn(padEnd, (width - padEnd).coerceAtLeast(padEnd))
-
-    override fun onDraw(c: Canvas) {
-        val cy = height / 2f
-        val th = 2.4f * d
-        // 底轨
-        fill.color = withAlpha(skin.candFg, if (skin.dark) 38 else 22)
-        c.drawRoundRect(RectF(padEnd, cy - th, width - padEnd, cy + th), th, th, fill)
-        // 已选进度轨
-        val px = pos()
-        fill.color = skin.candHi
-        c.drawRoundRect(RectF(padEnd, cy - th, px, cy + th), th, th, fill)
-        // 白芯带色环滑块 + 轻阴影
-        val r = (if (dragging) 9.2f else 8.2f) * d
-        fill.color = withAlpha(android.graphics.Color.BLACK, if (skin.dark) 85 else 28)
-        c.drawCircle(px, cy + d, r + 0.8f * d, fill)
-        fill.color = android.graphics.Color.WHITE
-        c.drawCircle(px, cy, r, fill)
-        ring.strokeWidth = 2.2f * d
-        ring.color = skin.candHi
-        c.drawCircle(px, cy, r - 1.1f * d, ring)
+    override fun onDraw(canvas: Canvas) {
+        val fraction = ((value - min) / (max - min)).coerceIn(0f, 1f)
+        val labelSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, 11f, resources.displayMetrics)
+        drawing.draw(canvas, width.toFloat(), 14 * d, d, fraction,
+            withAlpha(skin.candFg, if (skin.dark) 38 else 22),
+            if (isEnabled) skin.candHi else skin.barFg, skin.barFg, 35 * d, labelSize, format(value))
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(e: MotionEvent): Boolean {
+    override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!isEnabled) return false
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                dragging = true
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
                 parent?.requestDisallowInterceptTouchEvent(true)
-                onStart()
-                value = (min + (e.x - padEnd) / (width - 2 * padEnd).coerceAtLeast(1f) * (max - min)).coerceIn(min, max)
-                onChange(value)
-                invalidate()
-            }
-            MotionEvent.ACTION_MOVE -> {
-                parent?.requestDisallowInterceptTouchEvent(true)
-                value = (min + (e.x - padEnd) / (width - 2 * padEnd).coerceAtLeast(1f) * (max - min)).coerceIn(min, max)
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) onStart()
+                value = min + (max - min) * drawing.fractionAt(event.x, width.toFloat(), d)
                 onChange(value)
                 invalidate()
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                dragging = false
-                invalidate()
+                parent?.requestDisallowInterceptTouchEvent(false)
                 onDone(value)
             }
         }
         return true
     }
 }
+
 
 /** 按住连发的按钮（删除） */
 @SuppressLint("ClickableViewAccessibility")
@@ -304,6 +280,7 @@ data class Adjust(
     var scale: Float, var opacity: Float, var padL: Int, var padR: Int, var padB: Int,
     var split: Boolean = false, var floating: Boolean = false,
     var floatWidth: Float = .86f, var floatX: Float = 0f, var floatY: Float = 0f,
+    var splitGap:Float=72f,var splitSize:Float=1f,
 )
 
 /**
@@ -331,7 +308,7 @@ class AdjustOverlay(
 
     private val card = LinearLayout(context)
     private val sizeInfo = TextView(context)
-    private val blankValue = TextView(context)
+    private val controls=LinearLayout(context).apply {orientation=LinearLayout.VERTICAL}
     private val buttonViews = ArrayList<LinearLayout>()
     private var resizing = false
 
@@ -387,10 +364,12 @@ class AdjustOverlay(
             }
         }
         card.addView(header, lp(MATCH, WRAP))
+        card.addView(ScrollView(context).apply {isFillViewport=false;isVerticalScrollBarEnabled=true;addView(controls,lp(MATCH,WRAP))},lp(MATCH,0,1f))
 
         // 2. 底部留白滑条行（悬浮模式下自动置灰）
         val blankSlider = SliderView(
-            context, skin, a.padB.toFloat(), 0f, 48f,
+            context, skin, a.padB.toFloat(), 0f, 120f,
+            format = { "${kotlin.math.round(it).toInt()} dp" },
             onChange = {
                 val next = kotlin.math.round(it).toInt()
                 if (a.padB != next) { a.padB = next; refresh(); onLive() }
@@ -398,20 +377,31 @@ class AdjustOverlay(
             onDone = { fadeCard(1f) },
             onStart = { if (!floating) fadeCard(0.28f) },
         ).apply { isEnabled = !floating }
-        card.addView(LinearLayout(context).apply {
+        controls.addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            alpha = if (floating) 0.42f else 1f
+            visibility = if(floating)View.GONE else View.VISIBLE
             addView(TextView(context).apply {
                 text = "底部留白"
                 textSize = 13f
                 setTextColor(titleFg)
             }, lp((58 * d).toInt(), WRAP))
-            addView(blankSlider, lp(0, (30 * d).toInt(), 1f))
-            valueLabelStyle(blankValue)
-            if (floating) blankValue.setTextColor(subFg)
-            addView(blankValue, lp((42 * d).toInt(), WRAP))
+            addView(blankSlider, lp(0, WRAP, 1f))
         }, lp(MATCH, WRAP))
+
+        fun splitControl(title:String,min:Float,max:Float,value:Float,format:(Float)->String,onValue:(Float)->Unit) {
+            val line=LinearLayout(context).apply {orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
+            val label=TextView(context).apply {text=title;textSize=12f;setTextColor(titleFg)}
+            line.addView(label,lp((68*d).toInt(),WRAP))
+            line.addView(SliderView(context, skin, value, min, max, format, onChange = { onValue(it); onLive() }), lp(0, WRAP, 1f))
+            controls.addView(line,lp(MATCH,WRAP))
+        }
+        splitControl("分体间距",24f,220f,a.splitGap, { "${kotlin.math.round(it).toInt()} dp" }) {
+            a.splitGap=kotlin.math.round(it)
+        }
+        splitControl("按键尺寸",.7f,1f,a.splitSize, { "${kotlin.math.round(it * 100).toInt()}%" }) {
+            a.splitSize=it
+        }
 
         // 3. 底部操作按钮行：重置 / 悬浮 / 分体 / 确认（与重置统一灰底）
         val buttons = LinearLayout(context).apply {
@@ -457,6 +447,7 @@ class AdjustOverlay(
                     maxLines = 1
                     gravity = Gravity.CENTER
                 }, lp(WRAP, WRAP).apply { leftMargin = (4 * d).toInt() })
+                contentDescription=title
                 setOnClickListener { action() }
             }
             styleButton(b, kind, active)
@@ -502,12 +493,7 @@ class AdjustOverlay(
         refresh()
     }
 
-    private fun valueLabelStyle(tv: TextView) {
-        tv.setTextColor(accent)
-        tv.textSize = 12.5f
-        tv.typeface = Typeface.DEFAULT_BOLD
-        tv.gravity = Gravity.END or Gravity.CENTER_VERTICAL
-    }
+
 
     private fun fadeCard(targetAlpha: Float) {
         card.animate().alpha(targetAlpha).setDuration(if (targetAlpha < 1f) 110L else 160L).start()
@@ -529,7 +515,7 @@ class AdjustOverlay(
         }
         if (horizontal != 0) {
             if (a.floating) {
-                a.floatWidth = (start.floatWidth + horizontal * dx / screen).coerceIn(.55f, 1f)
+                a.floatWidth = (start.floatWidth + horizontal * dx / screen).coerceIn(FloatingKeyboard.widthRange(screen,resources.displayMetrics.heightPixels.toFloat()))
                 if (horizontal < 0) a.floatX = start.floatX + (start.floatWidth - a.floatWidth) * screen
             } else {
                 val maxTotalPad = (screen / d * .45f).toInt()
@@ -545,27 +531,32 @@ class AdjustOverlay(
         val widthPct = if (a.floating) kotlin.math.round(a.floatWidth * 100).toInt()
         else kotlin.math.round((screenDp - a.padL - a.padR) / screenDp * 100).toInt().coerceIn(55, 100)
         sizeInfo.text = "高度 ${kotlin.math.round(a.scale * 100).toInt()}%  ·  宽度 $widthPct%"
-        blankValue.text = if (a.floating) "悬浮" else "${a.padB} dp"
         invalidate()
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent) = true
 
+    override fun onMeasure(widthMeasureSpec:Int,heightMeasureSpec:Int) {
+        val w=MeasureSpec.getSize(widthMeasureSpec)
+        val available=MeasureSpec.getSize(heightMeasureSpec)
+        val compact=w<275*d
+        val lpCard=card.layoutParams as LayoutParams
+        lpCard.height=minOf((300*d).toInt(),(available-24*d).toInt()).coerceAtLeast(1)
+        lpCard.leftMargin=((if(compact)14 else 22)*d).toInt()
+        lpCard.rightMargin=lpCard.leftMargin
+        buttonViews.forEach { b ->
+            b.orientation=if(compact)LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            val label=b.getChildAt(1) as TextView
+            label.visibility=View.VISIBLE;label.textSize=if(compact)11f else 13f
+            (label.layoutParams as LinearLayout.LayoutParams).apply {leftMargin=if(compact)0 else (4*d).toInt();topMargin=if(compact)(3*d).toInt() else 0}
+            b.layoutParams.height=((if(compact)48 else 36)*d).toInt()
+        }
+        super.onMeasure(widthMeasureSpec,heightMeasureSpec)
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        // 键盘被缩到极窄时，自动收紧按钮文字以保证不裁切
-        val compact = w < 275 * d
-        val lpCard = card.layoutParams as LayoutParams
-        val wantMargin = ((if (compact) 14 else 22) * d).toInt()
-        if (lpCard.leftMargin != wantMargin) {
-            lpCard.leftMargin = wantMargin
-            lpCard.rightMargin = wantMargin
-            card.post { card.layoutParams = lpCard }
-        }
-        buttonViews.forEach { b ->
-            (b.getChildAt(1) as? TextView)?.visibility = if (w < 235 * d) View.GONE else View.VISIBLE
-        }
         if (android.os.Build.VERSION.SDK_INT >= 29) {
             val edge = (24 * d).toInt(); val half = (48 * d).toInt()
             systemGestureExclusionRects = listOf(
@@ -684,21 +675,54 @@ class VoiceBoard(
     onCancel: () -> Unit,
     onOk: () -> Unit,
     onPermission: () -> Unit,
+    onCollapse: (() -> Unit)? = null,
+    onPolish: (() -> Unit)? = null,
 ) : LinearLayout(context) {
     private val d = resources.displayMetrics.density
     private val statusView = TextView(context)
+    private var polishButton: TextView? = null
+    private var cancelPolishButton: TextView? = null
     private val wave = Wave()
     private val mic = MicButton()
 
     init {
         orientation = VERTICAL
-        val head = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding((12 * d).toInt(), (6 * d).toInt(), (10 * d).toInt(), 0) }
+        val inset = (12 * d).toInt()
         statusView.textSize = 13f
         statusView.typeface = Typeface.DEFAULT_BOLD
         statusView.setTextColor(skin.candHi)
-        head.addView(statusView, lp(0, WRAP, 1f))
-        head.addView(segmented(context, skin, listOf("普通话", "四川话"), dialect) { onDialect(it) }, lp(WRAP, WRAP))
-        addView(head, lp(MATCH, WRAP))
+        statusView.maxLines = 2
+        statusView.ellipsize = TextUtils.TruncateAt.END
+        statusView.setPadding(inset, (6 * d).toInt(), inset, (2 * d).toInt())
+        addView(statusView, lp(MATCH, WRAP))
+
+        val controls = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(inset, 0, inset, 0)
+        }
+        controls.addView(segmented(context, skin, listOf("普通话", "四川话"), dialect, 8f, 5f, 12f, onDialect), lp(WRAP, WRAP))
+        controls.addView(View(context), lp(0, 1, 1f))
+        fun action(label: String, onClick: () -> Unit) = TextView(context).apply {
+            text = label
+            textSize = 12f
+            maxLines = 1
+            gravity = Gravity.CENTER
+            minHeight = (36 * d).toInt()
+            setPadding((8 * d).toInt(), 0, (8 * d).toInt(), 0)
+            setTextColor(skin.candHi)
+            background = null
+            setOnClickListener { onClick() }
+        }
+        if (onPolish != null) {
+            polishButton = action("润色", onPolish).also { controls.addView(it, lp(WRAP, WRAP)) }
+            cancelPolishButton = action("取消润色", onPolish).also {
+                it.visibility = GONE
+                controls.addView(it, lp(WRAP, WRAP))
+            }
+        }
+        if (onCollapse != null) controls.addView(action("收起", onCollapse), lp(WRAP, WRAP).apply { marginStart = (6 * d).toInt() })
+        addView(controls, lp(MATCH, WRAP))
         addView(wave, lp(MATCH, 0, 1f))
         val row = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding((16 * d).toInt(), (2 * d).toInt(), (16 * d).toInt(), (8 * d).toInt()) }
         fun btn(t: String, strong: Boolean, f: () -> Unit) = TextView(context).apply {
@@ -715,8 +739,17 @@ class VoiceBoard(
         addView(row, lp(MATCH, WRAP))
     }
 
+    fun polishState(busy: Boolean, restore: Boolean) {
+        polishButton?.apply {
+            visibility = if (busy) GONE else VISIBLE
+            text = if (restore) "恢复原文" else "润色"
+        }
+        cancelPolishButton?.visibility = if (busy) VISIBLE else GONE
+    }
+
     /** committed 为已识别句子，partial 为临时结果；麦克风保持静态，只有声波随音量变化。 */
     fun update(committed: String, partial: String, status: String, listening: Boolean) {
+        statusView.visibility = if (status.isBlank() || status.startsWith("正在聆听")) GONE else VISIBLE
         statusView.text = status
         statusView.setTextColor(if (listening) skin.candHi else skin.barFg)
         mic.listening = listening

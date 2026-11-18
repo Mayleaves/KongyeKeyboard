@@ -46,8 +46,8 @@ object OpenHandwriting {
                 val options = OrtSession.SessionOptions()
                 try {
                     options.setIntraOpNumThreads(2); options.setInterOpNumThreads(1)
-                    val model = ctx.assets.open("handwriting-neural/ochwpro.onnx").use { it.readBytes() }
-                    val engine = OrtEnvironment.getEnvironment().createSession(model, options)
+                    check(ResourcePacks.ready(ctx,"handwriting")) {"请在设置的离线资源中下载笔迹识别模型"}
+                    val engine = OrtEnvironment.getEnvironment().createSession(ResourcePacks.file(ctx,"handwriting").absolutePath, options)
                     // Warm the execution graph outside the first recognition callback.
                     try { predict(engine, labels, listOf(listOf(floatArrayOf(0f, 0f), floatArrayOf(50f, 50f)))) }
                     catch (e: Exception) { engine.close(); throw e }

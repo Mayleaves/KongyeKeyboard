@@ -81,6 +81,7 @@ object Lexicon {
     }
     /** 单字 → 最常用的读音，手写候选显示拼音用 */
     private val charPy = HashMap<Char, String>()
+    private val phrasePy = HashMap<String,String>()
     /** 所有词，分词用 */
     private val words = HashSet<String>()
     private var syllables: List<String> = emptyList()
@@ -157,6 +158,9 @@ object Lexicon {
                 if (old == null || e.sc > old.sc) best[e.w[0]] = e
             } else words.add(e.w)
             for ((ch, e) in best) charPy[ch] = e.p
+            val bestPhrase=HashMap<String,Entry>()
+            for(e in list)if(e.w.length>1 && (bestPhrase[e.w]?.sc ?: Int.MIN_VALUE)<e.sc)bestPhrase[e.w]=e
+            for((word,entry) in bestPhrase)phrasePy[word]=entry.syl.joinToString(" ")
             list.sortWith(compareBy<Entry> { it.p }.thenByDescending { it.sc })
             sorted = list.toTypedArray()
             for (e in sorted) {
@@ -587,7 +591,9 @@ object Lexicon {
     }
 
     /** 每个字的拼音，空格隔开；认不出的字照原样 */
-    fun pinyinOf(text: String): String = text.map { ch -> charPy[ch] ?: ch.toString() }.joinToString(" ")
+    fun pinyinOf(text: String): String = phrasePy[text] ?: segment(text).joinToString(" ") {part->
+        phrasePy[part] ?: part.map {ch->charPy[ch] ?: ch.toString()}.joinToString(" ")
+    }
 
     /** 分词：汉字按词库正向最大匹配（最长 6 个字），英文、数字成段，标点单独 */
     fun segment(text: String): List<String> {
@@ -652,7 +658,7 @@ object Lexicon {
         dirty = true
     }
 
-    fun save() {
+    @Synchronized fun save() {
         val f = userFile ?: return
         if (!dirty) return
         dirty = false
@@ -664,12 +670,39 @@ object Lexicon {
         }
         for ((k, v) in userFreq) if (k !in phraseKeys) sb.append("F\t").append(k).append('\t').append(v).append('\n')
         val text = sb.toString()
-        Thread { runCatching { f.writeText(text) } }.start()
+        userWriter.execute {runCatching {
+            val atomic=android.util.AtomicFile(f);val out=atomic.startWrite()
+            try {out.write(text.toByteArray());atomic.finishWrite(out)}catch(t:Throwable){atomic.failWrite(out);throw t}
+        }}
+    }
+
+    private val userWriter=java.util.concurrent.Executors.newSingleThreadExecutor {Thread(it,"KongyeUserSave")}
+    @Synchronized fun flushUserWrites(){userWriter.submit {}.get(5,java.util.concurrent.TimeUnit.SECONDS)}
+    @Synchronized fun backupText():String=buildString {
+        val phrases=HashSet<String>()
+        for(e in userWords){phrases.add(e.key);append("P\t").append(e.w).append('\t').append(e.syl.joinToString("'")).append('\t').append(userFreq[e.key] ?: 1).append('\n')}
+        for((key,value) in userFreq)if(key !in phrases)append("F\t").append(key).append('\t').append(value).append('\n')
+    }
+    @Synchronized fun restoreBackupText(ctx:Context,text:String) {
+        userWriter.submit {}.get(5,java.util.concurrent.TimeUnit.SECONDS)
+        clearUser(ctx)
+        for(line in text.lineSequence()) {
+            val f=line.split('\t');if(f.size!=4)continue
+            val count=f[3].toIntOrNull()?.coerceIn(1,100000000) ?: continue
+            if(f[0]=="P") {
+                val syllables=f[2].split("'");if(syllables.any {it.isEmpty()})continue
+                learnPhrase(f[1],syllables);userFreq[f[1]+"\t"+syllables.joinToString("")]=count
+            } else if(f[0]=="F")userFreq[f[1]+"\t"+f[2]]=count
+        }
+        userFile=File(ctx.filesDir,"user_lexicon.txt");dirty=true;save()
+        userWriter.submit {}.get(5,java.util.concurrent.TimeUnit.SECONDS)
+        check(userFile?.readText()==backupText()) {"无法保存恢复的学习记录"}
     }
 
     /** 清除学习记录（选词次数和自造词） */
     @Synchronized
     fun clearUser(ctx: Context) {
+        userWriter.submit {}.get(5,java.util.concurrent.TimeUnit.SECONDS)
         candidateCache.clear()
         synchronized(this) {
             if (ready && userWords.isNotEmpty()) {

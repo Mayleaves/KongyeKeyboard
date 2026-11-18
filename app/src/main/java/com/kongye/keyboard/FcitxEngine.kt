@@ -15,6 +15,7 @@ object FcitxEngine {
     private const val SENSITIVE=1L shl 36
     private var input=""
     private var fuzzy=emptySet<String>()
+    private var correctionFlags=-1
     private fun <T> native(action:()->T):T = try {owner.submit<T> {action()}.get()}
         catch(e:java.util.concurrent.ExecutionException) {throw (e.cause ?: e)}
     fun initialize(ctx:Context) {
@@ -56,11 +57,11 @@ object FcitxEngine {
     private fun configure(rules:Set<String>) {
         val ids=mapOf("z-zh" to "Z_ZH","c-ch" to "C_CH","s-sh" to "S_SH","n-l" to "L_N","f-h" to "F_H","r-l" to "L_R",
             "an-ang" to "AN_ANG","en-eng" to "EN_ENG","in-ing" to "IN_ING","ian-iang" to "IAN_IANG","uan-uang" to "UAN_UANG")
-        val sounds=ids.map {(id,key)->config(key,if(id in rules) "True" else "False")}+config("Correction","Qwerty")
+        val sounds=ids.map {(id,key)->config(key,if(id in rules) "True" else "False")}+config("Correction",if(SpellingAssist.correctionFlags and 1!=0)"Qwerty" else "None")
         val settings=arrayOf(config("SpellEnabled","False"),config("SymbolsEnabled","False"),config("CloudPinyinEnabled","False"),
             config("Prediction","False"),config("KeepCurrentContext","False"),config("StrokeCandidateEnabled","False"),
             RawConfig("Fuzzy","","",sounds.toTypedArray()))
-        Fcitx.setFcitxAddonConfig("pinyin",RawConfig("","","",settings));fuzzy=rules.toSet()
+        Fcitx.setFcitxAddonConfig("pinyin",RawConfig("","","",settings));fuzzy=rules.toSet();correctionFlags=SpellingAssist.correctionFlags
         input="";Fcitx.resetInputContext();Fcitx.flush()
     }
     private fun prepare(raw:String,current:()->Boolean = {true}) {
@@ -81,10 +82,11 @@ object FcitxEngine {
     }
     fun candidates(keys:List<String>,current:()->Boolean):List<Cand> = query(keys,current,true)
     fun primaryCandidates(keys:List<String>,current:()->Boolean):List<Cand> = query(keys,current,false)
-    private fun query(keys:List<String>,current:()->Boolean,includeShort:Boolean):List<Cand> = native {
+    fun candidatesLive(keys:List<String>,current:()->Boolean,onPrimary:(List<Cand>)->Unit):List<Cand> = query(keys,current,false,onPrimary)
+    private fun query(keys:List<String>,current:()->Boolean,includeShort:Boolean,onPrimary:((List<Cand>)->Unit)?=null):List<Cand> = native {
         check(ready)
         if(!current()) throw java.util.concurrent.CancellationException()
-        if(fuzzy!=Lexicon.fuzzyRules) configure(Lexicon.fuzzyRules)
+        if(fuzzy!=Lexicon.fuzzyRules || correctionFlags!=SpellingAssist.correctionFlags) configure(Lexicon.fuzzyRules)
         val raw=keys.joinToString("")
         prepare(raw,current)
         if(!current()) throw java.util.concurrent.CancellationException()
@@ -96,34 +98,38 @@ object FcitxEngine {
             return Fcitx.getFcitxCandidates(0,limit).orEmpty().mapNotNull {c ->
                 if(c.text.isEmpty() || c.text.all {it.code<128}) null else {
                     val chars=c.text.codePointCount(0,c.text.length)
-                    val estimated=parts.take(chars).sumOf {token->token.count {it in 'a'..'z'}}.coerceIn(1,length.coerceAtLeast(1))
-                    Cand(c.text,estimated,null,0f,py=Lexicon.pinyinOf(c.text),inputDisplay=Lexicon.streamingDisplay(keys),
+                    val queryLength=query.count {it!='\''}
+                    val estimated=parts.take(chars).sumOf {token->token.count {it in 'a'..'z'}}.coerceIn(1,queryLength.coerceAtLeast(1))
+                    val consumed=if(query!=source && estimated==queryLength)length else minOf(estimated,length)
+                    Cand(c.text,consumed,null,0f,py=Lexicon.pinyinOf(c.text),inputDisplay=Lexicon.streamingDisplay(keys),
                         nativeChoice=RimeChoice("fcitx/pinyin",query,source),correction=query!=source)
                 }
-            }
+            }.filter {c->c.py.isNullOrEmpty() || SpellingAssist.allows(source.filter {it!='\''}.take(c.n),c.py.orEmpty())}
         }
         val original=collect(raw,raw,if(includeShort) 80 else 40)
+        onPrimary?.invoke(original+Cand(raw,count,null,-100f))
         val result=original.toMutableList()
-        // Only phonotactically broken spellings enter the adjacent-transposition
-        // lattice; native dictionary/model decoding still supplies the words.
+        // Native words appear immediately; bounded repairs refine the same page.
         try {
-            val variants=SpellingAssist.transpositions(raw)
-            val baseline=if(variants.isEmpty()) 1000 else original.firstOrNull()?.let {SpellingAssist.wordCost(raw,it.py.orEmpty())} ?: 1000
             val repairs=ArrayList<Cand>()
-            // Trust a native sentence already explained by a swap/near-key edit.
-            // Replaying whole alternative spellings in this case only adds delay.
-            for(variant in if(baseline<=15) emptyList() else variants) {
+            val first=original.firstOrNull()
+            val reading=first?.py.orEmpty().replace(" ","").replace("'","")
+            val exact=first?.n==count && reading==raw
+            val nativeRepair=first?.n==count && reading.length==raw.length && reading!=raw && SpellingAssist.wordCost(raw,first?.py.orEmpty())<=15
+            val variants=if(nativeRepair)emptyList() else SpellingAssist.repairs(raw).filter {!exact || it.length<raw.length}
+            for(variant in variants) {
                 if(!current()) throw java.util.concurrent.CancellationException()
                 prepare(variant,current)
-                val alternatives=collect(variant,raw,12)
-                val full=alternatives.firstOrNull()
-                if(full!=null) repairs.add(full)
-                for(c in alternatives.take(3)) if(result.none {it.w==c.w}) result.add(c)
+                val alternative=collect(variant,raw,12).firstOrNull {it.n==count} ?: continue
+                if((!exact || original.any {it.w==alternative.w&&it.n<count}) && repairs.none {it.w==alternative.w})repairs.add(alternative)
             }
-            val best=repairs.minByOrNull {SpellingAssist.wordCost(raw,it.py.orEmpty())}
-            if(best!=null && SpellingAssist.wordCost(raw,best.py.orEmpty())<baseline) {
-                result.removeAll {it.w==best.w};result.add(0,best)
+            val additions=ArrayList<Cand>()
+            for(c in repairs) {
+                val old=result.indexOfFirst {it.w==c.w}
+                if(old>=0 && result[old].n<count)result[old]=c
+                else if(old<0)additions.add(c)
             }
+            result.addAll(minOf(3,result.size),additions)
             // Ask the native dictionary for real short prefix phrases as well.
             // A full-sentence-heavy native page must not hide all 3/2/1-char words.
             if(includeShort && tokens.size>3) for(size in listOf(3,2,1)) {
@@ -173,6 +179,12 @@ object FcitxEngine {
         }
     }
     fun clear() {if(ready) native {Fcitx.resetInputContext();Fcitx.flush();input=""}}
+    @Synchronized fun <T> withUserFiles(ctx:Context,action:()->T):T {
+        val wasReady=ready
+        native {if(ready){Fcitx.resetInputContext();Fcitx.saveFcitxState();Fcitx.exitFcitx()};ready=false;input=""}
+        try {return action()} finally {if(wasReady){initialize(ctx);check(ready){failure.orEmpty()}}}
+    }
+
     /** Called only by the user's explicit clear-learning action. */
     fun clearUser(ctx:Context) {
         native {

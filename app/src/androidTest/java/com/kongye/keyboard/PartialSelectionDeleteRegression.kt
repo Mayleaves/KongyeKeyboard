@@ -28,11 +28,16 @@ object PartialSelectionDeleteRegression {
         fun keyboard()=views().filterIsInstance<KeyboardView>().firstOrNull {it.isShown && !it.preview}
         Lexicon.load(ctx);FcitxEngine.initialize(ctx)
         val prefs=Prefs.of(ctx)
-        val backup=listOf(Prefs.ZH,Prefs.LAYOUT,Prefs.VAULT,Prefs.LEARN,Prefs.ABBR,Prefs.COUNT_TODAY,Prefs.COUNT_DATE).associateWith {prefs.all[it]}
+        val backup=listOf(Prefs.ZH,Prefs.LAYOUT,Prefs.VAULT,Prefs.LEARN,Prefs.ABBR,Prefs.COUNT_TODAY,Prefs.COUNT_DATE,Prefs.SMS_CODE,V3Prefs.COMPOSE_RESTORE,V3Prefs.COMPOSE_HOLD_CLEAR).associateWith {prefs.all[it]}
+        val clipboard=ctx.getSystemService(android.content.ClipboardManager::class.java)
+        var savedClip:android.content.ClipData?=null
+        val expiry=ctx.getSharedPreferences("sms_code_expiry",android.content.Context.MODE_PRIVATE)
+        val savedExpiry=expiry.all.toMap()
+        var touchedClipboard=false
         var ime:KongyeIME?=null
         try {
-            ui {prefs.edit().putBoolean(Prefs.ZH,true).putString(Prefs.LAYOUT,"26").putBoolean(Prefs.VAULT,false).putBoolean(Prefs.LEARN,false).putBoolean(Prefs.ABBR,true).commit()}
-            ctx.startActivity(Intent(inst.context,TypingFormActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("bottom",true))
+            ui {prefs.edit().putBoolean(Prefs.ZH,true).putString(Prefs.LAYOUT,"26").putBoolean(Prefs.VAULT,false).putBoolean(Prefs.LEARN,false).putBoolean(Prefs.ABBR,true).putBoolean(V3Prefs.COMPOSE_RESTORE,true).putBoolean(V3Prefs.COMPOSE_HOLD_CLEAR,true).commit()}
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(auto.executeShellCommand("am start -W -f 0x10008000 -n com.kongye.keyboard.test/com.kongye.keyboard.TypingFormActivity --ez bottom true")).use {it.readBytes()}
             waitFor("independent editor") {editor()!=null}
             editor()!!.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             val bounds=android.graphics.Rect();editor()!!.getBoundsInScreen(bounds)
@@ -76,7 +81,10 @@ object PartialSelectionDeleteRegression {
                     index=items.indexOfFirst {it.w==word};index>=0
                 }}
                 inst.sendStatus(0,Bundle().apply {putString("stream","Selecting $word at index $index from ${tab()}\n")})
-                ui {pages.add(candidateWords());live.onCandidate(index)}
+                waitFor("stable candidate dispatch $word") {ui {
+                    val current=candidateWords();val selected=current.indexOf(word)
+                    if(selected<0)false else {pages.add(current);live.onCandidate(selected);true}
+                }}
                 try {waitFor("partial choice $word") {tab().contains(word)}}
                 catch(t:Throwable) {error("Partial selection $word failed; current tab=${tab()}; ${t.message}") }
                 val selected=tab().takeWhile {it in '一'..'鿿'}.length
@@ -130,9 +138,63 @@ object PartialSelectionDeleteRegression {
             check(committed.isNotEmpty() && committed.none {it in 'a'..'z'})
             ui {live.onKey(Key(Kind.DEL))}
             waitFor("normal committed delete") {editorText().length==committed.length-1}
+            // Both new switches gate the real IME rather than only changing settings UI.
+            ui {live.onKey(Key(Kind.RESET));prefs.edit().putBoolean(V3Prefs.COMPOSE_RESTORE,false).commit()}
+            type("nihaozhongguo");expand();pick("你")
+            ui {live.onKey(Key(Kind.DEL))}
+            waitFor("disabled restore deletes one letter and keeps the selected word") {compact(tab())=="你haozhonggu"}
+            val preserved=editorText()
+            ui {live.onKey(Key(Kind.RESET));prefs.edit().putBoolean(V3Prefs.COMPOSE_RESTORE,true).commit()}
+            fun holdDelete() {
+                val point=ui {
+                    @Suppress("UNCHECKED_CAST") val rows=KeyboardView::class.java.getDeclaredField("rows").apply {isAccessible=true}.get(liveKeyboard) as List<Row>
+                    val key=rows.flatMap {it.keys}.first {it.kind==Kind.DEL}
+                    val location=IntArray(2);liveKeyboard.getLocationOnScreen(location)
+                    floatArrayOf(location[0]+key.rect.centerX(),location[1]+key.rect.centerY())
+                }
+                val down=SystemClock.uptimeMillis()
+                fun touch(action:Int) {val e=android.view.MotionEvent.obtain(down,SystemClock.uptimeMillis(),action,point[0],point[1],0);e.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;try {check(auto.injectInputEvent(e,true))}finally {e.recycle()}}
+                touch(0);SystemClock.sleep(470);touch(1)
+            }
+            ui {prefs.edit().putBoolean(V3Prefs.COMPOSE_HOLD_CLEAR,false).commit()}
+            type("nihaozhongguo");waitFor("hold clear disabled"){ui {!liveKeyboard.clearCompositionOnHold}}
+            holdDelete();waitFor("held delete repeats instead of clearing"){val t=compact(tab());t.isNotEmpty()&&t.length<12}
+            check(editorText()==preserved)
+            ui {live.onKey(Key(Kind.RESET));prefs.edit().putBoolean(V3Prefs.COMPOSE_HOLD_CLEAR,true).commit()}
+            type("nihaozhongguo");waitFor("hold clear enabled"){ui {liveKeyboard.clearCompositionOnHold}}
+            holdDelete();waitFor("held delete clears composition"){tab().isEmpty()}
+            check(editorText()==preserved)
+            inst.sendStatus(0,Bundle().apply {putString("stream","Independent composing switches: disabled restore deletes the final letter and keeps the selected word, disabled long-clear repeats deletion, enabled long-clear clears only composing text. PASSED\n")})
+            savedClip=ui {clipboard.primaryClip};touchedClipboard=true
+            val history=ClipStore.items.map {it.text to it.time}
+            ui {prefs.edit().putBoolean(Prefs.SMS_CODE,true).commit();check(SmsCodeClipboard.copy(ctx,"2046"))}
+            fun smsBar()=ui {imeViews().filterIsInstance<CandidateBar>().firstOrNull {it.isShown&&it.contentDescription?.toString()?.contains("来自「信息」的验证码：2046")==true}}
+            waitFor("real SMS code bar"){smsBar()!=null}
+            check(ClipStore.items.map {it.text to it.time}==history){"SMS leaked into clipboard history"}
+            ui {
+                val bar=checkNotNull(imeViews().filterIsInstance<CandidateBar>().firstOrNull {it.isShown&&it.contentDescription?.toString()?.contains("2046")==true})
+                val bitmap=android.graphics.Bitmap.createBitmap(bar.width,bar.height,android.graphics.Bitmap.Config.ARGB_8888);bar.draw(android.graphics.Canvas(bitmap))
+                java.io.File(ctx.getExternalFilesDir(null),"sms-real-candidate-bar.png").outputStream().use {bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()
+            }
+            val beforeCode=editorText()
+            val target=ui {val bar=imeViews().filterIsInstance<CandidateBar>().first {it.isShown&&it.contentDescription?.toString()?.contains("2046")==true};val location=IntArray(2);bar.getLocationOnScreen(location);floatArrayOf(location[0]+bar.width/2f,location[1]+bar.height/2f)}
+            val tapTime=SystemClock.uptimeMillis()
+            for(action in intArrayOf(0,1)){val event=android.view.MotionEvent.obtain(tapTime,SystemClock.uptimeMillis(),action,target[0],target[1],0);event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;try {check(auto.injectInputEvent(event,true))}finally {event.recycle()}}
+            waitFor("code tap fills editor"){editorText()==beforeCode+"2046"}
+            check(ClipStore.items.map {it.text to it.time}==history)
+            ui {prefs.edit().putBoolean(Prefs.SMS_CODE,false).commit()}
+            waitFor("disabled SMS stops suggestion"){smsBar()==null}
+            inst.sendStatus(0,Bundle().apply {putString("stream","Real SMS clipboard path shows source and code, touch fills only the code, disabling hides it, and no history entry is created. PASSED\n")})
             inst.sendStatus(0,Bundle().apply {putString("stream","Single and multiple partial picks, unchanged suffix, original separator keys, word restore, ordinary letter delete, committed-text delete, selected underline and synchronous clean candidate restore PASSED\n")})
         } finally {
             ui {
+                ime?.onKey(Key(Kind.RESET));ime?.onSmsCodeDismiss()
+                if(touchedClipboard) {
+                    val e=expiry.edit().clear();savedExpiry.forEach {(key,value)->when(value){is String->e.putString(key,value);is Long->e.putLong(key,value)}};e.commit()
+                    ime?.let {service->KongyeIME::class.java.getDeclaredField("ignoreClipUntil").apply {isAccessible=true}.setLong(service,SystemClock.uptimeMillis()+1500)}
+                    if(savedClip!=null)clipboard.setPrimaryClip(savedClip!!) else if(android.os.Build.VERSION.SDK_INT>=28)clipboard.clearPrimaryClip()
+                    SmsCodeClipboard.schedule(ctx)
+                }
                 ime?.onKey(Key(Kind.RESET))
                 val e=prefs.edit()
                 for((key,value) in backup)when(value){null->e.remove(key);is Boolean->e.putBoolean(key,value);is String->e.putString(key,value);is Int->e.putInt(key,value)}

@@ -17,11 +17,12 @@ object SettingsInteraction241Regression {
         val prefs=Prefs.of(ctx)
         val backup=prefs.all.filterKeys {it.startsWith("flick26_")}
         val auto=inst.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        auto.serviceInfo=auto.serviceInfo.apply {flags=flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS}
         fun nodes(node:AccessibilityNodeInfo?):List<AccessibilityNodeInfo> =
             if(node==null)emptyList() else listOf(node)+(0 until node.childCount).flatMap {nodes(node.getChild(it))}
         fun ownNodes():List<AccessibilityNodeInfo> {
             auto.clearCache()
-            return nodes(auto.rootInActiveWindow).filter {it.packageName?.toString()=="com.kongye.keyboard"}
+            return auto.windows.flatMap {nodes(it.root)}.filter {it.packageName?.toString()=="com.kongye.keyboard"}
         }
         fun click(label:String,last:Boolean=false) {
             val end=SystemClock.uptimeMillis()+10000
@@ -32,7 +33,8 @@ object SettingsInteraction241Regression {
                     if(node?.performAction(AccessibilityNodeInfo.ACTION_CLICK)==true) {Thread.sleep(180);return}
                     node=node?.parent
                 }
-                Thread.sleep(80)
+                ownNodes().firstOrNull {it.isScrollable}?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                Thread.sleep(180)
             }
             error("Setting not clickable: $label")
         }
@@ -58,9 +60,16 @@ object SettingsInteraction241Regression {
             error("Visible preview did not update to $expected")
         }
         try {
-            ctx.startActivity(Intent(ctx,SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-            Thread.sleep(2200)
-            click("自定义按键")
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(auto.executeShellCommand("am start -W -f 0x10008000 -n com.kongye.keyboard/.SettingsActivity")).use {it.readBytes()}
+            val homeEnd=SystemClock.uptimeMillis()+15000
+            while(SystemClock.uptimeMillis()<homeEnd && !ownNodes().any {it.text?.toString()=="显示键盘"})Thread.sleep(80)
+            check(ownNodes().any {it.text?.toString()=="今日输入"}) {"Not on settings home"}
+            val search=ownNodes().first {it.isEditable}
+            check(search.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply {putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"编辑")}))
+            Thread.sleep(350)
+            check(ownNodes().any {it.text?.toString()?.contains("匹配：编辑功能")==true}) {"Search result lacks matched feature"}
+            click("26 键上下滑")
+            inst.sendStatus(0,Bundle().apply {putString("stream","Search 编辑 shows matching feature and settings path, then opens flick editor\n")})
             KeyGestures.save(ctx,false,'q',true,"edit:cut")
             val before=prefs.all.filterKeys {it.startsWith("flick26_") && it !in setOf("flick26_en_q_down")}
             click("复制")

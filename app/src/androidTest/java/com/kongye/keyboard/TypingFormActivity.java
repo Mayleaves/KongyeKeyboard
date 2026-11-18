@@ -11,7 +11,7 @@ public final class TypingFormActivity extends android.app.Activity {
         title.setText("空叶键盘 · 独立输入测试"); title.setTextSize(22); root.addView(title);
         android.widget.EditText field = new android.widget.EditText(this);
         field.setId(300); field.setHint("只使用虚构测试内容"); field.setContentDescription("独立输入测试框");
-        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         field.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
         field.setGravity(android.view.Gravity.TOP); field.setTextSize(22); field.setSaveEnabled(false);
         field.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO);
@@ -20,5 +20,9 @@ public final class TypingFormActivity extends android.app.Activity {
             root.addView(field, new android.widget.LinearLayout.LayoutParams(-1, 180));
         } else root.addView(field, new android.widget.LinearLayout.LayoutParams(-1, 600));
         setContentView(root);
+        if (getIntent().getBooleanExtra("show_keyboard", false)) {
+            field.requestFocus();
+            field.postDelayed(() -> ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT), 600);
+        }
     }
 }

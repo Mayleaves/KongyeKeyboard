@@ -24,7 +24,7 @@ object ClipStore {
         private set
     private var prefsCtx: Context? = null
 
-    fun load(ctx: Context) {
+    @Synchronized fun load(ctx: Context) {
         prefsCtx = ctx.applicationContext
         if (file != null) return
         val f = File(ctx.filesDir, "clipboard.json")
@@ -38,11 +38,19 @@ object ClipStore {
                 items.add(Clip(o.getString("t"), (o.optBoolean("p") || o.optBoolean("pinned") || o.optString("cat") == "置顶"), o.optLong("ts"), o.optString("img").ifEmpty { null }, o.optString("cat").ifEmpty { null }))
             }
         }
+        val storedCount=items.size
+        trim()
+        if(items.size!=storedCount)save()
     }
 
     private val writer = java.util.concurrent.Executors.newSingleThreadExecutor()
 
-    private fun save() {
+    @Synchronized fun <T> withFiles(ctx:Context,reload:Boolean,action:()->T):T {
+        load(ctx);writer.submit {}.get(5,java.util.concurrent.TimeUnit.SECONDS)
+        try {return action()} finally {if(reload){items.clear();file=null;load(ctx)}}
+    }
+
+    @Synchronized private fun save() {
         val f = file ?: return
         val arr = JSONArray()
         for (c in items) arr.put(JSONObject().put("t", c.text).put("p", c.pinned).put("ts", c.time).put("img", c.image ?: "").put("cat", c.cat ?: ""))
@@ -58,11 +66,18 @@ object ClipStore {
         }
     }
 
-    fun isSaved(c: Clip) = c.pinned || (!c.cat.isNullOrBlank() && c.cat !in FIXED_TABS)
-    fun historyCount() = items.count { !isSaved(it) }
+    @Synchronized fun isSaved(c: Clip) = c.pinned || (!c.cat.isNullOrBlank() && c.cat !in FIXED_TABS)
+    @Synchronized fun historyCount() = items.count { !isSaved(it) }
 
-    private fun trim() {
-        var excess = historyCount() - MAX
+    @Synchronized private fun trim() {
+        val p=prefsCtx?.let {Prefs.of(it)}
+        val days=p?.getInt(V3Prefs.CLIP_DAYS,0) ?: 0
+        if(days>0) {
+            val cutoff=System.currentTimeMillis()-days*86_400_000L
+            val expired=items.filter {!isSaved(it) && it.time<cutoff}
+            expired.forEach {removeFile(it)};items.removeAll(expired.toSet())
+        }
+        var excess = historyCount() - (p?.getInt(V3Prefs.CLIP_LIMIT,MAX) ?: MAX)
         while (excess-- > 0) {
             val i = items.indexOfLast { !isSaved(it) }
             if (i < 0) break
@@ -70,7 +85,9 @@ object ClipStore {
         }
     }
 
-    fun add(text: String) {
+    @Synchronized fun prune() {trim();save()}
+
+    @Synchronized fun add(text: String) {
         if (text.isBlank()) return
         val old = items.firstOrNull { it.image == null && it.text == text }
         if (old != null) items.remove(old)
@@ -79,19 +96,19 @@ object ClipStore {
         save()
     }
 
-    fun usedText(text:String) {items.firstOrNull {it.image==null && it.text==text}?.let {used(it)}}
-    fun used(c:Clip) {
+    @Synchronized fun usedText(text:String) {items.firstOrNull {it.image==null && it.text==text}?.let {used(it)}}
+    @Synchronized fun used(c:Clip) {
         val actual=stored(c) ?: return
         items.remove(actual);actual.time=maxOf(System.currentTimeMillis(),(items.maxOfOrNull {it.time} ?: 0L)+1)
         items.add(0,actual);save()
     }
-    fun addImage(fileName: String) {
+    @Synchronized fun addImage(fileName: String) {
         items.add(0, Clip("[图片]", false, System.currentTimeMillis(), image = fileName))
         trim()
         save()
     }
 
-    fun addCustom(text: String, category: String) {
+    @Synchronized fun addCustom(text: String, category: String) {
         if (text.isBlank() || category !in customTabs()) return
         val old = items.firstOrNull { it.image == null && it.text == text }
         if (old != null) items.remove(old)
@@ -100,49 +117,49 @@ object ClipStore {
         save()
     }
 
-    fun imageFile(c: Clip): File? = c.image?.let { n -> dir?.let { File(it, n) } }
+    @Synchronized fun imageFile(c: Clip): File? = c.image?.let { n -> dir?.let { File(it, n) } }
 
-    private fun removeFile(c: Clip) { imageFile(c)?.delete() }
+    @Synchronized private fun removeFile(c: Clip) { imageFile(c)?.delete() }
 
-    fun remove(c: Clip) { val actual = stored(c) ?: return; items.remove(actual); removeFile(actual); save() }
-    private fun stored(c: Clip) = items.firstOrNull { it === c }
+    @Synchronized fun remove(c: Clip) { val actual = stored(c) ?: return; items.remove(actual); removeFile(actual); save() }
+    @Synchronized private fun stored(c: Clip) = items.firstOrNull { it === c }
         ?: items.firstOrNull { it.image == c.image && it.text == c.text }
-    fun togglePin(c: Clip) {
+    @Synchronized fun togglePin(c: Clip) {
         val actual = stored(c) ?: return
         actual.pinned = !actual.pinned
         c.pinned = actual.pinned
         trim()
         save()
     }
-    fun update(c: Clip, text: String) {
+    @Synchronized fun update(c: Clip, text: String) {
         if (text.isBlank()) return
         val actual = stored(c) ?: return
         actual.text = text; actual.time = System.currentTimeMillis()
         c.text = actual.text; c.time = actual.time
         save()
     }
-    fun setCategory(c: Clip, cat: String?) {
+    @Synchronized fun setCategory(c: Clip, cat: String?) {
         val actual = stored(c) ?: return
         actual.cat = cat; c.cat = cat
         trim(); save()
     }
-    fun clearUnpinned() { items.filter { !isSaved(it) }.forEach { removeFile(it) }; items.removeAll { !isSaved(it) }; save() }
+    @Synchronized fun clearUnpinned() { items.filter { !isSaved(it) }.forEach { removeFile(it) }; items.removeAll { !isSaved(it) }; save() }
 
     // —————— 自定义分类 ——————
 
-    fun customTabs(): List<String> =
+    @Synchronized fun customTabs(): List<String> =
         prefsCtx?.let { Prefs.of(it).getString(Prefs.CLIP_CATS, "")!!.split('\u0001').filter { s -> s.isNotBlank() } }.orEmpty()
 
-    fun tabs(): List<String> = FIXED_TABS + customTabs()
+    @Synchronized fun tabs(): List<String> = FIXED_TABS + customTabs()
 
-    fun addCategory(name: String) {
+    @Synchronized fun addCategory(name: String) {
         val n = name.trim().take(8)
         val ctx = prefsCtx ?: return
         if (n.isEmpty() || n in tabs()) return
         Prefs.of(ctx).edit().putString(Prefs.CLIP_CATS, (customTabs() + n).joinToString("\u0001")).apply()
     }
 
-    fun removeCategory(name: String) {
+    @Synchronized fun removeCategory(name: String) {
         val ctx = prefsCtx ?: return
         Prefs.of(ctx).edit().putString(Prefs.CLIP_CATS, customTabs().filter { it != name }.joinToString("\u0001")).apply()
         items.filter { it.cat == name }.forEach { it.cat = null }
@@ -153,13 +170,16 @@ object ClipStore {
     private val NUMBER = Regex("""^[\d\s+\-()（）.]{3,}$""")
     private val CODE = Regex("""(?<!\d)\d{4,8}(?!\d)""")
 
-    fun kind(c: Clip): String = when {
+    @Synchronized fun kind(c: Clip): String = when {
         c.image != null -> "图片"
         else -> "文本"
     }
 
     /** 最近复制/粘贴的排在最前；置顶属性和分类保留。 */
-    fun list(tab: String, query: String): List<Clip> {
+    @Synchronized fun list(tab: String, query: String): List<Clip> {
+        val oldSize=items.size
+        trim()
+        if(items.size!=oldSize)save()
         val q = query.trim()
         return items.filter { c ->
             (q.isEmpty() || (c.image == null && c.text.contains(q, ignoreCase = true))) && when (tab) {

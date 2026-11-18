@@ -6,7 +6,7 @@ import androidx.annotation.Keep
 
 /** 用编辑器原生 composing 区预览整次语音；确认才结束组字，取消恢复原选区。 */
 @Keep
-class VoiceDraft(private val connection: InputConnection) {
+class VoiceDraft(private var connection: InputConnection) {
     private val selection = connection.getExtractedText(ExtractedTextRequest(), 0)?.let {
         if (it.selectionStart >= 0 && it.selectionEnd >= 0)
             (it.startOffset + it.selectionStart) to (it.startOffset + it.selectionEnd) else null
@@ -15,6 +15,8 @@ class VoiceDraft(private val connection: InputConnection) {
     private var touched = false
     private var closed = false
     private var text = ""
+
+    fun rebind(connection: InputConnection) { this.connection = connection }
 
     private fun pinRegion(): Boolean {
         val range = selection ?: return true

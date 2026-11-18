@@ -1,0 +1,358 @@
+{
+  "abbr": {
+    "type": "b",
+    "value": true
+  },
+  "assoc": {
+    "type": "b",
+    "value": false
+  },
+  "dark_mode": {
+    "type": "i",
+    "value": 0
+  },
+  "float_mode": {
+    "type": "b",
+    "value": false
+  },
+  "float_width": {
+    "type": "f",
+    "value": 0.86
+  },
+  "float_x": {
+    "type": "f",
+    "value": 75.6
+  },
+  "float_y": {
+    "type": "f",
+    "value": 1105.65
+  },
+  "fuzzy": {
+    "type": "s",
+    "value": ""
+  },
+  "glass": {
+    "type": "b",
+    "value": false
+  },
+  "glide_input": {
+    "type": "b",
+    "value": true
+  },
+  "height_scale": {
+    "type": "f",
+    "value": 1
+  },
+  "layout": {
+    "type": "s",
+    "value": "26"
+  },
+  "learn": {
+    "type": "b",
+    "value": true
+  },
+  "menu_v2": {
+    "type": "s",
+    "value": "settings,undo,redo,skin,float,adjust,arrange,clip,lang"
+  },
+  "num_keys": {
+    "type": "s",
+    "value": "@\u0001.\u0001 "
+  },
+  "num_side": {
+    "type": "s",
+    "value": "% + - \/ : = * # ¥ ( ) ~ _"
+  },
+  "opacity": {
+    "type": "f",
+    "value": 1
+  },
+  "pad_b": {
+    "type": "i",
+    "value": 0
+  },
+  "pad_l": {
+    "type": "i",
+    "value": 0
+  },
+  "pad_r": {
+    "type": "i",
+    "value": 0
+  },
+  "show_pinyin": {
+    "type": "b",
+    "value": false
+  },
+  "sms_code_copy": {
+    "type": "b",
+    "value": false
+  },
+  "sound": {
+    "type": "b",
+    "value": false
+  },
+  "space_long": {
+    "type": "i",
+    "value": 1
+  },
+  "split_layout": {
+    "type": "b",
+    "value": false
+  },
+  "swipe_symbols": {
+    "type": "b",
+    "value": true
+  },
+  "theme": {
+    "type": "s",
+    "value": "kongye"
+  },
+  "tools_v2": {
+    "type": "s",
+    "value": "emoji,layout,edit,translate,handwrite,voice"
+  },
+  "trans_to": {
+    "type": "s",
+    "value": "en"
+  },
+  "v3_assoc_continuous": {
+    "type": "i",
+    "value": 0
+  },
+  "v3_assoc_space": {
+    "type": "b",
+    "value": false
+  },
+  "v3_bottom_cursor": {
+    "type": "b",
+    "value": true
+  },
+  "v3_caps": {
+    "type": "b",
+    "value": true
+  },
+  "v3_caps_lock": {
+    "type": "b",
+    "value": false
+  },
+  "v3_clear_scope": {
+    "type": "i",
+    "value": 0
+  },
+  "v3_clip_limit": {
+    "type": "i",
+    "value": 500
+  },
+  "v3_compose_hold_clear": {
+    "type": "b",
+    "value": true
+  },
+  "v3_compose_restore": {
+    "type": "b",
+    "value": true
+  },
+  "v3_correct_extra": {
+    "type": "b",
+    "value": false
+  },
+  "v3_correct_missing": {
+    "type": "b",
+    "value": false
+  },
+  "v3_correct_near": {
+    "type": "b",
+    "value": true
+  },
+  "v3_correct_swap": {
+    "type": "b",
+    "value": true
+  },
+  "v3_correction_enabled": {
+    "type": "b",
+    "value": true
+  },
+  "v3_del_up": {
+    "type": "s",
+    "value": "undo"
+  },
+  "v3_delete_direct": {
+    "type": "b",
+    "value": true
+  },
+  "v3_drive": {
+    "type": "b",
+    "value": true
+  },
+  "v3_email": {
+    "type": "b",
+    "value": true
+  },
+  "v3_emoji": {
+    "type": "b",
+    "value": true
+  },
+  "v3_en_correct": {
+    "type": "b",
+    "value": false
+  },
+  "v3_en_space": {
+    "type": "b",
+    "value": false
+  },
+  "v3_feedback": {
+    "type": "b",
+    "value": true
+  },
+  "v3_fill_gaps": {
+    "type": "b",
+    "value": true
+  },
+  "v3_fuzzy_enabled": {
+    "type": "b",
+    "value": false
+  },
+  "v3_glide_en": {
+    "type": "b",
+    "value": false
+  },
+  "v3_glide_live": {
+    "type": "b",
+    "value": true
+  },
+  "v3_glide_trace": {
+    "type": "b",
+    "value": true
+  },
+  "v3_glide_word_delete": {
+    "type": "b",
+    "value": true
+  },
+  "v3_glide_zh": {
+    "type": "b",
+    "value": false
+  },
+  "v3_gloss": {
+    "type": "i",
+    "value": 2
+  },
+  "v3_hand_tone": {
+    "type": "b",
+    "value": true
+  },
+  "v3_homophone": {
+    "type": "b",
+    "value": false
+  },
+  "v3_kaomoji": {
+    "type": "b",
+    "value": true
+  },
+  "v3_letter_long": {
+    "type": "i",
+    "value": 0
+  },
+  "v3_media": {
+    "type": "i",
+    "value": 0
+  },
+  "v3_mixed": {
+    "type": "b",
+    "value": false
+  },
+  "v3_orientation_layout": {
+    "type": "b",
+    "value": true
+  },
+  "v3_pairs": {
+    "type": "b",
+    "value": false
+  },
+  "v3_pinyin_position": {
+    "type": "i",
+    "value": 0
+  },
+  "v3_polish_mode": {
+    "type": "i",
+    "value": 0
+  },
+  "v3_punct_confirm": {
+    "type": "b",
+    "value": true
+  },
+  "v3_punct_space": {
+    "type": "b",
+    "value": false
+  },
+  "v3_readings": {
+    "type": "i",
+    "value": 2
+  },
+  "v3_sound_volume": {
+    "type": "i",
+    "value": 50
+  },
+  "v3_split_gap": {
+    "type": "i",
+    "value": 72
+  },
+  "v3_split_size": {
+    "type": "f",
+    "value": 1
+  },
+  "v3_stats_enabled": {
+    "type": "b",
+    "value": true
+  },
+  "v3_swipe_reverse": {
+    "type": "b",
+    "value": true
+  },
+  "v3_symbols": {
+    "type": "b",
+    "value": true
+  },
+  "v3_vibration": {
+    "type": "i",
+    "value": 2
+  },
+  "v3_vibration_level": {
+    "type": "i",
+    "value": 6
+  },
+  "v3_vibration_resume_mode": {
+    "type": "i",
+    "value": 0
+  },
+  "v3_voice_clean": {
+    "type": "b",
+    "value": true
+  },
+  "v3_voice_numbers": {
+    "type": "b",
+    "value": true
+  },
+  "v3_voice_polish": {
+    "type": "b",
+    "value": false
+  },
+  "vault_fill": {
+    "type": "b",
+    "value": false
+  },
+  "vib_strength": {
+    "type": "i",
+    "value": 3
+  },
+  "voice_lang": {
+    "type": "i",
+    "value": 1
+  },
+  "voice_offline": {
+    "type": "b",
+    "value": true
+  },
+  "zh": {
+    "type": "b",
+    "value": true
+  }
+}

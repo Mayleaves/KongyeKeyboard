@@ -42,7 +42,7 @@ class ArrangeView(
     private val r = RectF()
     private val cols = 4
     private val tileH get() = 66 * d
-    private val headH get() = 34 * d
+    private val headH get() = 54 * d
     private val handler = Handler(Looper.getMainLooper())
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
 
@@ -68,7 +68,7 @@ class ArrangeView(
 
     private fun rowsOf(n: Int) = max(1, ceil(n / cols.toFloat()).toInt())
     private val toolsTop get() = headH
-    private val menuHeadTop get() = toolsTop + rowsOf(Prefs.MAX_TOOLS) * tileH
+    private val menuHeadTop get() = toolsTop + tileH + 12*d
     private val menuTop get() = menuHeadTop + headH
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -76,23 +76,29 @@ class ArrangeView(
     }
 
     private fun cellRect(section: Int, i: Int): RectF {
-        val cw = width / cols.toFloat()
+        val cw = width / (if(section==0) Prefs.MAX_TOOLS+1 else cols).toFloat()
         val top = if (section == 0) toolsTop else menuTop
-        val x = (i % cols) * cw
-        val y = top + (i / cols) * tileH
+        val x = if(section==0)(i+1)*cw else (i % cols) * cw
+        val y = top + if(section==0)0f else (i / cols) * tileH
         return RectF(x, y, x + cw, y + tileH)
     }
 
     override fun onDraw(c: Canvas) {
-        head.textSize = 13 * d
-        head.typeface = Typeface.DEFAULT_BOLD
-        head.color = subFg
-        c.drawText("工具栏（${tools.size}/${Prefs.MAX_TOOLS}）　长按拖动排序，拖到下面就从工具栏拿掉", 14 * d, toolsTop - 11 * d, head)
-        c.drawText("菜单（左上角“更多”里）", 14 * d, menuTop - 11 * d, head)
+        c.drawColor(skin.kbBg)
+        head.textSize = 14 * d;head.typeface = Typeface.DEFAULT_BOLD;head.color = labelFg
+        c.drawText("工具栏  ${tools.size}/${Prefs.MAX_TOOLS}", 12 * d, toolsTop - 31 * d, head)
+        c.drawText("菜单", 12 * d, menuTop - 31 * d, head)
+        head.textSize=11*d;head.typeface=Typeface.DEFAULT;head.color=subFg
+        c.drawText("长按拖动排序，也可拖到下方菜单",12*d,toolsTop-12*d,head)
+        c.drawText("点击键盘左上角的更多即可打开",12*d,menuTop-12*d,head)
+        val cw=width/(Prefs.MAX_TOOLS+1f)
+        tile(c,RectF(0f,toolsTop,cw,toolsTop+tileH),"more",false)
+        fill.color=withAlpha(skin.barFg,50)
+        c.drawRect(cw-1*d,toolsTop+9*d,cw,toolsTop+43*d,fill)
         for ((i, id) in tools.withIndex()) movingTile(c,cellRect(0,i),id)
         for ((i, id) in menu.withIndex()) movingTile(c,cellRect(1,i),id)
         drag?.let { id ->
-            val cw = width / cols.toFloat()
+            val cw = width / (if(dragY<menuHeadTop)Prefs.MAX_TOOLS+1 else cols).toFloat()
             r.set(dragX - cw / 2, dragY - tileH / 2, dragX + cw / 2, dragY + tileH / 2)
             tile(c, RectF(r), id, false, lifted = true)
         }
@@ -107,7 +113,7 @@ class ArrangeView(
     }
 
     private fun tile(c: Canvas, rc: RectF, id: String, ghost: Boolean, lifted: Boolean = false) {
-        val box = 42 * d
+        val box = min(42*d,rc.width()-8*d)
         val cx = rc.centerX()
         r.set(cx - box / 2, rc.top + 4 * d, cx + box / 2, rc.top + 4 * d + box)
         fill.color = if (lifted) skin.accBg else skin.keyBg
@@ -117,7 +123,8 @@ class ArrangeView(
         icons.draw(c, Prefs.ICONS[id] ?: R.drawable.ic_settings, cx, r.centerY(), 22f, if (lifted) skin.accFg else withAlpha(skin.keyFg, if (ghost) 80 else 255))
         text.textSize = 11.5f * d
         text.color = withAlpha(labelFg, if (ghost) 80 else 255)
-        c.drawText(Prefs.NAMES[id] ?: id, cx, r.bottom + 14 * d, text)
+        val label=android.text.TextUtils.ellipsize(Prefs.NAMES[id] ?: id,android.text.TextPaint(text),rc.width()-4*d,android.text.TextUtils.TruncateAt.END).toString()
+        c.drawText(label, cx, rc.top + 61 * d, text)
     }
 
     private fun itemAt(x: Float, y: Float): String? {
@@ -169,8 +176,8 @@ class ArrangeView(
         val col = (x / cw).toInt().coerceIn(0, cols - 1)
         tools.remove(id); menu.remove(id)
         if (y < menuHeadTop) {
-            val row = ((y - toolsTop) / tileH).toInt().coerceAtLeast(0)
-            tools.add((row * cols + col).coerceIn(0, tools.size), id)
+            val index=(x/(width/(Prefs.MAX_TOOLS+1f))).toInt()-1
+            tools.add(index.coerceIn(0, tools.size), id)
             while (tools.size > Prefs.MAX_TOOLS) menu.add(0, tools.removeAt(tools.lastIndex))
         } else {
             val row = ((y - menuTop) / tileH).toInt().coerceAtLeast(0)
@@ -203,6 +210,7 @@ class LayoutPicker(context: Context, private val skin: Skin, current: String, pr
         set(value) { if (field != value) { field = value; invalidate() } }
     private val opts = listOf("26" to "26 键", "14" to "14 键", "9" to "九键")
     private val cards = ArrayList<RectF>()
+    private val silhouettes=List(3){KeyboardSilhouette(context)}
     private val r = RectF()
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -223,20 +231,8 @@ class LayoutPicker(context: Context, private val skin: Skin, current: String, pr
             stroke.strokeWidth = (if (sel) 2.5f else 1f) * d
             stroke.color = if (sel) skin.candHi else withAlpha(skin.candFg, 50)
             c.drawRoundRect(card, 12 * d, 12 * d, stroke)
-            val rows = when (id) { "26" -> listOf(10, 9, 9, 6); "14" -> listOf(5, 5, 6, 6); else -> listOf(5, 5, 5, 4) }
-            val p = card.width() * 0.08f
-            val g = card.width() * 0.03f
-            val rh = (card.height() - 2 * p - 3 * g) / 4
-            for ((ri, n) in rows.withIndex()) {
-                val kw = (card.width() - 2 * p - (n - 1) * g) / n
-                for (k in 0 until n) {
-                    val x = card.left + p + k * (kw + g)
-                    val y = card.top + p + ri * (rh + g)
-                    fill.color = if (ri == 3 || (id == "9" && (k == 0 || k == n - 1))) skin.modBg else skin.keyBg
-                    r.set(x, y, x + kw, y + rh)
-                    c.drawRoundRect(r, 2 * d, 2 * d, fill)
-                }
-            }
+            val inset=card.width()*.06f
+            silhouettes[i].draw(c,RectF(card.left+inset,card.top+inset,card.right-inset,card.bottom-inset),id,skin.kbBg,skin.keyBg,skin.modBg)
             text.textSize = 15 * d
             text.color = if (sel) skin.candHi else skin.candFg
             text.typeface = if (sel) Typeface.DEFAULT_BOLD else Typeface.DEFAULT

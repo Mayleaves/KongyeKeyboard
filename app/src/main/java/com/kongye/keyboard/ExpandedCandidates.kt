@@ -17,6 +17,7 @@ class ExpandedCandidates(
     private val onMode: (Int) -> Unit, private val onPick: (Int) -> Unit,
     onDelete: () -> Unit, onBack: () -> Unit, labels: List<String?> = emptyList(),
     onOverflow: (String?) -> Unit = {},
+    onVisibleWords:(List<String>)->Unit = {},
 ) : LinearLayout(context) {
     private var all=items
     private var readings=labels
@@ -33,6 +34,7 @@ class ExpandedCandidates(
         orientation=HORIZONTAL
         val d=resources.displayMetrics.density
         grid.onOverflow=onOverflow
+        grid.onVisibleWords=onVisibleWords
         scroll.isVerticalScrollBarEnabled=false;scroll.addView(grid)
         addView(scroll,lp(0,MATCH,1f))
         addView(LinearLayout(context).apply {
@@ -53,7 +55,10 @@ class ExpandedCandidates(
     }
     fun submit(items:List<String>,labels:List<String?> = emptyList()) {
         if(all==items && readings==labels) return
+        val sameWords=all==items
+        val position=scroll.scrollY
         all=items;readings=labels;refresh()
+        if(sameWords)scroll.post {scroll.scrollTo(0,position)}
     }
     private fun refresh() {
         fun length(i:Int)=all[i].codePointCount(0,all[i].length)

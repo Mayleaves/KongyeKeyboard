@@ -89,3 +89,10 @@ Fcitx5 Android、Fcitx5、libime 与 Chinese Addons 各组件保留其 LGPL-2.1-
 ## Offline punctuation
 
 CT-Transformer Chinese/English punctuation model, distributed by k2-fsa/sherpa-onnx. Model origin iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch (FunASR). Apache-2.0 model license. Pinned download, size and SHA-256 are recorded in app/src/main/assets/voice-punctuation/source.json. The original model card and conversion README are bundled alongside the model.
+
+
+## Voice polish
+
+- llama.cpp, MIT. Pinned source and build inputs: `tools/polish/sources.json`; complete MIT notice: `tools/polish/llama-LICENSE.txt`.
+- Qwen3-0.6B-GGUF (official Qwen Q8_0), Apache-2.0. Model provenance and revision are pinned in the same manifest; the complete model license is bundled in `app/src/main/assets/voice-polish/model-LICENSE.txt`.
+- The lightweight APK embeds the offline runtime and licenses; model weights are downloaded on demand from the pinned source and verified before installation. Online polish sends only explicitly requested text to the endpoint saved by the user; it has no built-in cloud account or API key.

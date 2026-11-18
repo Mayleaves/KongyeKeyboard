@@ -25,6 +25,10 @@ class Key(
     /** 字母键代表的字母集合：全键盘是一个字母，14 键是两个，九键是三四个 */
     val letters: String = label.lowercase(),
 ) {
+    /** Gesture reversal changes input direction, never the keycap legend positions. */
+    var reversedSwipe = false
+    var hintIcon = 0
+    var hint2Icon = 0
     var downAction: KeyGestures.Action? = null
     var upAction: KeyGestures.Action? = null
     val rect = RectF()
@@ -36,19 +40,19 @@ class Row(val keys: List<Key>, val indent: Boolean = false)
 
 object Layouts {
     private val DIGITS = "1234567890".map { it.toString() }
-    private val ROW1_UP = listOf("!", "@", "#", "$", "%", "^", "&", "*", "(", ")")
+    private val ROW1_UP = List(10) {""}
 
-    // 中文：右上（下滑）/ 左下（上滑）
-    private val ZH2_DOWN = listOf("`", "~", "…", "—", "（", "）", "【", "】", "|")
-    private val ZH2_UP = listOf("`", "~", ".", "_", "'", "\"", "[", "]", "|")
-    private val ZH3_DOWN = listOf("！", "？", "：", "；", "《", "》", "`")
-    private val ZH3_UP = listOf("-", "=", ":", ";", "<", ">", "/")
+    // Defaults from the user's Chinese and English references. Saved overrides
+    // remain separate by language/direction; empty defaults disable the up flick.
+    private val ZH2_DOWN = listOf("～", "！", "@", "/", "%", "“", "”", "*", "？")
+    private val ZH2_UP = List(9) {""}
+    private val ZH3_DOWN = listOf("（", "）", "-", "_", "：", "；", "、")
+    private val ZH3_UP = List(7) {""}
 
-    // 英文
-    private val EN2_DOWN = listOf("`", "~", "…", "-", "(", ")", "[", "]", "|")
-    private val EN2_UP = listOf("~", "+", "_", "'", "=", "|", "{", "}", "/")
-    private val EN3_DOWN = listOf("!", "?", ":", ";", "<", ">", "\\")
-    private val EN3_UP = listOf("\"", "`", "×", "÷", "≤", "≥", "°")
+    private val EN2_DOWN = listOf("~", "!", "@", "#", "%", "'", "&", "*", "?")
+    private val EN2_UP = List(9) {""}
+    private val EN3_DOWN = listOf("(", ")", "-", "_", ":", ";", "/")
+    private val EN3_UP = List(7) {""}
 
     /** 所有皮肤共用的底行（空叶布局）：123、中/英、逗号、空格、句号、回车 */
     private fun bottom(zh: Boolean): List<Key> = listOf(
@@ -68,9 +72,15 @@ object Layouts {
         val d3 = if (zh) ZH3_DOWN else EN3_DOWN
         val u3 = if (zh) ZH3_UP else EN3_UP
         fun letter(c:Char,down:String,up:String):Key {
-            val a=KeyGestures.action(context,zh,c,true,down)
-            val b=KeyGestures.action(context,zh,c,false,up)
-            return Key(Kind.LETTER,c.toString(),hint=a?.label,hint2=b?.label).apply {downAction=a;upAction=b}
+            val reverse=context?.let {V3Prefs.enabled(it,V3Prefs.SWIPE_REVERSE,false)} ?: false
+            val top=KeyGestures.action(context,zh,c,true,down)
+            val bottom=KeyGestures.action(context,zh,c,false,up)
+            return Key(Kind.LETTER,c.toString(),hint=top?.label,hint2=bottom?.label).apply {
+                reversedSwipe=reverse
+                hintIcon=top?.icon ?: 0;hint2Icon=bottom?.icon ?: 0
+                downAction=if(reverse)bottom else top
+                upAction=if(reverse)top else bottom
+            }
         }
         val r1 = "qwertyuiop".mapIndexed {i,c -> letter(c,DIGITS[i],ROW1_UP[i])}
         val r2 = "asdfghjkl".mapIndexed { i, c -> letter(c,d2[i],u2[i]) }
@@ -89,6 +99,18 @@ object Layouts {
         val r3 = listOf(Key(Kind.SHIFT, w = 1.2f, look = Look.MOD)) +
             listOf("ZX", "CV", "BN", "M").mapIndexed { i, t -> Key(Kind.LETTER, t, hint = d3[i], hint2 = u3[i]) } + del(1.2f)
         return listOf(Row(r1), Row(r2), Row(r3), Row(bottom(true)))
+    }
+
+    fun splitFourteen():List<Row> = fourteen().map {row ->
+        val middle=row.keys.size/2
+        if(row.keys.size%2==1 && row.keys[middle].kind==Kind.LETTER && row.keys[middle].letters.length==2) {
+            val source=row.keys[middle]
+            Row(row.keys.flatMapIndexed {index,key ->
+                if(index!=middle)listOf(key) else source.letters.map {letter ->
+                    Key(Kind.LETTER,letter.toString(),hint=source.hint,hint2=source.hint2,w=source.w/2)
+                }
+            },row.indent)
+        } else row
     }
 
     /** 九键：左边一列可滚动的标点，由 KeyboardView 的 side 画 */

@@ -59,7 +59,8 @@ object Prefs {
     /** 语音：0 普通话，1 四川话 */
     const val VOICE_LANG = "voice_lang"
     const val VAULT = "vault_fill"
-    const val VAULT_PACKAGE = "vault_package"
+    // Used by the signed companion-app regression fixtures; normal installs use the official source.
+    const val VAULT_PACKAGE = "vault_fixture_package"
     /** 系统自动填充候选显示在工具栏（true）还是用系统下拉框（false），安卓 11 起 */
     const val VAULT_INLINE = "vault_inline"
     const val UPDATE_CHECKED = "update_checked"
@@ -68,11 +69,11 @@ object Prefs {
     /** 已经装好系统的离线语音包：识别时优先离线 */
     const val VOICE_OFFLINE = "voice_offline"
 
-    val DEFAULT_NUM_SIDE = listOf("·", "/", "+", "-", "=", "%", "*", "#", ",", ":", "(", ")", "~", "_")
+    val DEFAULT_NUM_SIDE = listOf("%", "+", "-", "/", ":", "=", "*", "#", "¥", "(", ")", "~", "_")
     val DEFAULT_NUM_KEYS = listOf("@", ".", " ")
 
     fun numSide(ctx: Context): List<String> =
-        of(ctx).getString(NUM_SIDE_KEY, null)?.split(' ')?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() } ?: DEFAULT_NUM_SIDE
+        of(ctx).getString(NUM_SIDE_KEY, null)?.split(' ')?.filter { it.isNotEmpty() } ?: DEFAULT_NUM_SIDE
 
     /** 三个自定义键；保存时用 \u0001 隔开，空格键本身就是一个空格 */
     fun numKeys(ctx: Context): List<String> {
@@ -88,7 +89,9 @@ object Prefs {
         "an-ang" to "an = ang", "en-eng" to "en = eng", "in-ing" to "in = ing", "ian-iang" to "ian = iang", "uan-uang" to "uan = uang",
     )
 
-    fun fuzzy(ctx: Context): Set<String> =
+    fun fuzzy(ctx: Context): Set<String> = if(of(ctx).getBoolean(V3Prefs.FUZZY_ENABLED,true)) fuzzySelection(ctx) else emptySet()
+
+    fun fuzzySelection(ctx: Context): Set<String> =
         of(ctx).getString(FUZZY, "")!!.split(',').filter { id -> FUZZY_RULES.any { it.first == id } }.toSet()
 
     /** 工具栏和菜单里可以放的功能 */
@@ -148,7 +151,7 @@ object Prefs {
 
     fun heightScale(ctx: Context) = of(ctx).getFloat(HEIGHT_SCALE, 1f).coerceIn(0.7f, 1.5f)
 
-    fun layout(ctx: Context) = of(ctx).getString(LAYOUT, "26") ?: "26"
+    fun layout(ctx: Context) = V3Prefs.layout(ctx)
 
     fun flag(ctx: Context, key: String, def: Boolean = true) = of(ctx).getBoolean(key, def)
 

@@ -100,7 +100,7 @@ object Interaction230Regression {
             check(Layouts.letters(true,isolated).first().keys.first().upAction?.command=="copy")
             check(Layouts.letters(false,isolated).first().keys.first().upAction?.text=="☆")
             KeyGestures.reset(isolated,true)
-            check(Layouts.letters(true,isolated).first().keys.first().upAction?.text=="!")
+            check(Layouts.letters(true,isolated).first().keys.first().upAction==null)
             check(Layouts.letters(false,isolated).first().keys.first().upAction?.text=="☆")
             report("Independent Chinese/English gesture persistence and restore passed")
             isolated.getSharedPreferences("kongye",0).edit().putBoolean(Prefs.SMS_CODE,true).commit()

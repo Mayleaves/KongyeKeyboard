@@ -71,6 +71,18 @@ object SmsCodeClipboard {
     }
     private fun prefs(ctx:Context)=ctx.getSharedPreferences("sms_code_expiry",Context.MODE_PRIVATE)
     fun ephemeral(clip:ClipData?)=clip?.description?.extras?.getString(MARKER)!=null
+    data class Code(val value:String,val id:String,val expires:Long)
+    fun read(ctx:Context,clip:ClipData?):Code? {
+        if(!Prefs.of(ctx).getBoolean(Prefs.SMS_CODE,false)||clip==null)return null
+        val extras=clip.description.extras ?: return null
+        val id=extras.getString(MARKER) ?: return null
+        val expires=extras.getLong(EXPIRY,0)
+        val p=prefs(ctx)
+        if(id!=p.getString("id",null)||expires!=p.getLong("expires",0)||expires<=System.currentTimeMillis())return null
+        val value=clip.getItemAt(0)?.text?.toString() ?: return null
+        if(!value.matches(Regex("[A-Za-z0-9]{4,8}")))return null
+        return Code(value,id,expires)
+    }
     fun copy(ctx:Context,value:String,now:Long=System.currentTimeMillis()):Boolean {
         if(!Prefs.of(ctx).getBoolean(Prefs.SMS_CODE,false)) return false
         if(ctx.getSystemService(KeyguardManager::class.java)?.isDeviceLocked==true) {

@@ -50,6 +50,36 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("settings-restored-controls".equals(mode)) {SettingsOrganizationRegression.INSTANCE.run(this,true);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("settings-organization".equals(mode)) {SettingsOrganizationRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("floating-mode".equals(mode)) {FloatingModeRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("factory-reset".equals(mode)) {FactoryResetRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("factory-defaults".equals(mode)) {FactoryDefaultsRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("capture-sony-defaults".equals(mode)) {DefaultProfileCapture.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("nov17-flick-defaults".equals(mode)) {FlickDefaultsNov17Regression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("nov17-pictures".equals(mode)) {SettingsNov17Pictures.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("setting-dependencies".equals(mode)) {SettingsDependencyRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("adjustment-readability".equals(mode)) {AdjustmentReadabilityRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("webdav-backup".equals(mode)) {WebDavBackupRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("settings-numeric-order".equals(mode)) {SettingsNoticeRegression.INSTANCE.run(this,true);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("settings-notices".equals(mode)) {SettingsNoticeRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("feedback-controls".equals(mode)) {FeedbackControlsRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("correction-live".equals(mode)) {CorrectionLiveRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("correction-switches".equals(mode)) {CorrectionSwitchRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("paired-symbols".equals(mode)) {PairedSymbolsRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("clip-suggestion".equals(mode)) {ClipSuggestionRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("backup-resources".equals(mode)) {BackupResourceRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("update-dialog".equals(mode)) {UpdateDialogRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("settings-nov17".equals(mode)) {SettingsNov17Regression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if (mode.startsWith("light-pack-")) {LightResourcesRegression.INSTANCE.pack(this,mode.substring(11));finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("settings-preview".equals(mode)) {SettingsPreviewRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("light-grammar".equals(mode)) {LightResourcesRegression.INSTANCE.grammar(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("note-delete".equals(mode)) {NoteDeletionRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("light-resources".equals(mode) || "light-download".equals(mode)) {LightResourcesRegression.INSTANCE.run(this,"light-download".equals(mode));finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("polish-offline".equals(mode)) {VoicePolishRegression.INSTANCE.run(this,true);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("polish-online".equals(mode)) {VoicePolishRegression.INSTANCE.run(this,false);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("typing-stats".equals(mode)) {TypingStatsRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("v3".equals(mode)) {V3Regression.INSTANCE.run(this);report("V3 INPUT AND SETTINGS BEHAVIOR PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
             if ("partial-delete".equals(mode)) {PartialSelectionDeleteRegression.INSTANCE.run(this);report("PARTIAL SELECTION PINYIN RESTORE PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
             if ("candidate-mode".equals(mode)) {CandidateModeRegression.INSTANCE.run(this);report("CANDIDATE WORD/CHARACTER MODE PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
             if ("autofill-transition".equals(mode)) {
@@ -442,6 +472,17 @@ public final class OfflineResourcesCheck extends Instrumentation {
         require(store.historyCount()==0 && store.getItems().size()==4, "Clear history removed saved entries");
         require(image.exists(), "Clear history removed a saved image");
         report("PASS custom add, stale-card category/edit, >500 history, saved image, reload and history clear");
+        android.content.SharedPreferences clipPrefs=Prefs.INSTANCE.of(isolated);
+        clipPrefs.edit().putInt(V3Prefs.CLIP_LIMIT,100).putInt(V3Prefs.CLIP_DAYS,1).commit();
+        for(int n=0;n<120;n++) store.add("new retention history "+n);
+        require(store.historyCount()==100,"Configured history limit was ignored");
+        for(Clip item:store.getItems()) if(!store.isSaved(item)) item.setTime(System.currentTimeMillis()-2*86400000L);
+        store.prune();
+        require(store.historyCount()==0 && store.getItems().size()==4,"Retention deleted saved clips or retained expired history");
+        require(image.exists(),"Retention deleted a saved category image");
+        clipPrefs.edit().remove(V3Prefs.CLIP_LIMIT).remove(V3Prefs.CLIP_DAYS).commit();
+        report("PASS configurable history capacity, age expiry and preserved pinned/custom entries");
+
         checkRemoteDeletion();
         store.getItems().clear(); store.removeCategory("测试长期保存");
         writer.submit(() -> {}).get(30, TimeUnit.SECONDS);

@@ -29,3 +29,9 @@ app/src/main/assets/fcitx-data.zip
 app/libs/markdown-*.jar
 
 app/src/main/assets/voice-punctuation/*.onnx
+
+app/src/main/assets/voice-polish/*.gguf
+app/src/main/jniLibs/**/libkongye_polish.so
+
+# Local working requirements; public interface documentation remains in docs.
+/docs/密码填充-需求文档-v2.md

@@ -68,6 +68,13 @@ object PinyinEngine {
         }
     }
 
+    @Synchronized fun reloadModel(ctx:Context) {
+        if(!ready)return
+        core?.close();core=null;ready=false;cache.clear()
+        initialize(ctx)
+        check(ready) {failure ?: "整句模型准备失败"}
+    }
+
     private fun layout(keys: List<String>): String = when {
         keys.none { it.length > 1 } -> "26"
         keys.any { it.length > 2 } -> "9"
@@ -93,8 +100,8 @@ object PinyinEngine {
 
     fun candidatesLive(keys: List<String>, abbr: Boolean, current: () -> Boolean, onPrimary: (List<Cand>) -> Unit): List<Cand> {
         if(FcitxEngine.ready && layout(keys)=="26" && abbr) {
-            val result=FcitxEngine.primaryCandidates(keys,current).let {PinyinExpressions.insert(it,keys)}
-            onPrimary(result);return result
+            val result=FcitxEngine.candidatesLive(keys,current) {onPrimary(PinyinExpressions.insert(it,keys))}.let {PinyinExpressions.insert(it,keys)}
+            return result
         }
         if (!ready) return Lexicon.candidates(keys, abbr)
         return queryReady(keys, abbr, current, onPrimary)
@@ -105,7 +112,7 @@ object PinyinEngine {
         checkCurrent()
         val rime = core
         if (!ready || rime == null) return Lexicon.candidates(keys, abbr)
-        val cacheKey = keys.joinToString(",") + "/$abbr/" + Lexicon.fuzzyRules.sorted().joinToString(",")
+        val cacheKey = keys.joinToString(",") + "/$abbr/${SpellingAssist.correctionFlags}/" + Lexicon.fuzzyRules.sorted().joinToString(",")
         cache[cacheKey]?.let { onPrimary(it); checkCurrent(); return it }
         val layout = layout(keys)
         val raw = encode(keys, layout)
@@ -218,6 +225,13 @@ object PinyinEngine {
             }
         }
         checkCurrent()
+        if(layout=="26" && !abbr && FcitxEngine.ready && SpellingAssist.correctionFlags!=0) {
+            for(c in FcitxEngine.primaryCandidates(keys,current).filter {it.correction && it.n==keys.count {key->key!="'"}}) {
+                val old=output.indexOfFirst {it.w==c.w}
+                if(old>=0 && output[old].n<c.n)output[old]=c
+                else if(old<0)output.add(minOf(3,output.size),c)
+            }
+        }
         val associated = complete(output)
         cache[cacheKey] = associated
         return associated
@@ -252,6 +266,11 @@ object PinyinEngine {
 
     @Synchronized fun endInput() {
         cache.clear(); core?.clearInput(); FcitxEngine.clear()
+    }
+
+    @Synchronized fun <T> withUserFiles(ctx:Context,action:()->T):T {
+        val wasReady=ready;core?.close();core=null;ready=false;cache.clear()
+        try {return FcitxEngine.withUserFiles(ctx,action)} finally {if(wasReady){initialize(ctx);check(ready){failure.orEmpty()}}}
     }
 
     @Synchronized fun clearUser(ctx: Context) {

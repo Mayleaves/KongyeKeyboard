@@ -1,7 +1,11 @@
 package com.kongye.keyboard
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -21,15 +25,20 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +46,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -51,19 +62,33 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -75,41 +100,146 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.CornerRadius
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.semantics.stateDescription
 import kotlin.math.roundToInt
+
+private val LocalPlainMenu=androidx.compose.runtime.staticCompositionLocalOf {false}
 
 private class Pal(
     val bg: Color, val card: Color, val ink: Color, val text2: Color, val line: Color, val tile: Color,
     val track: Color, val accent: Color, val onAccent: Color, val ok: Color, val bad: Color,
-)
+) {
+    val searchMatch = if (card == Color.White) Color(0xFFBC351C) else Color(0xFFFF8265)
+}
 
 private val LIGHT = Pal(Color(0xFFF4F5F8), Color(0xFFFFFFFF), Color(0xFF18191C), Color(0xFF686B73), Color(0xFFECEDF2), Color(0xFFF0F2F6), Color(0xFFE2E4EC), Color(0xFFF0492C), Color.White, Color(0xFF16A34A), Color(0xFFE11D48))
 private val DARK = Pal(Color(0xFF0F1013), Color(0xFF1A1B20), Color(0xFFF4F5F8), Color(0xFF9498A3), Color(0xFF282A32), Color(0xFF24262E), Color(0xFF323540), Color(0xFFF0492C), Color.White, Color(0xFF4ADE80), Color(0xFFFB7185))
 
-private enum class Page(val title: String) {
-    MAIN("空叶键盘 设置"), LAYOUT("键盘布局"), KEYS("按键与手势"), PINYIN("拼音"), LOOK("主题与外观"), HEIGHT("键盘高度"),
-    FLICKS("26 键上下滑"), ARRANGE("工具栏与菜单"), CLIP("剪贴板"), TIPS("小技巧"), TRY("试一试"), NUMPAD("数字键盘"), VAULT("密码填充"), UPDATE("检查更新"), HISTORY("更新历史"), RELEASE("更新详情")
+internal enum class Page(val title: String) {
+    MAIN("空叶键盘"), LAYOUT("键盘布局"), KEYS("按键与手势"), PINYIN("中文与拼音"), LOOK("主题与外观"), HEIGHT("键盘调整"),
+    FLICKS("26 键上下滑"), ARRANGE("工具栏与菜单"), CLIP("剪贴板"), NUMPAD("数字键盘"), VAULT("密码填充"), UPDATE("检查更新"), HISTORY("更新历史"), RELEASE("更新详情"),
+    READY("使用准备"), INPUT("输入设置"), APPEARANCE("外观与布局"), TOOLS("工具"), ABOUT("关于"),
+    ENGLISH("英文与空格"), ASSOC("候选与联想"), GLIDE("滑行输入"), VOICE("语音输入"), HAND("手写输入"),
+    DISPLAY("拼音与候选显示"), DELETE("删除键"), RESOURCES("离线资源"), PERMISSIONS("功能权限"), STATS("打字统计"), TRANSLATION("翻译"), CORRECTION("拼音纠错"), FUZZY("模糊音"), POLISH("语句润色"), SMS("短信验证码"), BACKUP("备份与恢复")
 }
+
+private val LocalNoticePage = staticCompositionLocalOf<Page?> { null }
 
 /** 主页上的一行：可以被搜索 */
 private class Item(val section: String, val icon: Int, val tint: Color, val title: String, val sub: String, val value: String?, val valueColor: Color?, val onClick: () -> Unit)
 
 class SettingsActivity : ComponentActivity() {
+    private var keyboardOverlay:android.app.Dialog?=null
+    private val overlayShown=mutableStateOf(false)
+    private val backupOptions=mutableStateOf(KeyboardBackup.Options())
+    private val backupBusy=mutableStateOf(false)
+    private val backupMessage=mutableStateOf("")
+    private val backupExport=registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) {uri->
+        if(uri!=null) {
+            val options=backupOptions.value
+            backupBusy.value=true;backupMessage.value="正在导出备份…"
+            Thread {
+                val result=runCatching {contentResolver.openOutputStream(uri,"w")?.use {KeyboardBackup.write(applicationContext,it,options)} ?: error("无法写入所选文件")}
+                if(result.isSuccess)Prefs.of(applicationContext).edit().putLong("backup_last_export",System.currentTimeMillis()).apply()
+                runOnUiThread {backupBusy.value=false;backupMessage.value=result.fold({"备份已导出"},{it.message ?: "备份失败，请重试"})}
+            }.start()
+        }
+    }
+    private val backupImport=registerForActivityResult(ActivityResultContracts.OpenDocument()) {uri->
+        if(uri!=null) {
+            backupBusy.value=true;backupMessage.value="正在检查备份…"
+            Thread {
+                val result=runCatching {contentResolver.openInputStream(uri)?.use {KeyboardBackup.read(applicationContext,it)} ?: error("无法读取所选文件")}
+                runOnUiThread {
+                    backupBusy.value=false
+                    result.onSuccess {prepared->
+                        if(isDestroyed||isFinishing){prepared.close();return@onSuccess}
+                        confirmBackupRestore(prepared)
+                    }.onFailure {backupMessage.value=it.message ?: "不是有效的空叶键盘备份"}
+                }
+            }.start()
+        }
+    }
+    private fun confirmBackupRestore(prepared:KeyboardBackup.Prepared) {
+        if(isDestroyed||isFinishing){prepared.close();return}
+                        backupMessage.value="备份已校验，请确认恢复内容"
+                        val applying=java.util.concurrent.atomic.AtomicBoolean(false)
+                        val options=prepared.options
+                        val contents=listOfNotNull("设置与自定义按键",if(options.learning)"自造词、选词记录"else null,if(options.statistics)"打字统计"else null,if(options.clipboard)"剪贴板文字、图片与分类"else null).joinToString("\n")
+                        val time=java.text.SimpleDateFormat("yyyy-MM-dd HH:mm",java.util.Locale.getDefault()).format(java.util.Date(prepared.created))
+                        val dialog=android.app.AlertDialog.Builder(this@SettingsActivity).setTitle("恢复此备份？")
+                            .setMessage("备份时间："+time+"\n版本："+prepared.version+"\n\n"+contents+"\n\n将覆盖以上项目，其他数据保留。")
+                            .setNegativeButton("取消",null).setPositiveButton("恢复") {_,_->
+                                applying.set(true);backupBusy.value=true;backupMessage.value="正在恢复备份…"
+                                Thread {
+                                    val restored=runCatching {KeyboardBackup.restore(applicationContext,prepared)}
+                                    runOnUiThread {backupBusy.value=false;backupMessage.value=restored.fold({"恢复完成，已载入备份设置"},{it.message ?: "恢复失败，原数据已保留"});tick.intValue++}
+                                }.start()
+                            }.create()
+                        dialog.setOnDismissListener {if(!applying.get())prepared.close()};dialog.show()
+    }
+    private data class NoticeFocus(val page: Page, val key: String, val serial: Long)
+    private val noticeFocus=mutableStateOf<NoticeFocus?>(null)
+    private var noticeSerial=0L
+    private var noticeNavigation:((Page)->Unit)?=null
+
+    @Composable
+    private fun Modifier.noticeAttention(pal:Pal,key:String):Modifier {
+        val request = noticeFocus.value
+        if (request?.key != key || request.page != LocalNoticePage.current) return this
+        val bring = remember(key) { BringIntoViewRequester() }
+        val pulse = remember(key) { Animatable(0f) }
+        LaunchedEffect(request.serial) {
+            try {
+                pulse.snapTo(0f)
+                // Wait for page transition and layout restoration before locating the card.
+                delay(180)
+                bring.bringIntoView()
+                delay(100)
+                repeat(2) {
+                    pulse.animateTo(.2f, tween(140))
+                    pulse.animateTo(0f, tween(300))
+                }
+                delay(250)
+            } finally {
+                if (noticeFocus.value == request) noticeFocus.value = null
+            }
+        }
+        return this.bringIntoViewRequester(bring).drawWithContent {
+            drawContent()
+            if (pulse.value > 0f) {
+                drawRoundRect(pal.accent.copy(alpha = pulse.value), cornerRadius = CornerRadius(20.dp.toPx()))
+            }
+        }.semantics { stateDescription = "正在定位：$key" }
+    }
+
     private var restoredActivity = false
     private val tick = mutableIntStateOf(0)
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> tick.intValue++ }
@@ -119,6 +249,7 @@ class SettingsActivity : ComponentActivity() {
     private val smsRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> Prefs.of(this).edit().putBoolean(Prefs.SMS_CODE,granted).apply();tick.intValue++ }
     private val notificationRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick.intValue++ }
     private var checkingUpdate=false
+    private val updateDialogVisible=mutableStateOf(false)
     private val downloadState=mutableStateOf("")
     private val downloadedApk=mutableStateOf<java.io.File?>(null)
     private val downloading=mutableStateOf(false)
@@ -144,21 +275,33 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun checkUpdate(silent: Boolean) {
-        if (checkingUpdate) {if(!silent) updateState.value="检查中…";return}
+        if (checkingUpdate || downloading.value) return
         checkingUpdate=true
         if (!silent) updateState.value = "检查中…"
         Thread {
-            val r = runCatching { UpdateChecker.fetch() }
+            val r = runCatching {
+                val found=UpdateChecker.fetch()
+                val cached=java.io.File(cacheDir,"updates/update.apk").takeIf {it.isFile &&
+                    runCatching {AppUpdate.validate(applicationContext,it,found.version,found.sha256)}.isSuccess}
+                found to cached
+            }
             runOnUiThread {
                 checkingUpdate=false
-                Prefs.of(this).edit().putLong(Prefs.UPDATE_CHECKED, System.currentTimeMillis()).apply()
-                r.onSuccess { rel ->
+                r.onSuccess { (rel,cached) ->
+                    Prefs.of(this).edit().putLong(Prefs.UPDATE_CHECKED,System.currentTimeMillis()).putString("latest_update_tag",rel.tag).apply()
                     val newer = UpdateChecker.newer(rel.version, UpdateChecker.currentVersion(this))
                     release.value = rel
+                    downloadedApk.value=cached
+                    downloadState.value=if(cached!=null)"安装包已下载并通过校验" else ""
                     updateState.value = if (newer) "有新版本 ${rel.tag}" else if (silent) "" else "已是最新"
-                }.onFailure { e -> if (!silent) updateState.value = "检查失败：${e.message ?: "网络不通"}" }
+                }.onFailure { e -> if (!silent) {release.value=null;downloadedApk.value=null;updateState.value = "检查失败：${e.message ?: "网络不通"}"} }
             }
         }.start()
+    }
+
+    private fun openUpdateDialog() {
+        updateDialogVisible.value=true
+        checkUpdate(false)
     }
 
     private fun downloadUpdate(rel:UpdateChecker.Release) {
@@ -195,7 +338,10 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if(android.os.Build.VERSION.SDK_INT>=31)splashScreen.setOnExitAnimationListener {it.remove()}
+        V3Prefs.migrate(this)
         restoredActivity = savedInstanceState != null
+        updateDialogVisible.value=savedInstanceState?.getBoolean("update_dialog_visible",false)==true
         Thread({
             Lexicon.load(applicationContext)
             PinyinEngine.initialize(applicationContext)
@@ -207,9 +353,17 @@ class SettingsActivity : ComponentActivity() {
         Prefs.of(this).registerOnSharedPreferenceChangeListener(prefListener)
         if (intent?.getBooleanExtra("grant_mic", false) == true && !micGranted()) micRequest.launch(Manifest.permission.RECORD_AUDIO)
         setContent { Screen(tick.intValue) }
+        if(updateDialogVisible.value)checkUpdate(false)
+        else if(System.currentTimeMillis()-Prefs.of(this).getLong(Prefs.UPDATE_CHECKED,0L)>6*60*60*1000L)checkUpdate(true)
+    }
+
+    override fun onSaveInstanceState(outState:Bundle) {
+        outState.putBoolean("update_dialog_visible",updateDialogVisible.value)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
+        keyboardOverlay?.dismiss();keyboardOverlay=null
         updateDownloadCancelled=true
         Prefs.of(this).unregisterOnSharedPreferenceChangeListener(prefListener)
         super.onDestroy()
@@ -245,45 +399,63 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun Screen(tick: Int) {
+        val focusManager=LocalFocusManager.current
+        val keyboardController=LocalSoftwareKeyboardController.current
         val pal = if (isSystemInDarkTheme()) DARK else LIGHT
         // Rotation recreates the Activity, but it is not a new app launch.
         // Also skip the intro if rotation interrupts it halfway through.
         var showSplash by rememberSaveable { mutableStateOf(!restoredActivity && intent?.getBooleanExtra("grant_mic", false) != true) }
         if (restoredActivity && showSplash) showSplash = false
         var page by rememberSaveable { mutableStateOf(Page.MAIN) }
-        val backStack = remember { mutableStateListOf<Page>() }
+        val backStack=rememberSaveable(saver=androidx.compose.runtime.saveable.listSaver<MutableList<Page>,String>(
+            save={pages->pages.map {it.name}},restore={names->names.map {Page.valueOf(it)}.toMutableList()})) {mutableListOf<Page>()}
+        var mainExpanded by rememberSaveable {mutableStateOf<Page?>(null)}
+        var backward by remember {mutableStateOf(false)}
         // 主页独立保存滚动状态：从子页面返回时回到原先浏览的位置，不会跳回最顶部
         val mainScroll = rememberScrollState()
+        val pageStateHolder=rememberSaveableStateHolder()
 
         fun navigateTo(target: Page) {
             if (target != page) {
+                backward=false
+                // A revisited destination moves to the front of recency history;
+                // reciprocal prerequisite links must never build A/B/A/B loops.
+                backStack.removeAll {it==target || it==page}
                 backStack.add(page)
                 page = target
             }
         }
 
         fun navigateBack() {
+            backward=true
+            noticeFocus.value=null
             page = if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) else Page.MAIN
+            backStack.removeAll {it==page}
         }
 
+        SideEffect {noticeNavigation={target->focusManager.clearFocus(force=true);keyboardController?.hide();navigateTo(target)}}
         BackHandler(enabled = page != Page.MAIN) { navigateBack() }
 
         Box(Modifier.fillMaxSize().background(pal.bg)) {
             AnimatedContent(
                 targetState=page,
                 transitionSpec={
-                    (fadeIn(tween(180)) + slideInHorizontally(tween(180)) { it/12 }) togetherWith
-                        (fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { -it/12 })
+                    if(backward) {
+                        (androidx.compose.animation.EnterTransition.None togetherWith slideOutHorizontally(tween(110)) {it}).apply {targetContentZIndex=-1f}
+                    } else {
+                        (slideInHorizontally(tween(110)) {it} togetherWith androidx.compose.animation.ExitTransition.None).apply {targetContentZIndex=1f}
+                    }
                 }, label="settingsPage",
             ) { shownPage ->
+            pageStateHolder.SaveableStateProvider(shownPage.name) {
             if (shownPage == Page.MAIN) {
                 Column(
                     Modifier.fillMaxSize().background(pal.bg).windowInsetsPadding(WindowInsets.safeDrawing)
                         .verticalScroll(mainScroll).padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    MainPage(pal, tick) { navigateTo(it) }
-                    Spacer(Modifier.height(16.dp))
+                    MainPage(pal,tick,mainExpanded,{focusManager.clearFocus(force=true);keyboardController?.hide();mainExpanded=it}) {navigateTo(it)}
+                    Spacer(Modifier.height(92.dp))
                 }
             } else {
                 val subScroll = androidx.compose.runtime.key(shownPage) { rememberScrollState() }
@@ -296,46 +468,381 @@ class SettingsActivity : ComponentActivity() {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Row(
-                            Modifier.clip(RoundedCornerShape(14.dp)).clickable { navigateBack() }.padding(horizontal = 8.dp, vertical = 6.dp),
+                            Modifier.clip(RoundedCornerShape(14.dp)).clickable(interactionSource = null, indication = null) { navigateBack() }.padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Image(painterResource(R.drawable.ic_chevron_left), null, Modifier.size(24.dp), colorFilter = ColorFilter.tint(pal.ink))
                             Spacer(Modifier.width(4.dp))
                             BasicText(shownPage.title, style = TextStyle(color = pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold))
                         }
+                        Spacer(Modifier.weight(1f))
+                        if(shownPage==Page.HISTORY) {
+                            HeaderAction(pal,R.drawable.ic_github,"打开 GitHub") {openUrl(UpdateChecker.REPOSITORY)}
+                            HeaderAction(pal,R.drawable.ic_refresh,"刷新更新历史") {loadHistory()}
+                        }
                     }
                     Line(pal)
-                    Column(
+                    if(shownPage==Page.HISTORY) Box(Modifier.weight(1f).padding(horizontal=16.dp)) {
+                        HistoryPage(pal) {selectedRelease.value=it;navigateTo(Page.RELEASE)}
+                    } else if(shownPage==Page.HEIGHT) HeightPage(pal,tick)
+                    else Column(
                         Modifier.fillMaxSize().verticalScroll(subScroll).padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        when (shownPage) {
-                            Page.LAYOUT -> LayoutPage(pal, tick)
-                            Page.KEYS -> KeysPage(pal, tick) {navigateTo(Page.FLICKS)}
-                            Page.FLICKS -> FlicksPage(pal,tick)
-                            Page.PINYIN -> PinyinPage(pal, tick)
-                            Page.LOOK -> LookPage(pal, tick)
-                            Page.HEIGHT -> HeightPage(pal, tick)
-                            Page.ARRANGE -> ArrangePage(pal, tick)
-                            Page.CLIP -> ClipPage(pal, tick)
-                            Page.TIPS -> TipsPage(pal)
-                            Page.TRY -> TryPage(pal)
-                            Page.NUMPAD -> NumpadPage(pal, tick)
-                            Page.VAULT -> VaultPage(pal,tick)
-                            Page.UPDATE -> UpdatePage(pal) {navigateTo(Page.HISTORY);loadHistory()}
-                            Page.HISTORY -> HistoryPage(pal) {selectedRelease.value=it;navigateTo(Page.RELEASE)}
-                            Page.RELEASE -> ReleasePage(pal)
-                            Page.MAIN -> Unit
+                        CompositionLocalProvider(LocalNoticePage provides shownPage) {
+                            when (shownPage) {
+                                Page.LAYOUT -> LayoutPage(pal, tick)
+                                Page.KEYS -> V3Page(pal,shownPage,tick) {navigateTo(it)}
+                                Page.FLICKS -> FlicksPage(pal,tick) {navigateTo(it)}
+                                Page.PINYIN -> V3Page(pal,shownPage,tick) {navigateTo(it)}
+                                Page.LOOK -> LookPage(pal, tick)
+                                Page.HEIGHT -> HeightPage(pal, tick)
+                                Page.ARRANGE -> ArrangePage(pal, tick)
+                                Page.CLIP -> ClipPage(pal, tick)
+                                Page.NUMPAD -> NumpadPage(pal, tick)
+                                Page.VAULT -> VaultPage(pal,tick)
+                                Page.UPDATE -> Unit
+                                Page.HISTORY -> HistoryPage(pal) {selectedRelease.value=it;navigateTo(Page.RELEASE)}
+                                Page.RELEASE -> ReleasePage(pal)
+                                Page.MAIN -> Unit
+                                else -> V3Page(pal,shownPage,tick) {navigateTo(it)}
+                            }
                         }
-                        Spacer(Modifier.height(20.dp))
+                        Spacer(Modifier.height(92.dp))
                     }
                 }
             }
 
             }
 
+            }
+
+            if(!showSplash && !overlayShown.value) {
+                Box(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(bottom=12.dp)) {
+                    Row(Modifier.width(240.dp).clip(RoundedCornerShape(50)).background(pal.card.copy(alpha=.78f))
+                        .border(1.dp,pal.line,RoundedCornerShape(50)).clickable {
+                            if(isCurrent())showKeyboardOverlay(pal) {focusManager.clearFocus(force=true)} else {navigateTo(Page.READY);android.widget.Toast.makeText(this@SettingsActivity,"请先启用并选择空叶键盘",android.widget.Toast.LENGTH_SHORT).show()}
+                        }.padding(horizontal=24.dp,vertical=15.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center) {
+                        Image(painterResource(R.drawable.ic_kbd),null,Modifier.size(20.dp),colorFilter=ColorFilter.tint(pal.ink))
+                        Spacer(Modifier.width(10.dp));BasicText("显示键盘",style=TextStyle(color=pal.ink,fontSize=15.sp,fontWeight=FontWeight.Medium))
+                    }
+                }
+            }
+            if(updateDialogVisible.value)UpdateDialog(pal,tick) {updateDialogVisible.value=false;navigateTo(Page.HISTORY);loadHistory()}
+            if(backupBusy.value)androidx.compose.ui.window.Dialog(onDismissRequest={},properties=androidx.compose.ui.window.DialogProperties(dismissOnBackPress=false,dismissOnClickOutside=false)) {
+                Column(Modifier.clip(RoundedCornerShape(20.dp)).background(pal.card).padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+                    AndroidView(factory={android.widget.ProgressBar(it)},modifier=Modifier.size(32.dp))
+                    BasicText(backupMessage.value,style=TextStyle(color=pal.ink,fontSize=15.sp),modifier=Modifier.padding(top=16.dp))
+                }
+            }
             if (showSplash) {
                 SplashScreen(pal) { showSplash = false }
+            }
+        }
+    }
+
+    private fun showKeyboardOverlay(pal:Pal,onClose:()->Unit) {
+        if(keyboardOverlay?.isShowing==true)return
+        val dialog=android.app.Dialog(this)
+        val d=resources.displayMetrics.density
+        fun dp(v:Int)=(v*d).roundToInt()
+        val root=android.widget.FrameLayout(this).apply {
+            setBackgroundColor(android.graphics.Color.argb(185,android.graphics.Color.red(pal.bg.toArgb()),android.graphics.Color.green(pal.bg.toArgb()),android.graphics.Color.blue(pal.bg.toArgb())))
+        }
+        val inputArea=android.widget.FrameLayout(this)
+        val edit=android.widget.EditText(this).apply {
+            textSize=27f;gravity=android.view.Gravity.CENTER
+            setTextColor(pal.ink.toArgb());setHintTextColor(pal.text2.copy(alpha=.55f).toArgb())
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            imeOptions=android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI or android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+            importantForAutofill=android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+            minLines=1;maxLines=6;setPadding(dp(20),dp(12),dp(20),dp(12));isFocusableInTouchMode=true
+            contentDescription="键盘效果输入框"
+        }
+        inputArea.addView(edit,android.widget.FrameLayout.LayoutParams(-1,-2,android.view.Gravity.CENTER))
+        val close=android.widget.TextView(this).apply {
+            text="×";textSize=27f;contentDescription="收起键盘";gravity=android.view.Gravity.CENTER;setTextColor(pal.text2.toArgb())
+            setOnClickListener {getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(edit.windowToken,0);dialog.dismiss()}
+        }
+        inputArea.addView(close,android.widget.FrameLayout.LayoutParams(dp(48),dp(48),android.view.Gravity.TOP or android.view.Gravity.END).apply {setMargins(dp(8),dp(8),dp(8),dp(8))})
+        root.addView(inputArea,android.widget.FrameLayout.LayoutParams(-1,-1))
+        root.setOnClickListener {edit.requestFocus();getSystemService(InputMethodManager::class.java).showSoftInput(edit,InputMethodManager.SHOW_IMPLICIT)}
+        if(android.os.Build.VERSION.SDK_INT>=30) {
+            var animating=false
+            var latest:android.view.WindowInsets?=null
+            fun position(insets:android.view.WindowInsets) {
+                val bottom=insets.getInsets(android.view.WindowInsets.Type.ime() or android.view.WindowInsets.Type.systemBars()).bottom
+                val top=insets.getInsets(android.view.WindowInsets.Type.statusBars()).top
+                val params=inputArea.layoutParams as android.widget.FrameLayout.LayoutParams
+                if(params.bottomMargin!=bottom||params.topMargin!=top){params.bottomMargin=bottom;params.topMargin=top;inputArea.layoutParams=params}
+            }
+            root.setOnApplyWindowInsetsListener {_,insets->latest=insets;if(!animating)position(insets);insets}
+            root.setWindowInsetsAnimationCallback(object:android.view.WindowInsetsAnimation.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+                override fun onPrepare(animation:android.view.WindowInsetsAnimation) {if(animation.typeMask and android.view.WindowInsets.Type.ime()!=0)animating=true}
+                override fun onProgress(insets:android.view.WindowInsets,running:MutableList<android.view.WindowInsetsAnimation>):android.view.WindowInsets {position(insets);return insets}
+                override fun onEnd(animation:android.view.WindowInsetsAnimation) {animating=false;latest?.let {position(it)}}
+            })
+        }
+        dialog.setContentView(root)
+        dialog.window?.apply {
+            setBackgroundDrawableResource(android.R.color.transparent)
+            clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setWindowAnimations(R.style.KeyboardPreviewWindow)
+            if(android.os.Build.VERSION.SDK_INT>=30) {
+                setDecorFitsSystemWindows(false)
+                setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+            } else setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        }
+        dialog.setOnDismissListener {
+            edit.isFocusableInTouchMode=false;edit.isFocusable=false;edit.clearFocus()
+            onClose()
+            keyboardOverlay=null;overlayShown.value=false
+            val imm=getSystemService(InputMethodManager::class.java)
+            imm.hideSoftInputFromWindow(window.decorView.windowToken,0)
+            if(android.os.Build.VERSION.SDK_INT>=30)window.insetsController?.hide(android.view.WindowInsets.Type.ime())
+            window.decorView.post {
+                if(!isDestroyed&&keyboardOverlay==null) {
+                    imm.hideSoftInputFromWindow(window.decorView.windowToken,0)
+                    if(android.os.Build.VERSION.SDK_INT>=30)window.insetsController?.hide(android.view.WindowInsets.Type.ime())
+                }
+            }
+        }
+        keyboardOverlay=dialog;overlayShown.value=true;dialog.show()
+        dialog.window?.setLayout(-1,-1)
+        root.requestApplyInsets();edit.requestFocus()
+        edit.postDelayed({if(dialog.isShowing) {
+            if(android.os.Build.VERSION.SDK_INT>=30)edit.windowInsetsController?.show(android.view.WindowInsets.Type.ime())
+            else getSystemService(InputMethodManager::class.java).showSoftInput(edit,InputMethodManager.SHOW_IMPLICIT)
+        }},80)
+    }
+
+    @Composable
+    private fun SettingComparison(pal:Pal,title:String,key:String,current:Any,compareChoices:List<Pair<Any,String>> = emptyList(),label:(Any)->String) {
+        val before=remember(key) {current}
+        val height = when (key) {
+            V3Prefs.DELETE_DIRECT -> 190.dp
+            Prefs.FLOAT, FloatingKeyboard.SPLIT -> 154.dp
+            V3Prefs.PUNCT_CONFIRM, V3Prefs.READINGS, V3Prefs.GLOSS -> 148.dp
+            V3Prefs.COMPOSE_RESTORE, V3Prefs.COMPOSE_HOLD_CLEAR -> 144.dp
+            V3Prefs.GLIDE_ZH, V3Prefs.GLIDE_EN, V3Prefs.GLIDE_LIVE, V3Prefs.GLIDE_TRACE -> 140.dp
+            Prefs.SPACE_LONG, V3Prefs.BOTTOM_CURSOR -> 124.dp
+            V3Prefs.PINYIN_POSITION -> 116.dp
+            else -> 110.dp
+        }
+        AndroidView(factory={ctx->SettingExampleView(ctx)},update={
+            it.ink=pal.ink.toArgb();it.muted=pal.text2.toArgb();it.tile=pal.tile.toArgb();it.accent=pal.accent.toArgb()
+            it.comparisonOptions=compareChoices;it.submit(key,title,before,current,label(before),label(current))
+        },modifier=Modifier.fillMaxWidth().semantics {contentDescription="$title：修改前 ${label(before)}，当前 ${label(current)}"}.padding(top=2.dp,bottom=10.dp).height(height))
+    }
+
+    @Composable
+    private fun ResourcesPage(pal:Pal) {
+        var pendingRemoval by remember {mutableStateOf<ResourcePacks.Pack?>(null)}
+        var refresh by remember {mutableIntStateOf(0)}
+        LaunchedEffect(Unit) {while(true){delay(450);refresh++}}
+        @Suppress("UNUSED_VARIABLE")val revision=refresh
+        val packs=remember {ResourcePacks.catalog(this)}
+        packs.forEach {pack->
+            val state=ResourcePacks.state(pack.id)
+            val ready=ResourcePacks.ready(this,pack.id)
+            Card(pal) {
+                BasicText(pack.title,style=TextStyle(color=pal.ink,fontSize=17.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(top=12.dp))
+                BasicText(pack.summary,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=19.sp),modifier=Modifier.padding(top=6.dp))
+                val occupied=ResourcePacks.installedBytes(this@SettingsActivity,pack.id)
+                Row(Modifier.fillMaxWidth().padding(top=6.dp,bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
+                    BasicText("约 ${"%.1f".format(pack.bytes/1000000.0)} MB · ${if(ready)"已安装" else "未安装"}",
+                        style=TextStyle(color=if(ready)pal.ok else pal.text2,fontSize=12.sp,lineHeight=18.sp),modifier=Modifier.weight(1f).padding(end=8.dp))
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                        when {
+                            state.removing->BasicText("正在删除…",style=TextStyle(color=pal.text2,fontSize=12.sp))
+                            state.busy->ResourceAction(pal,"取消") {ResourcePacks.cancel(pack.id)}
+                            else->{
+                                if(occupied>0)ResourceAction(pal,"删除",if(pal==DARK)Color(0xFFE1A29A) else Color(0xFFAD5149)) {pendingRemoval=pack}
+                                if(!ready)ResourceAction(pal,if(state.message.isNotEmpty())"继续" else "下载",if(pal==DARK)Color(0xFF9ABFEA) else Color(0xFF356A9C)) {ResourcePacks.start(applicationContext,pack.id)}
+                            }
+                        }
+                    }
+                }
+                if(state.busy) {
+                    val fraction=if(state.total>0)(state.downloaded.toFloat()/state.total).coerceIn(0f,1f) else 0f
+                    Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)).background(pal.track)) {
+                        Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(pal.accent))
+                    }
+                    BasicText("${(fraction*100).toInt()}% · ${"%.1f".format(state.downloaded/1000000.0)} MB",
+                        style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=6.dp,bottom=8.dp))
+                } else if(state.message.isNotBlank())BasicText(state.message,style=TextStyle(color=if(ready)pal.ok else pal.text2,fontSize=12.sp),modifier=Modifier.padding(bottom=8.dp))
+            }
+        }
+        pendingRemoval?.let {pack->
+            androidx.compose.ui.window.Dialog(onDismissRequest={pendingRemoval=null},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
+                Column(Modifier.widthIn(max=420.dp).fillMaxWidth(.9f).clip(RoundedCornerShape(14.dp)).background(pal.card).padding(24.dp)) {
+                    BasicText("删除"+pack.title+"？",style=TextStyle(color=pal.ink,fontSize=19.sp,fontWeight=FontWeight.Bold))
+                    BasicText("将释放约 "+String.format("%.1f",ResourcePacks.installedBytes(this@SettingsActivity,pack.id)/1000000.0)+" MB，可随时重新下载。基础词库和学习记录保留。",
+                        style=TextStyle(color=pal.text2,fontSize=15.sp,lineHeight=23.sp),modifier=Modifier.padding(top=20.dp,bottom=24.dp))
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                        BasicText("取消",style=TextStyle(color=pal.text2,fontSize=14.sp),modifier=Modifier.clip(RoundedCornerShape(10.dp)).clickable {pendingRemoval=null}.padding(top=10.dp,bottom=10.dp,end=12.dp))
+                        Pill(pal,"删除",true) {
+                            pendingRemoval=null
+                            ResourcePacks.remove(applicationContext,pack.id) {_,message->android.widget.Toast.makeText(this@SettingsActivity,message,android.widget.Toast.LENGTH_SHORT).show();refresh++}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun ResourceAction(pal:Pal,label:String,tint:Color?=null,onClick:()->Unit) {
+        val color = tint ?: pal.text2
+        Row(
+            Modifier.height(40.dp).widthIn(min = 52.dp).clip(RoundedCornerShape(10.dp))
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            BasicText(label, style = TextStyle(color = color, fontSize = 13.sp, fontWeight = FontWeight.Medium))
+        }
+    }
+
+    @Composable
+    private fun BackupPage(pal:Pal) {
+        val options=backupOptions.value
+        var method by rememberSaveable {mutableIntStateOf(0)}
+        var contents by rememberSaveable {mutableStateOf(false)}
+        var resetConfirm by rememberSaveable {mutableStateOf(false)}
+        Segment(pal,listOf("本地备份","WebDAV 备份"),method){method=it}
+        if(method==0) {
+            Card(pal) {
+                ActionRow(pal,"保存备份文件","导出为文件，保存到你选择的位置","导出") {
+                    backupExport.launch("空叶键盘-备份-"+java.text.SimpleDateFormat("yyyyMMdd-HHmm",java.util.Locale.getDefault()).format(java.util.Date())+".zip")
+                }
+                Line(pal)
+                ActionRow(pal,"从文件恢复","选择备份，校验后确认恢复","选择文件") {backupImport.launch(arrayOf("*/*"))}
+            }
+        } else WebDavBackupCard(pal)
+        if(backupMessage.value.isNotBlank())BasicText(backupMessage.value,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
+        Card(pal) {
+            Row(Modifier.fillMaxWidth().clickable {contents=!contents}.padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    BasicText("备份内容",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
+                    BasicText(listOfNotNull("设置",if(options.learning)"自造词与选词记录" else null,if(options.statistics)"打字统计" else null,if(options.clipboard)"剪贴板" else null).joinToString("、"),style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
+                }
+                ExpandArrow(pal, contents)
+            }
+            if(contents) {
+                Line(pal)
+                BasicText("设置、自定义按键和布局始终备份；以下选择同时适用于本地和 WebDAV。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=12.dp,bottom=4.dp))
+                ToggleRow(pal,"自造词与选词记录",null,options.learning) {backupOptions.value=options.copy(learning=it)}
+                ToggleRow(pal,"打字统计",null,options.statistics) {backupOptions.value=options.copy(statistics=it)}
+                ToggleRow(pal,"剪贴板","包含文本、图片和自定义分类",options.clipboard) {backupOptions.value=options.copy(clipboard=it)}
+            }
+        }
+        BasicText("离线模型、系统权限和密钥不备份。文件可能包含个人词汇与剪贴板，请妥善保管。",style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=19.sp),modifier=Modifier.padding(horizontal=4.dp,vertical=4.dp))
+        Card(pal) {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {resetConfirm=true}.padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    BasicText("恢复默认设置",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
+                    BasicText("重置全部功能配置，保留个人数据",style=TextStyle(color=pal.text2,fontSize=12.5.sp,lineHeight=19.sp),modifier=Modifier.padding(top=4.dp))
+                }
+                HeaderAction(pal,R.drawable.ic_refresh,"重置全部设置") {resetConfirm=true}
+            }
+        }
+        if(resetConfirm) androidx.compose.ui.window.Dialog(onDismissRequest={resetConfirm=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
+            Column(Modifier.widthIn(max=420.dp).fillMaxWidth(.9f).clip(RoundedCornerShape(14.dp)).background(pal.card).padding(24.dp)) {
+                BasicText("恢复默认设置？",style=TextStyle(color=pal.ink,fontSize=19.sp,fontWeight=FontWeight.Bold))
+                BasicText("外观、布局、输入、手势等全部功能配置将恢复默认，已保存的联网接口和 WebDAV 连接配置会清除。",style=TextStyle(color=pal.ink,fontSize=15.sp,lineHeight=23.sp),modifier=Modifier.padding(top=18.dp))
+                BasicText("词库、学习记录、剪贴板、打字统计和已下载资源保留。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=21.sp),modifier=Modifier.padding(top=12.dp,bottom=22.dp))
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                    BasicText("取消",style=TextStyle(color=pal.text2,fontSize=14.sp),modifier=Modifier.clip(RoundedCornerShape(10.dp)).clickable {resetConfirm=false}.padding(top=10.dp,bottom=10.dp,end=12.dp))
+                    Pill(pal,"恢复默认",true) {
+                        resetConfirm=false
+                        runCatching {InstallDefaults.reset(this@SettingsActivity)}.onSuccess {
+                            backupOptions.value=KeyboardBackup.Options()
+                            android.widget.Toast.makeText(this@SettingsActivity,"已恢复默认设置",android.widget.Toast.LENGTH_SHORT).show()
+                            recreate()
+                        }.onFailure {backupMessage.value=it.message ?: "恢复默认设置失败，请重试"}
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun WebDavBackupCard(pal:Pal) {
+        val initial=remember {runCatching {WebDavBackup.read(this)}.getOrDefault(WebDavBackup.Config())}
+        var address by remember {mutableStateOf(initial.address)}
+        var user by remember {mutableStateOf(initial.user)}
+        var password by remember {mutableStateOf("")}
+        var storedPassword by remember {mutableStateOf(initial.password)}
+        var configOpen by remember {mutableStateOf(false)}
+        var entries by remember {mutableStateOf<List<WebDavBackup.Entry>?>(null)}
+        val focus=LocalFocusManager.current
+        val keyboardController=LocalSoftwareKeyboardController.current
+        fun config()=WebDavBackup.Config(address.trim(),user,if(password.isEmpty())storedPassword else password)
+        fun save():WebDavBackup.Config {
+            val value=config();WebDavBackup.save(this@SettingsActivity,value);storedPassword=value.password;password=""
+            focus.clearFocus();keyboardController?.hide();return value
+        }
+        fun remote(message:String,work:(WebDavBackup.Config)->String) {
+            val value=runCatching {save()}.getOrElse {backupMessage.value=it.message ?: "请检查服务器配置";return}
+            backupBusy.value=true;backupMessage.value=message
+            Thread {
+                val result=runCatching {work(value)}
+                runOnUiThread {backupBusy.value=false;backupMessage.value=result.getOrElse {it.message ?: "WebDAV 操作失败，请检查连接后重试"}}
+            }.start()
+        }
+        Card(pal) {
+            Row(Modifier.fillMaxWidth().clickable {configOpen=!configOpen}.padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    BasicText("服务器配置",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
+                    BasicText(if(initial.address.isBlank()&&address.isBlank())"未配置" else "手动上传与恢复",style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=4.dp))
+                }
+                ExpandArrow(pal, configOpen)
+            }
+            if(configOpen) {
+            BasicText("填写已有的 WebDAV 文件夹地址。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
+            BasicText("文件夹地址（HTTPS）",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=8.dp))
+            Field(pal,address){address=it}
+            BasicText("账号",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=6.dp))
+            Field(pal,user){user=it}
+            BasicText(if(storedPassword.isEmpty())"密码 / 应用专用密码" else "密码已保存，留空沿用",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=6.dp))
+            BasicTextField(value=password,onValueChange={password=it},singleLine=true,visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                textStyle=TextStyle(color=pal.ink,fontSize=17.sp),cursorBrush=SolidColor(pal.accent),modifier=Modifier.fillMaxWidth().semantics {contentDescription="WebDAV 密码"}.padding(vertical=6.dp).clip(RoundedCornerShape(12.dp)).background(pal.tile).padding(horizontal=12.dp,vertical=10.dp))
+            Row(Modifier.fillMaxWidth().padding(vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                Pill(pal,"保存配置",false) {runCatching {save()}.onSuccess {backupMessage.value="WebDAV 配置已保存";configOpen=false}.onFailure {backupMessage.value=it.message ?: "保存失败"}}
+                Pill(pal,"测试连接",false) {remote("正在测试 WebDAV 连接…") {"连接成功，找到 ${WebDavBackup.list(it).size} 份键盘备份"}}
+            }
+            }
+            Line(pal,top=6.dp)
+            ActionRow(pal,"上传备份","按上方选定内容创建新文件，保留已有备份","上传") {val options=backupOptions.value;remote("正在上传 WebDAV 备份…") {WebDavBackup.upload(applicationContext,it,options);"WebDAV 备份已上传"}}
+            Line(pal)
+            ActionRow(pal,"从 WebDAV 恢复","选择云端备份，校验后确认恢复","选择备份") {
+                val value=runCatching {save()}.getOrElse {backupMessage.value=it.message ?: "请检查配置";return@ActionRow}
+                backupBusy.value=true;backupMessage.value="正在读取 WebDAV 备份列表…"
+                Thread {val result=runCatching {WebDavBackup.list(value)};runOnUiThread {backupBusy.value=false;result.onSuccess {entries=it;backupMessage.value=if(it.isEmpty())"此文件夹还没有空叶键盘备份" else "请选择要恢复的备份"}.onFailure {backupMessage.value=it.message ?: "无法读取备份列表"}}}.start()
+            }
+            BasicText("清除服务器配置",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.clip(RoundedCornerShape(8.dp)).clickable {WebDavBackup.clear(this@SettingsActivity);address="";user="";password="";storedPassword="";backupMessage.value="已清除本机配置，云端备份保留"}.padding(vertical=12.dp))
+        }
+        entries?.let {files->
+            androidx.compose.ui.window.Dialog(onDismissRequest={entries=null},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
+                Column(Modifier.widthIn(max=440.dp).fillMaxWidth(.9f).heightIn(max=520.dp).clip(RoundedCornerShape(14.dp)).background(pal.card).padding(20.dp)) {
+                    BasicText("选择 WebDAV 备份",style=TextStyle(color=pal.ink,fontSize=19.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(bottom=12.dp))
+                    if(files.isEmpty())BasicText("还没有备份，请先上传。",style=TextStyle(color=pal.text2,fontSize=14.sp),modifier=Modifier.padding(vertical=16.dp))
+                    Column(Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState())) {
+                        files.forEach {file->
+                            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                                entries=null;backupBusy.value=true;backupMessage.value="正在下载并校验备份…";val value=config()
+                                Thread {val result=runCatching {WebDavBackup.download(applicationContext,value,file)};runOnUiThread {backupBusy.value=false;result.onSuccess {confirmBackupRestore(it)}.onFailure {backupMessage.value=it.message ?: "下载失败，原数据保留"}}}.start()
+                            }.padding(vertical=12.dp,horizontal=4.dp)) {
+                                BasicText(file.name,style=TextStyle(color=pal.ink,fontSize=14.sp,lineHeight=21.sp))
+                                BasicText(String.format("%.1f MB",file.bytes/1000000.0),style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=4.dp))
+                            }
+                        }
+                    }
+                    BasicText("取消",style=TextStyle(color=pal.text2,fontSize=14.sp),modifier=Modifier.align(Alignment.End).clickable {entries=null}.padding(top=16.dp,bottom=8.dp))
+                }
             }
         }
     }
@@ -349,7 +856,7 @@ class SettingsActivity : ComponentActivity() {
         val waveProg = remember { Animatable(0f) }
         val exitAlpha = remember { Animatable(1f) }
         // 退场：先让图标和文字淡出，再让底色淡出，避免 Logo 和后面的设置页叠在一起
-        val contentAlpha = remember { Animatable(0f) }
+        val contentAlpha = remember { Animatable(1f) }
         var dismiss by remember { mutableStateOf(false) }
         val version = remember { UpdateChecker.currentVersion(this) }
 
@@ -478,149 +985,907 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun MainPage(pal: Pal, tick: Int, go: (Page) -> Unit) {
-        val p = Prefs.of(this)
-        val enabled = remember(tick) { isEnabled() }
-        val current = remember(tick) { isCurrent() }
-        val mic = remember(tick) { micGranted() }
-        val today = remember(tick) { Prefs.typedToday(this) }
-        val theme = remember(tick) { Prefs.theme(this) }
-        val layout = remember(tick) { Prefs.layout(this) }
-        val scale = remember(tick) { Prefs.heightScale(this) }
-        val floating = remember(tick) { p.getBoolean(Prefs.FLOAT, false) }
-        var query by remember { mutableStateOf("") }
-        val upd = updateState.value
-        val version = remember { UpdateChecker.currentVersion(this) }
-        // 一天最多自动查一次，有新版本才提示
-        LaunchedEffect(Unit) {
-            if (System.currentTimeMillis() - p.getLong(Prefs.UPDATE_CHECKED, 0L) > 24 * 3600_000L) checkUpdate(silent = true)
+    private fun MainPage(pal:Pal,tick:Int,expandedGroup:Page?,onExpand:(Page?)->Unit,go:(Page)->Unit) {
+        val version=remember {UpdateChecker.currentVersion(this)}
+        Row(Modifier.fillMaxWidth().padding(vertical=18.dp),verticalAlignment=Alignment.CenterVertically) {
+            Image(painterResource(R.drawable.ic_launcher_fg),null,Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFF141416)))
+            Column(Modifier.weight(1f).padding(start=12.dp)) {
+                BasicText("空叶键盘",style=TextStyle(color=pal.ink,fontSize=27.sp,fontWeight=FontWeight.Bold))
+                BasicText("v$version",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=4.dp))
+            }
+            Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable {go(Page.STATS)}.padding(6.dp),horizontalAlignment=Alignment.End) {
+                BasicText("${TypingStats.of(this@SettingsActivity).today()}",style=TextStyle(color=pal.accent,fontSize=25.sp,fontWeight=FontWeight.Medium))
+                BasicText("今日输入",style=TextStyle(color=pal.text2,fontSize=12.sp))
+            }
+        }
+        var query by rememberSaveable {mutableStateOf("")}
+        val searchTextStyle=TextStyle(color=pal.ink,fontSize=16.sp,lineHeight=24.sp,
+            platformStyle=androidx.compose.ui.text.PlatformTextStyle(includeFontPadding=false),
+            lineHeightStyle=androidx.compose.ui.text.style.LineHeightStyle(
+                alignment=androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                trim=androidx.compose.ui.text.style.LineHeightStyle.Trim.None))
+        val searchLineHeight=with(LocalDensity.current){24.sp.toDp()}
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(pal.card).padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
+            Image(painterResource(R.drawable.ic_search),null,Modifier.size(20.dp),colorFilter=ColorFilter.tint(pal.text2))
+            Spacer(Modifier.width(10.dp))
+            BasicTextField(value=query,onValueChange={query=it},singleLine=true,
+                textStyle=searchTextStyle,cursorBrush=SolidColor(pal.accent),modifier=Modifier.weight(1f).height(searchLineHeight),
+                decorationBox={inner->Box(Modifier.fillMaxSize(),contentAlignment=Alignment.CenterStart) {
+                    if(query.isEmpty())BasicText("搜索设置与功能",style=searchTextStyle.copy(color=pal.text2),maxLines=1)
+                    inner()
+                }})
+            Box(Modifier.padding(start = 8.dp).width(32.dp).height(24.dp), contentAlignment = Alignment.Center) {
+                if (query.isNotEmpty()) {
+                    Box(Modifier.fillMaxSize().clip(CircleShape)
+                        .clickable(role = androidx.compose.ui.semantics.Role.Button) { query = "" }
+                        .semantics { contentDescription = "清空搜索" }, contentAlignment = Alignment.Center) {
+                        Image(painterResource(R.drawable.ic_close), null, Modifier.size(18.dp), colorFilter = ColorFilter.tint(pal.text2))
+                    }
+                }
+            }
+        }
+        val searchQuery=query.trim()
+        val groups=listOf(
+            Page.READY to "输入法状态与功能权限",Page.INPUT to "拼音、英文、手势、滑行、语音与手写",
+            Page.APPEARANCE to "主题、布局、尺寸与候选显示",Page.TOOLS to "密码、剪贴板、翻译、统计与备份",Page.ABOUT to "版本检查与更新记录")
+        if(searchQuery.isEmpty()) {
+            groups.forEach {group->
+                val icon=when(group.first) {
+                    Page.READY->R.drawable.ic_settings
+                    Page.INPUT->R.drawable.ic_kbd
+                    Page.APPEARANCE->R.drawable.ic_palette
+                    Page.TOOLS->R.drawable.ic_grid
+                    else->R.drawable.ic_leaf
+                }
+                Row(Modifier.fillMaxWidth().clickable {onExpand(group.first)}.padding(start=4.dp,top=22.dp,bottom=8.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Image(painterResource(icon),null,Modifier.size(23.dp),colorFilter=ColorFilter.tint(pal.ink))
+                    BasicText(group.first.title,style=TextStyle(color=pal.ink,fontSize=18.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(start=10.dp))
+                }
+                androidx.compose.runtime.CompositionLocalProvider(LocalPlainMenu provides true) {
+                    if(group.first==Page.READY) {
+                        Card(pal) {StatusActionRow(pal,"启用输入法","在系统设置中启用空叶键盘",R.drawable.ic_settings,isEnabled()) {startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))}}
+                        Card(pal) {StatusActionRow(pal,"选择输入法","将空叶键盘设为当前输入法",R.drawable.ic_kbd,isCurrent()) {getSystemService(InputMethodManager::class.java).showInputMethodPicker()}}
+                        Card(pal) {ActionRow(pal,"功能权限","麦克风、短信与通知","›") {go(Page.PERMISSIONS)}}
+                        Card(pal) {DestinationRow(pal,Page.RESOURCES,tick,go)}
+                    } else menuChildren(group.first).forEach {target->Card(pal) {DestinationRow(pal,target,tick,go)}}
+                }
+            }
+
+        } else {
+            val catalog = remember { SettingsSearchCatalog(this@SettingsActivity, ::pageSummary) }
+            val rows = remember(searchQuery, catalog) { catalog.find(searchQuery) }
+            if (rows.isNotEmpty()) Card(pal) { rows.forEachIndexed { n, (target, matches) ->
+                if (n > 0) Line(pal)
+                val matched = if (target.title.contains(searchQuery, ignoreCase = true)) target.title else matches.first()
+                val parent=when(target) {
+                    Page.PINYIN,Page.ENGLISH,Page.NUMPAD,Page.ASSOC,Page.KEYS,Page.GLIDE,Page.VOICE,Page.HAND->"输入设置"
+                    Page.CORRECTION,Page.FUZZY->"输入设置 → 中文与拼音"
+                    Page.FLICKS,Page.DELETE->"输入设置 → 按键与手势"
+                    Page.POLISH->"输入设置 → 语音输入"
+                    Page.LOOK,Page.LAYOUT,Page.HEIGHT,Page.ARRANGE,Page.DISPLAY->"外观与布局"
+                    Page.VAULT,Page.CLIP,Page.SMS,Page.TRANSLATION,Page.STATS,Page.BACKUP->"工具"
+                    Page.RESOURCES->"使用准备"
+                    Page.HISTORY,Page.UPDATE->"关于"
+                    Page.READY,Page.INPUT,Page.APPEARANCE,Page.TOOLS,Page.ABOUT->Page.MAIN.title
+                    else->"使用准备"
+                }
+                val path = if (matched == target.title) parent else "$parent → ${target.title}"
+                SearchResultRow(pal, matched, path, searchQuery) { openMenuPage(target, go) }
+            }}
+            if(rows.isEmpty())BasicText("没有找到相关设置",style=TextStyle(color=pal.text2,fontSize=14.sp))
         }
 
-        Card(pal) {
-            Row(Modifier.fillMaxWidth().padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
-                Box(Modifier.size(52.dp).clip(RoundedCornerShape(17.dp)).background(Color(0xFF181920)),contentAlignment=Alignment.Center) {
-                    Image(painterResource(R.drawable.ic_launcher_fg),null,Modifier.size(47.dp))
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    BasicText("空叶键盘",style=TextStyle(color=pal.ink,fontSize=25.sp,fontWeight=FontWeight.Bold))
-                    BasicText("让输入顺手一点 · v$version",style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=3.dp))
-                }
-                Column(horizontalAlignment=Alignment.End) {
-                    BasicText("$today",style=TextStyle(color=pal.accent,fontSize=24.sp,fontWeight=FontWeight.Medium))
-                    BasicText("今日输入",style=TextStyle(color=pal.text2,fontSize=11.sp))
-                }
-            }
-            Row(Modifier.fillMaxWidth().padding(bottom=12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(pal.accent.copy(alpha=.09f)).clickable {go(Page.TRY)}.padding(14.dp)) {
-                    Column {BasicText("试一试",style=TextStyle(color=pal.accent,fontSize=16.sp,fontWeight=FontWeight.Medium));BasicText("立即体验当前键盘",style=TextStyle(color=pal.text2,fontSize=11.5.sp),modifier=Modifier.padding(top=4.dp))}
-                }
-                Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(pal.tile).clickable {go(Page.FLICKS)}.padding(14.dp)) {
-                    Column {BasicText("自定义按键",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium));BasicText("上下滑符号与编辑功能",style=TextStyle(color=pal.text2,fontSize=11.5.sp),modifier=Modifier.padding(top=4.dp))}
-                }
-            }
-        }
+    }
 
-        // 前置步骤始终保留，显示完成状态，方便首次启用或重新选择。
-        val notifications=remember(tick) {notificationsGranted()}
-        Card(pal) {
-            BasicText("使用前准备",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=8.dp))
-            ActionRow(pal,"1. 启用输入法",if(enabled) "已启用空叶键盘" else "先在系统设置中启用空叶键盘",if(enabled) "已启用" else "去启用") {
-                startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-            }
-            Line(pal)
-            ActionRow(pal,"2. 选择输入法",if(current) "当前使用空叶键盘" else "选择空叶键盘作为当前输入法",if(current) "已选择" else "去选择") {
-                if(enabled) getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
-                else startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-            }
-            Line(pal)
-            ActionRow(pal,"3. 通知",if(notifications) "通知权限已开启" else "允许通知后完成此步骤",if(notifications) "已开启" else "去授权") {requestNotifications()}
-        }
-        val todo = listOfNotNull(
-            if (!mic) "授权麦克风（语音输入用）" to { micRequest.launch(Manifest.permission.RECORD_AUDIO) } else null,
-        )
-        if (todo.isNotEmpty()) Card(pal) {
-            todo.forEachIndexed { i, (label, action) ->
-                if (i > 0) Line(pal)
-                Row(Modifier.fillMaxWidth().clickable { action() }.padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(7.dp).clip(CircleShape).background(pal.bad))
-                    Spacer(Modifier.width(10.dp))
-                    BasicText(label, style = TextStyle(color = pal.ink, fontSize = 15.sp), modifier = Modifier.weight(1f))
-                    Image(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(18.dp), colorFilter = ColorFilter.tint(pal.text2))
-                }
-            }
-        }
+    private fun openMenuPage(target:Page,go:(Page)->Unit) {
+        if(target==Page.UPDATE){openUpdateDialog();return}
+        go(target)
+        if(target==Page.HISTORY)loadHistory()
+    }
 
-        // 搜索，右边是“试一试”
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(
-                Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(pal.card)
-                    .padding(horizontal = 14.dp, vertical = 11.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Image(painterResource(R.drawable.ic_search), null, Modifier.size(18.dp), colorFilter = ColorFilter.tint(pal.text2))
-                Spacer(Modifier.width(10.dp))
-                BasicTextField(
-                    value = query, onValueChange = { query = it }, singleLine = true,
-                    textStyle = TextStyle(color = pal.ink, fontSize = 15.sp), cursorBrush = SolidColor(pal.accent),
-                    modifier = Modifier.weight(1f),
-                    decorationBox = { inner -> Box { if (query.isEmpty()) BasicText("搜索", style = TextStyle(color = pal.text2, fontSize = 15.sp)); inner() } },
-                )
-            }
-            Box(
-                Modifier.size(44.dp).clip(RoundedCornerShape(18.dp)).background(pal.card).clickable { go(Page.TRY) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Image(painterResource(R.drawable.ic_kbd), "试一试", Modifier.size(20.dp), colorFilter = ColorFilter.tint(pal.ink))
-            }
-        }
-
-        val cInput = Color(0xFF2563EB)
-        val cLook = Color(0xFFF0492C)
-        val cTool = Color(0xFF0D9488)
-        val cAbout = Color(0xFF7C3AED)
-        val items = listOf(
-            Item("输入", R.drawable.ic_kbd, cInput, "键盘布局", "26 键 14 键 九键", mapOf("26" to "26 键", "14" to "14 键", "9" to "九键")[layout], null) { go(Page.LAYOUT) },
-            Item("输入", R.drawable.ic_adjust, cInput, "按键与手势", "震动 按键音 上下滑 空格长按 删除", null, null) { go(Page.KEYS) },
-            Item("输入", R.drawable.ic_translate, cInput, "拼音", "简拼 模糊音 纠错 联想 记忆 词库", null, null) { go(Page.PINYIN) },
-            Item("输入", R.drawable.ic_symbol, cInput, "数字键盘", "符号列 快捷键", null, null) { go(Page.NUMPAD) },
-            Item("外观", R.drawable.ic_palette, cLook, "主题", "配色 深色 液态玻璃 透明度 皮肤", theme.name, null) { go(Page.LOOK) },
-            Item("外观", R.drawable.ic_float, cLook, "键盘高度", "高度 大小", "${(scale * 100).roundToInt()}%", null) { go(Page.HEIGHT) },
-            Item("外观", R.drawable.ic_float, cLook, "悬浮键盘", "悬浮 拖动", if (floating) "开" else "关", null) { p.edit().putBoolean(Prefs.FLOAT, !floating).apply() },
-            Item("工具与隐私", R.drawable.ic_key, cTool, "密码填充", "空叶文档 密码空间 登录 生成 保存", if(p.getBoolean(Prefs.VAULT,false)) "已开启" else "关闭", null) { go(Page.VAULT) },
-            Item("工具与隐私", R.drawable.ic_toolbar, cTool, "工具栏", "工具栏 菜单 排序", null, null) { go(Page.ARRANGE) },
-            Item("工具与隐私", R.drawable.ic_clip, cTool, "剪贴板", "剪贴板 分类 置顶", null, null) { go(Page.CLIP) },
-            Item("关于与帮助", R.drawable.ic_settings, cAbout, "使用技巧", "帮助 技巧 手写 翻译", null, null) { go(Page.TIPS) },
-            Item("关于与帮助", R.drawable.ic_download, cAbout, "检查更新", "更新 版本", upd.ifEmpty { null }, if (upd.startsWith("有新版本")) pal.accent else null) {
-                go(Page.UPDATE)
-                checkUpdate(silent = false)
-            },
-            Item("关于与帮助",R.drawable.ic_refresh,cAbout,"更新历史","历史版本 完整更新内容",null,null) {go(Page.HISTORY);loadHistory()},
-            Item("关于与帮助", R.drawable.ic_globe, cAbout, "GitHub", "开源 源码 仓库", null, null) {openUrl(UpdateChecker.REPOSITORY)},
-        )
-        val shown = items.filter { query.isBlank() || it.title.contains(query) || it.sub.contains(query) || it.section.contains(query) }
-        for ((section, rows) in shown.groupBy { it.section }) {
-            BasicText(section, style = TextStyle(color = pal.text2, fontSize = 13.sp), modifier = Modifier.padding(start = 6.dp, top = 6.dp))
-            Card(pal) {
-                rows.forEachIndexed { i, it ->
-                    if (i > 0) Line(pal, start = 58.dp)
-                    NavRow(pal, it)
-                }
-            }
-        }
-        if (shown.isEmpty()) BasicText("没有找到“$query”", style = TextStyle(color = pal.text2, fontSize = 15.sp), modifier = Modifier.padding(16.dp))
+    private fun menuChildren(group:Page):List<Page> = when(group) {
+        Page.INPUT->listOf(Page.PINYIN,Page.ENGLISH,Page.NUMPAD,Page.GLIDE,Page.VOICE,Page.HAND,Page.ASSOC,Page.KEYS)
+        Page.APPEARANCE->listOf(Page.LOOK,Page.LAYOUT,Page.HEIGHT,Page.DISPLAY,Page.ARRANGE)
+        Page.TOOLS->listOf(Page.CLIP,Page.SMS,Page.VAULT,Page.TRANSLATION,Page.STATS,Page.BACKUP)
+        Page.ABOUT->listOf(Page.UPDATE,Page.HISTORY)
+        else->emptyList()
     }
 
     @Composable
-    private fun TryPage(pal: Pal) {
-        var test by remember { mutableStateOf("") }
+    private fun DestinationRow(pal:Pal,target:Page,tick:Int,go:(Page)->Unit) {
+        val p=Prefs.of(this)
+        val toggle=when(target) {
+            Page.VAULT->Triple(Prefs.VAULT,false,R.drawable.ic_key)
+            Page.SMS->Triple(Prefs.SMS_CODE,false,R.drawable.ic_copy)
+            Page.STATS->Triple(V3Prefs.STATS_ENABLED,true,R.drawable.ic_stats)
+            Page.CORRECTION->Triple(V3Prefs.CORRECTION_ENABLED,true,R.drawable.ic_edit)
+            Page.FUZZY->Triple(V3Prefs.FUZZY_ENABLED,true,R.drawable.ic_kbd)
+            Page.FLICKS->Triple(Prefs.SWIPE,true,R.drawable.ic_kbd)
+            Page.POLISH->Triple(V3Prefs.VOICE_POLISH,false,R.drawable.ic_edit)
+            else->null
+        }
+        if(target==Page.UPDATE)UpdateEntry(pal,pageSummary(target))
+        else if(target in menuChildren(Page.TOOLS) && toggle==null) {
+            val icon=when(target){Page.CLIP->R.drawable.ic_clip;Page.TRANSLATION->R.drawable.ic_translate;else->R.drawable.ic_backup}
+            NavigationSwitchRow(pal,target.title,pageSummary(target),icon,null,onOpen={openMenuPage(target,go)},onToggle={})
+        }
+        else if(toggle==null) ActionRow(pal,target.title,pageSummary(target),"›") {openMenuPage(target,go)}
+        else {
+            val allowed=target!=Page.SMS || checkSelfPermission(Manifest.permission.RECEIVE_SMS)==PackageManager.PERMISSION_GRANTED
+            val checked=remember(tick,toggle.first,allowed) {p.getBoolean(toggle.first,toggle.second)&&allowed}
+            NavigationSwitchRow(pal,target.title,pageSummary(target),toggle.third,checked,
+                onOpen={openMenuPage(target,go)},onToggle={on->
+                    if(target==Page.SMS&&on&&!allowed)smsRequest.launch(Manifest.permission.RECEIVE_SMS)
+                    else {p.edit().putBoolean(toggle.first,on).apply();this@SettingsActivity.tick.intValue++}
+                })
+        }
+    }
+
+    @Composable
+    private fun NavigationSwitchRow(pal:Pal,title:String,sub:String,icon:Int,on:Boolean?,onOpen:()->Unit,onToggle:(Boolean)->Unit) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onOpen),verticalAlignment=Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).padding(vertical=13.dp),verticalAlignment=Alignment.CenterVertically) {
+                if(!LocalPlainMenu.current) {
+                    Image(painterResource(icon),null,Modifier.size(26.dp),colorFilter=ColorFilter.tint(pal.text2))
+                    Spacer(Modifier.width(12.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=if(LocalPlainMenu.current)FontWeight.Bold else FontWeight.Medium))
+                    BasicText(sub,style=TextStyle(color=pal.text2,fontSize=12.5.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
+                }
+            }
+            if(on!=null) Box(Modifier.size(52.dp).semantics {contentDescription="$title 开关"}
+                .toggleable(value=on,role=androidx.compose.ui.semantics.Role.Switch,onValueChange=onToggle),contentAlignment=Alignment.Center) {
+                Box(Modifier.size(44.dp,27.dp).clip(RoundedCornerShape(50)).background(if(on)pal.accent else pal.track),contentAlignment=if(on)Alignment.CenterEnd else Alignment.CenterStart) {
+                    Box(Modifier.padding(3.dp).size(21.dp).clip(CircleShape).background(Color.White))
+                }
+            }
+            Image(painterResource(R.drawable.ic_chevron_right),null,Modifier.padding(start=8.dp).size(19.dp),colorFilter=ColorFilter.tint(pal.text2))
+        }
+    }
+
+    @Composable
+    private fun StatusActionRow(pal:Pal,title:String,sub:String,icon:Int,complete:Boolean,tag:String?=null,onClick:()->Unit) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(vertical=15.dp),verticalAlignment=Alignment.CenterVertically) {
+            if(!LocalPlainMenu.current)Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(pal.tile),contentAlignment=Alignment.Center) {
+                Image(painterResource(icon),null,Modifier.size(23.dp),colorFilter=ColorFilter.tint(pal.text2))
+            }
+            Column(Modifier.weight(1f).padding(start=if(LocalPlainMenu.current)0.dp else 12.dp,end=12.dp)) {
+                Row(verticalAlignment=Alignment.CenterVertically) {
+                    BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=if(LocalPlainMenu.current)FontWeight.Bold else FontWeight.Medium))
+                    if(tag!=null) {
+                        Spacer(Modifier.width(6.dp))
+                        BasicText(tag,style=TextStyle(color=pal.text2,fontSize=10.sp),modifier=Modifier.background(pal.tile,RoundedCornerShape(4.dp)).padding(horizontal=5.dp,vertical=2.dp))
+                    }
+                }
+                BasicText(sub,style=TextStyle(color=pal.text2,fontSize=12.5.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
+            }
+            BasicText(if(complete)"已设置" else "未设置",style=TextStyle(color=if(complete)pal.ok else pal.bad,fontSize=13.sp,fontWeight=FontWeight.Medium))
+            if(LocalPlainMenu.current)Image(painterResource(R.drawable.ic_chevron_right),null,Modifier.padding(start=10.dp).size(19.dp),colorFilter=ColorFilter.tint(pal.text2))
+        }
+    }
+
+    @Composable
+    private fun PreparationRows(pal:Pal,go:(Page)->Unit) {
+        StatusActionRow(pal,"启用输入法","在系统设置中启用空叶键盘",R.drawable.ic_settings,isEnabled()) {startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))}
+        Line(pal)
+        StatusActionRow(pal,"选择输入法","将空叶键盘设为当前输入法",R.drawable.ic_kbd,isCurrent()) {getSystemService(InputMethodManager::class.java).showInputMethodPicker()}
+        Line(pal);ActionRow(pal,"功能权限","麦克风、短信与通知","›") {go(Page.PERMISSIONS)}
+        Line(pal);DestinationRow(pal,Page.RESOURCES,tick.intValue,go)
+    }
+
+    @Composable
+    private fun HeaderAction(pal:Pal,icon:Int,label:String,onClick:()->Unit) {
+        Box(Modifier.size(44.dp).clip(CircleShape).clickable(onClick=onClick).semantics {contentDescription=label},contentAlignment=Alignment.Center) {
+            Image(painterResource(icon),null,Modifier.size(23.dp),colorFilter=ColorFilter.tint(pal.ink))
+        }
+    }
+
+    @Composable
+    private fun <T:Any> VisualChoice(pal:Pal,title:String,key:String,options:List<Pair<T,String>>,default:T,tick:Int) {
+        val p=Prefs.of(this);val selected=remember(tick,key) {p.all[key] ?: default}
+        val availability=SettingAvailability.forKey(this,key)
+        Card(pal, Modifier.noticeAttention(pal, key)) {
+            BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=12.dp,bottom=12.dp))
+            Row(Modifier.fillMaxWidth().padding(bottom=8.dp).alpha(if(availability.enabled)1f else .4f),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                options.forEach {option->
+                    val active=option.first==selected
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                        .border(if(active)2.dp else 1.dp,if(active)pal.accent else pal.line,RoundedCornerShape(14.dp))
+                        .clickable(enabled=availability.enabled) {
+                            val e=p.edit();when(val value=option.first){is Int->e.putInt(key,value);is String->e.putString(key,value)};e.apply()
+                        }.semantics {contentDescription="$title：${option.second}"},horizontalAlignment=Alignment.CenterHorizontally) {
+                        AndroidView(factory={SettingExampleView(it)},update={
+                            it.ink=pal.ink.toArgb();it.muted=pal.text2.toArgb();it.tile=pal.tile.toArgb();it.accent=pal.accent.toArgb();it.choiceOnly=true;it.exampleActive=active
+                            it.submit(key,title,option.first,option.first,"","")
+                        },modifier=Modifier.fillMaxWidth().padding(5.dp).height(90.dp))
+                        BasicText("${if(active)"●" else "○"} ${option.second}",style=TextStyle(color=if(active)pal.accent else pal.text2,fontSize=12.sp,fontWeight=if(active)FontWeight.Bold else FontWeight.Normal),modifier=Modifier.padding(bottom=10.dp))
+                    }
+                }
+            }
+            SettingNotice(pal,key)
+        }
+    }
+
+    private fun pageSummary(page:Page):String = when(page) {
+        Page.PINYIN->"简拼、纠错、中英混输与模糊音"
+        Page.ENGLISH->"单词纠错、大小写与自动空格"
+        Page.ASSOC->"后续推荐与表情符号"
+        Page.KEYS->"震动、按键音与长按操作"
+        Page.GLIDE->"中英文滑行、轨迹与回删"
+        Page.VOICE->"识别语言、声音处理与听写方式"
+        Page.HAND->"手写识别与读音显示"
+        Page.LOOK->"皮肤、日夜模式与液态玻璃"
+        Page.LAYOUT->"布局、单手模式与分体键盘"
+        Page.HEIGHT->"高度、宽度、底部留白与分体间距"
+        Page.NUMPAD->"符号列与快捷按键"
+        Page.ARRANGE->"选择功能并调整顺序"
+        Page.DISPLAY->"拼音位置、读音、翻译与纠错标记"
+        Page.VAULT->"密码空间、填充与账号推荐"
+        Page.CLIP->"历史上限、保留时间与分类"
+        Page.SMS->"自动复制新短信中的验证码"
+        Page.TRANSLATION->"选择翻译目标语言"
+        Page.STATS->"查看与清除输入统计"
+        Page.RESOURCES->"下载、继续或删除离线资源"
+        Page.BACKUP->"导出或恢复设置、词库与个人数据"
+        Page.POLISH->"润色方式、模型与联网配置"
+        Page.FLICKS->"自定义上滑、下滑符号和编辑功能"
+        Page.CORRECTION->"邻键、顺序、多输与漏输纠错"
+        Page.FUZZY->"声母、韵母的近似读音匹配"
+        Page.UPDATE->"查看版本、下载进度和安装状态"
+        Page.HISTORY->"历史更新内容、搜索与分页"
+        else->""
+    }
+
+    @Composable
+    private fun StatsHeading(pal:Pal,text:String) {BasicText(text,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=12.dp,bottom=2.dp))}
+    @Composable
+    private fun StatsRow(pal:Pal,name:String,value:String) {
+        Row(Modifier.fillMaxWidth().padding(vertical=8.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+            BasicText(name,style=TextStyle(color=pal.ink,fontSize=16.sp),modifier=Modifier.weight(1f))
+            BasicText(value,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Bold))
+        }
+    }
+    @Composable
+    private fun StatisticsPage(pal:Pal,tick:Int) {
+        var revision by remember {mutableIntStateOf(0)}
+        val stats=remember(tick,revision){TypingStats.of(this).snapshot()}
+        var year by rememberSaveable {mutableStateOf(false)}
+        var selectedDay by remember(year) {mutableStateOf<String?>(null)}
+        var selectedHour by remember {mutableStateOf<Int?>(null)}
+        var sharing by remember {mutableStateOf(false)}
+        var shareState by remember {mutableStateOf("")}
+        var resetHint by remember {mutableStateOf("")}
+        val daily=remember(stats,year) {stats.days(year)}
+        fun number(n:Int?)=n?.toString() ?: "—"
+        fun code(n:Double?)=n?.let {String.format(java.util.Locale.getDefault(),"%.1f",it)} ?: "—"
+        fun rate(n:Int?)=n?.let {"$it%"} ?: "—"
+        StatsHeading(pal,"今天")
         Card(pal) {
-            BasicTextField(
-                value = test, onValueChange = { test = it },
-                textStyle = TextStyle(color = pal.ink, fontSize = 17.sp), cursorBrush = SolidColor(pal.accent),
-                modifier = Modifier.fillMaxWidth().height(160.dp).padding(6.dp),
-                decorationBox = { inner -> Box { if (test.isEmpty()) BasicText("在这里试打，比如 nihao、zg、kongye", style = TextStyle(color = pal.text2, fontSize = 17.sp)); inner() } },
-            )
+            Row(Modifier.fillMaxWidth().padding(top=12.dp),verticalAlignment=Alignment.CenterVertically) {
+                Row(Modifier.weight(1f),verticalAlignment=Alignment.Bottom) {
+                    BasicText(statsNumber(stats.today),style=TextStyle(color=pal.ink,fontSize=if(stats.today>99999)34.sp else 44.sp,fontWeight=FontWeight.Bold))
+                    BasicText(" 字",style=TextStyle(color=pal.ink,fontSize=17.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(bottom=8.dp))
+                }
+                BasicText("✏ ${stats.level.first}",style=TextStyle(color=pal.ink,fontSize=13.sp),modifier=Modifier.background(pal.tile,RoundedCornerShape(20.dp)).padding(horizontal=12.dp,vertical=8.dp))
+            }
+            BasicText(stats.level.second?.let {"距「${it.first}」还差 ${statsNumber(it.second)} 字"} ?: "已解锁最高称号，继续记录每次输入",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(bottom=14.dp))
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)) {
+                for((value,label) in listOf(number(stats.speed) to "速度 字/分",stats.peakSpeed.takeIf {it>0}?.toString().orEmpty().ifEmpty {"—"} to "最快 字/分",stats.streak.toString() to "连续天数",statsNumber(stats.total) to "累计字数")) {
+                    Column(Modifier.weight(1f).background(pal.tile,RoundedCornerShape(12.dp)).padding(vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+                        BasicText(value,style=TextStyle(color=pal.ink,fontSize=17.sp,fontWeight=FontWeight.Bold),maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        BasicText(label,style=TextStyle(color=pal.text2,fontSize=10.sp),modifier=Modifier.padding(top=4.dp))
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+        StatsHeading(pal,"每日字数")
+        Card(pal) {
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.padding(vertical=12.dp)) {
+                Pill(pal,"近30天",!year){year=false};Pill(pal,"全年",year){year=true}
+            }
+            if(year)AndroidView(factory={StatsYearView(it)},update={view->
+                view.days=daily;view.ink=pal.ink.toArgb();view.base=pal.line.toArgb();view.accent=pal.accent.toArgb()
+                view.selected=selectedDay;view.onPick={selectedDay=it};view.contentDescription="近一年每日字数热力图，按周排列，点击方格查看日期与字数";view.invalidate()
+            },modifier=Modifier.fillMaxWidth().height(66.dp))
+            else AndroidView(factory={StatsBarsView(it)},update={view->
+                view.values=daily.map {it.second}.toLongArray();view.ink=pal.ink.toArgb();view.base=pal.line.toArgb();view.accent=pal.accent.toArgb()
+                view.selected=daily.indexOfFirst {it.first==selectedDay};view.onPick={index->selectedDay=daily[index].first};view.invalidate()
+                view.contentDescription="每日字数，点击柱形查看日期与字数"
+            },modifier=Modifier.fillMaxWidth().height(155.dp))
+            Row(Modifier.fillMaxWidth().padding(top=8.dp),horizontalArrangement=Arrangement.SpaceBetween) {
+                BasicText(if(year)"一年前" else daily.first().first.substring(5),style=TextStyle(color=pal.text2,fontSize=12.sp))
+                BasicText(if(year)"本周" else "今天",style=TextStyle(color=pal.text2,fontSize=12.sp))
+            }
+            BasicText(if(year)"近一年活跃 "+daily.count {it.second>0}+" 天" else selectedDay?.let {it+" · "+statsNumber(stats.daily[it] ?: 0)+" 字"} ?: "单日最高 "+statsNumber(daily.maxOf {it.second})+" 字",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(vertical=12.dp))
+            if(year&&selectedDay!=null)BasicText(selectedDay+" · "+statsNumber(stats.daily[selectedDay] ?: 0)+" 字",style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(bottom=8.dp))
+        }
+        StatsHeading(pal,"时段分布")
+        Card(pal) {
+            Spacer(Modifier.height(16.dp))
+            AndroidView(factory={StatsBarsView(it)},update={view->view.values=stats.hourly;view.ink=pal.ink.toArgb();view.base=pal.line.toArgb();view.accent=pal.accent.toArgb();view.selected=selectedHour ?: -1;view.onPick={selectedHour=it};view.contentDescription="累计时段分布，点击查看小时字数";view.invalidate()},modifier=Modifier.fillMaxWidth().height(100.dp))
+            Row(Modifier.fillMaxWidth().padding(top=8.dp),horizontalArrangement=Arrangement.SpaceBetween) {for(label in listOf("0点","6","12","18","23点"))BasicText(label,style=TextStyle(color=pal.text2,fontSize=12.sp))}
+            val hour=selectedHour ?: stats.hourly.indices.maxByOrNull {stats.hourly[it]} ?: 0
+            BasicText(if(stats.hourly.all {it==0L}) "暂无时段记录" else if(selectedHour!=null)"${hour}:00—${hour+1}:00 · ${statsNumber(stats.hourly[hour])} 字" else "累计高峰 ${hour}:00—${hour+1}:00",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(vertical=12.dp))
+        }
+        StatsHeading(pal,"效率")
+        Card(pal) {
+            StatsRow(pal,"平均码长",code(stats.codeLength));StatsRow(pal,"首选率",rate(stats.firstRate))
+            StatsRow(pal,"联想上屏","${statsNumber(stats.association)} 字");StatsRow(pal,"粘贴","${statsNumber(stats.pasted)} 字")
+            val groups=linkedMapOf("全拼" to (Color(0xFF8056C8) to 0L),"英文" to (Color(0xFFFFA21A) to 0L),"手写" to (Color(0xFFEC407A) to 0L))
+            for(m in stats.methods){val name=when {m.id.startsWith("zh")->"全拼";m.id.startsWith("en")->"英文";m.id.startsWith("hand")->"手写";m.id.startsWith("glide")->"滑行";m.id=="voice"->"语音";else->"旧版"};val color=groups[name]?.first ?: when(name){"滑行"->Color(0xFF159A85);"语音"->Color(0xFF3F81E8);else->pal.text2};if(m.chars>0 || name in groups)groups[name]=color to ((groups[name]?.second ?: 0)+m.chars)}
+            val total=groups.values.sumOf {it.second}
+            Row(Modifier.fillMaxWidth().padding(top=12.dp).height(10.dp).clip(RoundedCornerShape(8.dp)).background(pal.tile)) {if(total>0)for((_,pair) in groups)if(pair.second>0)Box(Modifier.weight(pair.second.toFloat()).height(10.dp).background(pair.first))}
+            for(row in groups.entries.toList().chunked(3))Row(Modifier.fillMaxWidth().padding(top=10.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                for((name,pair) in row)Row(verticalAlignment=Alignment.CenterVertically) {Box(Modifier.size(8.dp).background(pair.first,RoundedCornerShape(2.dp)));Spacer(Modifier.width(4.dp));BasicText("$name ${if(total>0)(pair.second*100.0/total).roundToInt() else 0}%",style=TextStyle(color=pal.ink,fontSize=12.sp))}
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        StatsHeading(pal,"各输入方式速度")
+        Card(pal) {
+            val peak=stats.methods.maxOfOrNull {it.chars}?.coerceAtLeast(1) ?: 1
+            for((index,m) in stats.methods.withIndex()) {
+                if(index>0)Spacer(Modifier.height(10.dp))
+                StatsRow(pal,m.title,m.speed?.let {"$it 字/分"} ?: "—")
+                val parts=buildList {m.codeLength?.let {add("码长 ${code(it)}")};m.firstRate?.let {add("首选 $it%")};add("使用 ${m.days} 天");add("${statsNumber(m.chars)} 字")}
+                BasicText(parts.joinToString(" · "),style=TextStyle(color=pal.text2,fontSize=12.sp))
+                Box(Modifier.fillMaxWidth().padding(top=6.dp).height(4.dp).background(pal.line,RoundedCornerShape(3.dp))) {if(m.chars>0)Box(Modifier.fillMaxWidth((m.chars.toFloat()/peak).coerceIn(.005f,1f)).height(4.dp).background(pal.ink,RoundedCornerShape(3.dp)))}
+            }
+            BasicText("速度按连续输入时间计算，语音和粘贴不计速度。",style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=16.dp))
+            Row(Modifier.fillMaxWidth().padding(vertical=12.dp),horizontalArrangement=Arrangement.End) {
+                Pill(pal,"分享文字",false) {startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,StatsReport.text(stats,year)),"分享打字统计"))}
+                Spacer(Modifier.width(10.dp))
+                Pill(pal,if(sharing)"生成中…" else "分享图片",false) {
+                    if(!sharing){sharing=true;shareState="";Thread {
+                        val result=runCatching {StatsReport.image(this@SettingsActivity,stats,year)}
+                        runOnUiThread {sharing=false;result.onSuccess {file->
+                            val uri=androidx.core.content.FileProvider.getUriForFile(this@SettingsActivity,"com.kongye.keyboard.files",file)
+                            val intent=Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM,uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            intent.clipData=android.content.ClipData.newRawUri("打字统计",uri)
+                            if(!isFinishing && !isDestroyed)startActivity(Intent.createChooser(intent,"分享统计图片"))
+                        }.onFailure {shareState="图片生成失败，请重试"}}
+                    }.start()}
+                }
+            }
+            if(shareState.isNotEmpty())BasicText(shareState,style=TextStyle(color=pal.bad,fontSize=12.sp))
+        }
+        StatsHeading(pal,"纠错")
+        Card(pal) {
+            StatsRow(pal,"自动纠错","${statsNumber(stats.automatic)} 次")
+            StatsRow(pal,"错键 · 漏键 · 多键 · 颠倒",stats.errors.joinToString(" · "))
+            StatsRow(pal,"删除键占比",rate(stats.deleteRate))
+            AndroidView(factory={StatsHeatView(it)},update={it.values=stats.heat;it.ink=pal.ink.toArgb();it.base=pal.tile.toArgb();it.contentDescription="字母误触热图，颜色越深表示纠错中出现越多";it.invalidate()},modifier=Modifier.fillMaxWidth().height(120.dp).padding(top=8.dp))
+            BasicText("常见误触："+stats.pairs.take(3).joinToString("  "){it.first}.ifEmpty {"暂无"},style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(vertical=12.dp))
+        }
+        StatsHeading(pal,"累计")
+        Card(pal) {StatsRow(pal,"按键次数",statsNumber(stats.keys));StatsRow(pal,"输入时长",StatsReport.duration(stats.activeMs));StatsRow(pal,"折合800字作文","${statsNumber(stats.total/800)} 篇")}
+        BasicText("记录起始 ${stats.since}。旧版未保存的历史指标从新版开始累计；仅保存计数，不保存输入内容。",style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=18.sp))
+        Card(pal) {ActionRow(pal,"清空统计",resetHint.ifEmpty {"删除本机统计记录"},"清空") {if(confirmed("stats-reset")){TypingStats.of(this).clear();Prefs.of(this).edit().putInt(Prefs.COUNT_TODAY,0).apply();revision++;resetHint="已清空"}else resetHint="再点一次确认清空"}}
+        SettingsToggle(pal,"记录打字统计",V3Prefs.STATS_ENABLED,true,tick,"关闭后停止记录，已有数据保留",showExample=false)
+    }
+
+    @Composable
+    private fun PolishConnection(pal:Pal) {
+        val p=Prefs.of(this)
+        var address by remember {mutableStateOf(p.getString(VoicePolish.ENDPOINT,"").orEmpty())}
+        var model by remember {mutableStateOf(p.getString(VoicePolish.MODEL,"").orEmpty())}
+        var secret by remember {mutableStateOf("")}
+        var message by remember {mutableStateOf(if(PolishSecret.exists(this)) "已保存密钥，留空则保留" else "尚未保存密钥")}
+        var sample by remember {mutableStateOf("明天开会这个事情我觉得可以再讨论一下。")}
+        var preview by remember {mutableStateOf("")}
+        var active by remember {mutableStateOf<VoicePolish.Job?>(null)}
+        androidx.compose.runtime.DisposableEffect(Unit) {onDispose {active?.cancel()}}
+        StatsHeading(pal,"接口配置")
+        Card(pal) {
+            Tip(pal,"联网润色接口","兼容 Chat Completions 协议。仅在选择联网润色时，将待润色文字发到你保存的接口；失败保留原文。")
+            BasicText("接口地址（HTTPS，例如 https://example.com/v1）",style=TextStyle(color=pal.text2,fontSize=13.sp))
+            Field(pal,address){address=it}
+            BasicText("模型名称",style=TextStyle(color=pal.text2,fontSize=13.sp));Field(pal,model){model=it}
+            BasicText("API 密钥（可选）",style=TextStyle(color=pal.text2,fontSize=13.sp))
+            BasicTextField(secret,{secret=it},singleLine=true,visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation(),keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Password),
+                textStyle=TextStyle(color=pal.ink,fontSize=16.sp),cursorBrush=SolidColor(pal.accent),
+                modifier=Modifier.fillMaxWidth().background(pal.tile,RoundedCornerShape(12.dp)).padding(12.dp))
+            BasicText(message,style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(vertical=8.dp))
+            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                Pill(pal,"保存配置",true) {
+                    runCatching {
+                        VoicePolish.endpoint(address);require(model.isNotBlank()) {"请填写模型名称"}
+                        if(secret.isNotBlank())PolishSecret.save(this@SettingsActivity,secret.trim())
+                        p.edit().putString(VoicePolish.ENDPOINT,address.trim()).putString(VoicePolish.MODEL,model.trim()).apply()
+                        secret=""
+                    }.onSuccess {message="配置已保存"}.onFailure {message=it.message ?: "保存失败"}
+                }
+                Pill(pal,"清除密钥",false) {PolishSecret.save(this@SettingsActivity,"");secret="";message="密钥已清除"}
+            }
+        }
+        StatsHeading(pal,"连接测试")
+        Card(pal) {
+            Tip(pal,"测试润色","使用下面的示例测试已保存的配置，不读取聊天或剪贴板内容。")
+            Field(pal,sample){sample=it}
+            ActionRow(pal,if(active==null)"测试已保存的接口" else "取消测试",null,if(active==null)"测试" else "取消") {
+                if(active!=null){active?.cancel();active=null;preview="已取消，原文未修改"}
+                else {preview="正在连接…";active=VoicePolish.request(this@SettingsActivity,sample,{preview=it}) {result->active=null;preview=result.getOrElse {it.message ?: "接口测试失败"}}}
+            }
+            if(preview.isNotBlank())BasicText(preview,style=TextStyle(color=pal.ink,fontSize=15.sp),modifier=Modifier.padding(vertical=12.dp))
+        }
+    }
+
+    @Composable
+    private fun SettingsToggle(pal:Pal,title:String,key:String,default:Boolean,tick:Int,sub:String?=null,showExample:Boolean=true,onNavigate:((Page)->Unit)?=null) {
+        val p=Prefs.of(this)
+        val on=remember(tick,key) {p.getBoolean(key,default)}
+        val availability=SettingAvailability.forKey(this,key)
+        Card(pal, Modifier.noticeAttention(pal, key)) {
+            ToggleRow(pal,title,sub,on&&availability.enabled,enabled=availability.enabled) {p.edit().putBoolean(key,it).apply()}
+            SettingNotice(pal,key,onNavigate)
+            if(showExample&&availability.enabled)SettingComparison(pal,title,key,p.getBoolean(key,default)) {if(it==true) "开启" else "关闭"}
+        }
+    }
+
+    @Composable
+    private fun SettingNotice(pal:Pal,key:String,onNavigate:((Page)->Unit)?=null) {
+        val state=remember(tick.intValue,key) {SettingAvailability.forKey(this,key)}
+        val message=state.blocked ?: state.warning ?: return
+        data class Link(val word:String,val page:Page,val target:String)
+        val links=listOf(
+            Link("拼音纠错",Page.PINYIN,V3Prefs.CORRECTION_ENABLED),
+            Link("键盘布局",Page.LAYOUT,Prefs.LAYOUT),Link("26 键",Page.LAYOUT,Prefs.LAYOUT),Link("14 键",Page.LAYOUT,Prefs.LAYOUT),
+            Link("启用上下滑",Page.FLICKS,Prefs.SWIPE),Link("上下滑",Page.FLICKS,Prefs.SWIPE),
+            Link("中文滑行",Page.GLIDE,V3Prefs.GLIDE_ZH),Link("英文滑行",Page.GLIDE,V3Prefs.GLIDE_EN),
+            Link("滑行",Page.GLIDE,if(V3Prefs.glide(this,false)&&!V3Prefs.glide(this,true))V3Prefs.GLIDE_EN else V3Prefs.GLIDE_ZH),
+            Link("联想词",Page.ASSOC,Prefs.ASSOC),Link("按键震动",Page.KEYS,V3Prefs.VIBRATION),
+            Link("按键音",Page.KEYS,Prefs.SOUND),Link("横竖屏分别记住布局",Page.LAYOUT,V3Prefs.ORIENTATION_LAYOUT),
+            Link("语句润色",Page.VOICE,V3Prefs.VOICE_POLISH),
+        ).sortedByDescending {it.word.length}
+        val text=AnnotatedString.Builder(message).apply {
+            var at=0
+            while(at<message.length) {
+                val link=links.firstOrNull {message.startsWith(it.word,at)}
+                if(link==null){at++;continue}
+                addLink(androidx.compose.ui.text.LinkAnnotation.Clickable(link.target,androidx.compose.ui.text.TextLinkStyles(SpanStyle(color=pal.bad,textDecoration=androidx.compose.ui.text.style.TextDecoration.Underline))) {
+                    noticeFocus.value=NoticeFocus(link.page, link.target, ++noticeSerial)
+                    (noticeNavigation ?: onNavigate)?.invoke(link.page)
+                },at,at+link.word.length)
+                at+=link.word.length
+            }
+        }.toAnnotatedString()
+        BasicText(text,style=TextStyle(color=pal.bad,fontSize=12.sp,lineHeight=18.sp),modifier=Modifier.padding(top=2.dp,bottom=10.dp))
+    }
+
+    @Composable
+    private fun UnavailableSetting(pal:Pal,title:String,value:String,key:String) {
+        Card(pal) {
+            Column(Modifier.fillMaxWidth().padding(vertical=12.dp).alpha(.45f).clickable(enabled=false){}) {
+                BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp))
+                BasicText(value,style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=4.dp))
+            }
+            SettingNotice(pal,key)
+        }
+    }
+
+    @Composable
+    private fun <T:Any> SettingsChoice(pal:Pal,title:String,key:String,options:List<Pair<T,String>>,default:T,tick:Int,showExample:Boolean=true,inCard:Boolean=true,inlineDropdown:Boolean=false,onChanged:()->Unit={}) {
+        val p=Prefs.of(this)
+        val selected=remember(tick,key) {p.all[key] ?: default}
+        var showOptions by rememberSaveable(key) {mutableStateOf(false)}
+        val availability=SettingAvailability.forKey(this,key)
+        LaunchedEffect(availability.enabled) {if(!availability.enabled)showOptions=false}
+        if(!availability.enabled){UnavailableSetting(pal,title,options.firstOrNull {it.first==selected}?.second ?: options.first().second,key);return}
+        fun choose(option:Pair<T,String>) {
+            val edit=p.edit()
+            when(val value=option.first){is Int->edit.putInt(key,value);is String->edit.putString(key,value)}
+            edit.apply();showOptions=false;onChanged()
+        }
+        ChoiceContainer(pal,inCard) {
+            if(options.size<=3) {
+                BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=12.dp,bottom=10.dp))
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(pal.tile).padding(3.dp).height(IntrinsicSize.Min).selectableGroup()) {
+                    options.forEach {option->
+                        val active=option.first==selected
+                        Box(Modifier.weight(1f).fillMaxHeight().heightIn(min=44.dp).clip(RoundedCornerShape(9.dp)).background(if(active)pal.card else Color.Transparent)
+                            .selectable(active,role=androidx.compose.ui.semantics.Role.RadioButton,onClick={choose(option)}).padding(horizontal=6.dp,vertical=8.dp),contentAlignment=Alignment.Center) {
+                            BasicText(option.second,style=TextStyle(color=if(active)pal.ink else pal.text2,fontSize=13.sp,lineHeight=17.sp,fontWeight=if(active)FontWeight.Medium else FontWeight.Normal,textAlign=TextAlign.Center),maxLines=2)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+            } else {
+                Box(Modifier.fillMaxWidth()) {
+                    val interactions = remember { MutableInteractionSource() }
+                    val pressed by interactions.collectIsPressedAsState()
+                    val expanded = inlineDropdown && showOptions
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .background(pal.card)
+                            .clickable(interactionSource = interactions, indication = if (inlineDropdown) null else androidx.compose.foundation.LocalIndication.current) {
+                                showOptions = if (inlineDropdown) !showOptions else true
+                            }.semantics { if (inlineDropdown) stateDescription = if (expanded) "已展开" else "已收起" }
+                            .padding(start = 6.dp, end = 4.dp, top = 9.dp, bottom = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.weight(1f))
+                        BasicText(options.firstOrNull {it.first==selected}?.second ?: options.first().second,style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.widthIn(max=160.dp).padding(start=12.dp,end=8.dp),maxLines=1)
+                        ExpandArrow(pal, expanded, pressed)
+                    }
+                    if(inlineDropdown&&showOptions) {
+                        val inset=with(LocalDensity.current){8.dp.roundToPx()}
+                        val position=remember(inset) {object:androidx.compose.ui.window.PopupPositionProvider {
+                            override fun calculatePosition(anchorBounds:androidx.compose.ui.unit.IntRect,windowSize:androidx.compose.ui.unit.IntSize,layoutDirection:androidx.compose.ui.unit.LayoutDirection,popupContentSize:androidx.compose.ui.unit.IntSize):IntOffset {
+                                val x=(anchorBounds.right-popupContentSize.width).coerceIn(inset,maxOf(inset,windowSize.width-popupContentSize.width-inset))
+                                val below=anchorBounds.bottom
+                                val y=if(below+popupContentSize.height<=windowSize.height-inset)below else anchorBounds.top-popupContentSize.height
+                                return IntOffset(x,y.coerceIn(inset,maxOf(inset,windowSize.height-popupContentSize.height-inset)))
+                            }
+                        }}
+                        androidx.compose.ui.window.Popup(popupPositionProvider=position,onDismissRequest={showOptions=false},properties=androidx.compose.ui.window.PopupProperties(focusable=true)) {
+                            Column(Modifier.width(220.dp).heightIn(max=320.dp).shadow(10.dp,RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)).background(pal.card)
+                                .semantics {contentDescription="$title 下拉菜单"}.verticalScroll(rememberScrollState()).padding(4.dp).selectableGroup()) {
+                                options.forEach {option->
+                                    val active=option.first==selected
+                                    Row(Modifier.fillMaxWidth().heightIn(min=44.dp).clip(RoundedCornerShape(8.dp))
+                                        .selectable(active,role=androidx.compose.ui.semantics.Role.RadioButton,onClick={choose(option)}).padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
+                                        BasicText(option.second,style=TextStyle(color=if(active)pal.accent else pal.ink,fontSize=14.sp),modifier=Modifier.weight(1f))
+                                        if(active)Image(painterResource(R.drawable.ic_done),null,Modifier.size(18.dp),colorFilter=ColorFilter.tint(pal.accent)) else Spacer(Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            SettingNotice(pal,key)
+            if(showExample)SettingComparison(pal,title,key,selected,if(options.size==2 || key in listOf(V3Prefs.LETTER_LONG,Prefs.SPACE_LONG,V3Prefs.READINGS,V3Prefs.GLOSS))options.map {it.first as Any to it.second} else emptyList()) {v->options.firstOrNull {it.first==v}?.second ?: v.toString()}
+        }
+        if(showOptions&&!inlineDropdown)androidx.compose.ui.window.Dialog(onDismissRequest={showOptions=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
+            Column(Modifier.widthIn(max=420.dp).fillMaxWidth(.9f).heightIn(max=520.dp).clip(RoundedCornerShape(14.dp)).background(pal.card).padding(20.dp)) {
+                BasicText(title,style=TextStyle(color=pal.ink,fontSize=19.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(bottom=12.dp))
+                Column(Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).selectableGroup(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    options.forEach {option->
+                        val active=option.first==selected
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if(active)pal.accent.copy(alpha=.06f) else Color.Transparent)
+                            .selectable(active,role=androidx.compose.ui.semantics.Role.RadioButton,onClick={choose(option)}).padding(horizontal=12.dp,vertical=13.dp),verticalAlignment=Alignment.CenterVertically) {
+                            BasicText(option.second,style=TextStyle(color=pal.ink,fontSize=15.sp,fontWeight=if(active)FontWeight.Medium else FontWeight.Normal),modifier=Modifier.weight(1f))
+                            Box(Modifier.size(20.dp).border(1.5.dp,if(active)pal.accent else pal.track,CircleShape),contentAlignment=Alignment.Center) {
+                                if(active)Box(Modifier.size(10.dp).background(pal.accent,CircleShape))
+                            }
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(top=10.dp),horizontalArrangement=Arrangement.End) {
+                    BasicText("取消",style=TextStyle(color=pal.text2,fontSize=14.sp),modifier=Modifier.clip(RoundedCornerShape(8.dp)).clickable {showOptions=false}.padding(horizontal=12.dp,vertical=10.dp))
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun ChoiceContainer(pal:Pal,inCard:Boolean,content:@Composable ()->Unit) {
+        if(inCard)Card(pal, content = content) else content()
+    }
+
+    @Composable
+    private fun VibrationMode(pal:Pal,tick:Int) {
+        val p=Prefs.of(this);val selected=remember(tick) {p.getInt(V3Prefs.VIBRATION,0)}
+        Card(pal, Modifier.noticeAttention(pal, V3Prefs.VIBRATION)) {
+            BasicText("按键震动",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=12.dp))
+            BasicText("跟随系统：强弱跟随手机的触感设置；想自行调整强弱，选择「启用」。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=6.dp,bottom=12.dp))
+            Row(Modifier.fillMaxWidth().selectableGroup(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                listOf("跟随系统","启用","关闭").forEachIndexed {mode,label->
+                    val active=mode==selected
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).selectable(active,role=androidx.compose.ui.semantics.Role.RadioButton) {
+                            val edit = p.edit().putInt(V3Prefs.VIBRATION, mode)
+                            val previous = p.getInt(V3Prefs.VIBRATION, 0)
+                            if (mode == 2 && previous != 2) edit.putInt(V3Prefs.VIBRATION_RESUME_MODE, previous)
+                            edit.apply()
+                        },horizontalAlignment=Alignment.CenterHorizontally) {
+                        AndroidView(factory={SettingExampleView(it).apply {choiceOnly=true}},update={
+                            it.ink=pal.ink.toArgb();it.muted=pal.text2.toArgb();it.tile=pal.tile.toArgb();it.accent=pal.accent.toArgb()
+                            it.submit(V3Prefs.VIBRATION,"按键震动",mode,mode,label,label)
+                        },modifier=Modifier.fillMaxWidth().height(80.dp).clip(RoundedCornerShape(12.dp)).background(pal.tile).border(if(active)2.dp else 1.dp,if(active)pal.ink else pal.line,RoundedCornerShape(12.dp)))
+                        BasicText(label,style=TextStyle(color=if(active)pal.ink else pal.text2,fontSize=13.sp,fontWeight=if(active)FontWeight.Bold else FontWeight.Normal),modifier=Modifier.padding(top=8.dp,bottom=12.dp))
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun VibrationStrength(pal: Pal, tick: Int) {
+        val prefs = Prefs.of(this)
+        val labels = listOf("无", "跟随系统", "弱", "较弱", "适中", "较强", "强")
+        val mode = remember(tick) { prefs.getInt(V3Prefs.VIBRATION, 0) }
+        val manualLevel = remember(tick) {
+            val fallback = when (prefs.getInt(Prefs.VIB_STRENGTH, 2)) { 1 -> 2; 3 -> 6; else -> 4 }
+            prefs.getInt(V3Prefs.VIBRATION_LEVEL, fallback).coerceIn(2, 6)
+        }
+        var value by remember(mode, manualLevel) {
+            mutableFloatStateOf(when (mode) { 0 -> 1f; 2 -> 0f; else -> manualLevel.toFloat() })
+        }
+        Card(pal) {
+            ToggleRow(pal, "震动强度", null, mode != 2) { enabled ->
+                val edit = prefs.edit()
+                if (!enabled) edit.putInt(V3Prefs.VIBRATION_RESUME_MODE, mode)
+                edit.putInt(V3Prefs.VIBRATION, if (enabled) prefs.getInt(V3Prefs.VIBRATION_RESUME_MODE, 0) else 2).apply()
+            }
+            Slider(pal, value, 0f, 6f, { value = it }, labels = labels) { committed ->
+                val step = committed.roundToInt().coerceIn(0, 6)
+                val nextMode = when (step) { 0 -> 2; 1 -> 0; else -> 1 }
+                val edit = prefs.edit().putInt(V3Prefs.VIBRATION, nextMode)
+                if (step == 0 && mode != 2) edit.putInt(V3Prefs.VIBRATION_RESUME_MODE, mode)
+                if (step >= 2) {
+                    edit.putInt(V3Prefs.VIBRATION_LEVEL, step)
+                    edit.putInt(Prefs.VIB_STRENGTH, when { step <= 3 -> 1; step <= 5 -> 2; else -> 3 })
+                }
+                edit.apply()
+            }
+        }
+    }
+
+    @Composable
+    private fun KeySound(pal: Pal, tick: Int) {
+        val prefs = Prefs.of(this)
+        val enabled = remember(tick) { prefs.getBoolean(Prefs.SOUND, false) }
+        var volume by remember(tick) { mutableFloatStateOf(prefs.getInt(V3Prefs.SOUND_VOLUME, 50).toFloat()) }
+        val audio = remember { getSystemService(AudioManager::class.java) }
+        var ringerMode by remember(audio) { mutableIntStateOf(audio?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL) }
+        DisposableEffect(audio) {
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) {
+                    ringerMode = audio?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL
+                }
+            }
+            ContextCompat.registerReceiver(this@SettingsActivity, receiver,
+                IntentFilter(AudioManager.RINGER_MODE_CHANGED_ACTION), ContextCompat.RECEIVER_EXPORTED)
+            onDispose { unregisterReceiver(receiver) }
+        }
+        val silentMode = when (ringerMode) {
+            AudioManager.RINGER_MODE_SILENT -> "静音"
+            AudioManager.RINGER_MODE_VIBRATE -> "仅振动"
+            else -> null
+        }
+        Card(pal, Modifier.noticeAttention(pal, Prefs.SOUND)) {
+            ToggleRow(pal, "按键音", null, enabled) { prefs.edit().putBoolean(Prefs.SOUND, it).apply() }
+            Slider(pal, volume, 0f, 100f, { volume = it }, format = { "${it.roundToInt()}%" }, enabled = enabled && silentMode == null) {
+                prefs.edit().putInt(V3Prefs.SOUND_VOLUME, it.roundToInt()).apply()
+            }
+            if (silentMode == null) {
+                SettingNotice(pal, V3Prefs.SOUND_VOLUME)
+            } else {
+                BasicText("手机处于${silentMode}模式。切换到响铃模式后才能听到按键音。",
+                    modifier = Modifier.padding(bottom = 12.dp),
+                    style = TextStyle(color = pal.bad, fontSize = 12.sp, lineHeight = 18.sp))
+            }
+        }
+    }
+
+    @Composable
+    private fun V3Page(pal:Pal,page:Page,tick:Int,go:(Page)->Unit) {
+        val p=Prefs.of(this)
+        val pages=if(page in listOf(Page.INPUT,Page.APPEARANCE,Page.TOOLS))menuChildren(page) else emptyList()
+        if(pages.isNotEmpty()) Card(pal) {pages.forEachIndexed {index,destination ->
+            if(index>0)Line(pal)
+            DestinationRow(pal,destination,tick,go)
+        }}
+        when(page) {
+            Page.RESOURCES -> ResourcesPage(pal)
+            Page.BACKUP -> BackupPage(pal)
+            Page.READY -> Card(pal) {PreparationRows(pal,go)}
+            Page.PERMISSIONS -> Card(pal) {
+                fun appPermissions() {startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName")))}
+                StatusActionRow(pal,"麦克风","语音输入使用",R.drawable.ic_mic,micGranted()) {if(micGranted())appPermissions() else micRequest.launch(Manifest.permission.RECORD_AUDIO)}
+                Line(pal)
+                val sms=checkSelfPermission(Manifest.permission.RECEIVE_SMS)==PackageManager.PERMISSION_GRANTED
+                StatusActionRow(pal,"接收短信","复制新短信中的验证码",R.drawable.ic_copy,sms) {if(sms)appPermissions() else smsRequest.launch(Manifest.permission.RECEIVE_SMS)}
+                Line(pal);StatusActionRow(pal,"通知","语音输入进行时显示状态和停止按钮",R.drawable.ic_settings,notificationsGranted(),tag="可选") {requestNotifications()}
+            }
+            Page.PINYIN -> {
+                StatsHeading(pal,"拼音输入")
+                SettingsToggle(pal,"简拼",Prefs.ABBR,true,tick,"例如 zg → 中国")
+                SettingsToggle(pal,"中英混输",V3Prefs.MIXED,true,tick,"中文与英文连续输入，无需切换键盘")
+                Card(pal, Modifier.noticeAttention(pal, V3Prefs.CORRECTION_ENABLED)) { DestinationRow(pal, Page.CORRECTION, tick, go) }
+                Card(pal) {DestinationRow(pal,Page.FUZZY,tick,go)}
+
+                StatsHeading(pal,"选词与符号")
+                SettingsToggle(pal,"标点确认首选",V3Prefs.PUNCT_CONFIRM,true,tick,"按标点时，先选中候选栏的第一个词")
+                SettingsToggle(pal,"成对符号",V3Prefs.PAIRS,true,tick,"输入左括号时补齐右括号，光标停在中间")
+
+                StatsHeading(pal,"词库与学习")
+                Card(pal) {ActionRow(pal,"整句增强词库",if(ResourcePacks.ready(this@SettingsActivity,"grammar")) "已下载；基础词库已可用" else "基础拼音已可用，可下载整句增强词库","管理") {go(Page.RESOURCES)}}
+                SettingsToggle(pal,"记住选词",Prefs.LEARN,true,tick,"将常用选择排在前面",showExample=false)
+                var forgetHint by remember {mutableStateOf("")}
+                Card(pal) {ActionRow(pal,"清除选词记录",forgetHint.ifEmpty {"清除本机学习的选词与自造词"},"清除") {
+                    if(confirmed("forget")) {
+                        forgetHint="正在清除…"
+                        Thread {
+                            val result=runCatching {Lexicon.clearUser(this@SettingsActivity);PinyinEngine.clearUser(this@SettingsActivity)}
+                            runOnUiThread {forgetHint=if(result.isSuccess) "已清除" else "清除失败，请重试"}
+                        }.start()
+                    } else forgetHint="再点一次清除确认"
+                }}
+            }
+            Page.FUZZY -> {
+                val active=Prefs.fuzzySelection(this)
+                val fuzzyOn=remember(tick){p.getBoolean(V3Prefs.FUZZY_ENABLED,true)}
+                Card(pal) {Tip(pal,"近似读音匹配",if(!fuzzyOn)"模糊音已关闭，规则已保留。可返回「中文与拼音」，在「模糊音」入口开启。" else if(active.isEmpty())"当前严格区分各组拼音；可按自己的发音习惯开启。" else active.joinToString(" · ") {it.replace("-"," ↔ ")})}
+                listOf("声母" to Prefs.FUZZY_RULES.take(6),"韵母" to Prefs.FUZZY_RULES.drop(6)).forEach {group->
+                    StatsHeading(pal,group.first)
+                    Card(pal) {group.second.forEachIndexed {n,rule->if(n>0)Line(pal)
+                        ToggleRow(pal,rule.second.replace(" = "," / "),null,rule.first in active,enabled=fuzzyOn) {on->
+                            p.edit().putString(Prefs.FUZZY,(if(on)active+rule.first else active-rule.first).joinToString(",")).apply()
+                        }
+                    }}
+                }
+            }
+            Page.CORRECTION -> {
+                SettingsToggle(pal,"邻键纠错",V3Prefs.CORRECT_NEAR,true,tick,"处理误触到相邻按键")
+                SettingsToggle(pal,"顺序纠错",V3Prefs.CORRECT_SWAP,true,tick,"处理相邻字母顺序颠倒")
+                SettingsToggle(pal,"多输纠错",V3Prefs.CORRECT_EXTRA,true,tick,"处理多输入的字母")
+                SettingsToggle(pal,"漏输纠错",V3Prefs.CORRECT_MISSING,true,tick,"处理遗漏的字母")
+            }
+            Page.ENGLISH -> {
+                StatsHeading(pal,"单词输入")
+                SettingsToggle(pal,"英文单词纠错",V3Prefs.EN_CORRECT,true,tick)
+                SettingsToggle(pal,"邮箱后缀推荐",V3Prefs.EMAIL,true,tick)
+                StatsHeading(pal,"大小写")
+                SettingsToggle(pal,"首字母自动大写",V3Prefs.CAPS,true,tick)
+                SettingsToggle(pal,"大写锁定",V3Prefs.CAPS_LOCK,false,tick,"开启后点击大写键持续大写，再点解除；关闭时只大写一个字母")
+                StatsHeading(pal,"英文自动空格")
+                SettingsToggle(pal,"选词后自动加空格",V3Prefs.EN_SPACE,true,tick)
+                SettingsToggle(pal,"英文标点后自动加空格",V3Prefs.PUNCT_SPACE,false,tick)
+                StatsHeading(pal,"混合输入空格")
+                SettingsToggle(pal,"中英文之间自动加空格",V3Prefs.SPACE_LATIN,false,tick)
+                SettingsToggle(pal,"中文与数字之间自动加空格",V3Prefs.SPACE_DIGIT,false,tick)
+            }
+            Page.ASSOC -> {
+                StatsHeading(pal,"词语联想")
+                SettingsToggle(pal,"联想词",Prefs.ASSOC,true,tick)
+                SettingsChoice(pal,"联想方式",V3Prefs.ASSOC_CONTINUOUS,listOf(0 to "单次联想",1 to "连续联想"),1,tick)
+                SettingsToggle(pal,"空格确认联想",V3Prefs.ASSOC_SPACE,false,tick)
+                StatsHeading(pal,"修改后的推荐")
+                SettingsToggle(pal,"删除后推荐同音字",V3Prefs.HOMOPHONE,false,tick)
+                StatsHeading(pal,"表情与符号推荐")
+                SettingsToggle(pal,"推荐 Emoji",V3Prefs.EMOJI,true,tick)
+                SettingsToggle(pal,"推荐颜文字",V3Prefs.KAOMOJI,true,tick)
+                SettingsToggle(pal,"推荐符号",V3Prefs.SYMBOLS,true,tick)
+            }
+            Page.KEYS -> {
+                StatsHeading(pal,"按键反馈")
+                VibrationMode(pal,tick)
+                VibrationStrength(pal,tick)
+                KeySound(pal, tick)
+
+                StatsHeading(pal,"字母键")
+                SettingsChoice(pal,"长按字母",V3Prefs.LETTER_LONG,listOf(0 to "大小写与符号",1 to "输入大写",2 to "关闭"),0,tick)
+
+                StatsHeading(pal,"空格与光标")
+                SettingsChoice(pal,"空格长按",Prefs.SPACE_LONG,listOf(0 to "移动光标",1 to "连续空格",2 to "开关语音"),0,tick)
+                SettingsToggle(pal,"底部滑动移光标",V3Prefs.BOTTOM_CURSOR,false,tick)
+
+                StatsHeading(pal,"滑动与删除")
+                Card(pal) {
+                    DestinationRow(pal,Page.FLICKS,tick,go)
+                    Line(pal)
+                    NavigationSwitchRow(pal,"删除键","滑动动作、清空范围与联想删除",R.drawable.ic_del,null,onOpen={go(Page.DELETE)},onToggle={})
+                }
+            }
+            Page.DELETE -> {
+                StatsHeading(pal,"滑动与清空")
+                val actions=listOf("none" to "不执行动作","clear" to "清空","undo" to "撤回","redo" to "重做","delete" to "删除","left" to "左移光标","right" to "右移光标")
+                Card(pal) {
+                    Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        BasicText("滑动动作", style = TextStyle(color = pal.ink, fontSize = 16.sp, fontWeight = FontWeight.Medium), modifier = Modifier.weight(1f))
+                        HeaderAction(pal, R.drawable.ic_refresh, "重置") {
+                            val edit = p.edit()
+                            listOf(V3Prefs.DEL_UP, V3Prefs.DEL_DOWN, V3Prefs.DEL_LEFT, V3Prefs.DEL_RIGHT).forEach { edit.remove(it) }
+                            edit.apply()
+                        }
+                    }
+                    SettingsChoice(pal,"上滑",V3Prefs.DEL_UP,actions,"undo",tick,showExample=false,inCard=false,inlineDropdown=true)
+                    Line(pal)
+                    SettingsChoice(pal,"下滑",V3Prefs.DEL_DOWN,actions,"clear",tick,showExample=false,inCard=false,inlineDropdown=true)
+                    Line(pal)
+                    SettingsChoice(pal,"左滑",V3Prefs.DEL_LEFT,actions,"none",tick,showExample=false,inCard=false,inlineDropdown=true)
+                    Line(pal)
+                    SettingsChoice(pal,"右滑",V3Prefs.DEL_RIGHT,actions,"none",tick,showExample=false,inCard=false,inlineDropdown=true)
+                }
+                SettingsChoice(pal,"清空范围",V3Prefs.CLEAR_SCOPE,listOf(0 to "整个输入框",1 to "仅光标前"),0,tick)
+                StatsHeading(pal,"组字期间")
+                SettingsToggle(pal,"退格还原原始拼音",V3Prefs.COMPOSE_RESTORE,true,tick,"已选词未上屏时，开启后退格还原拼音；关闭后从末尾逐字母删除")
+                SettingsToggle(pal,"长按清空整段拼音",V3Prefs.COMPOSE_HOLD_CLEAR,true,tick,"长按删除键清空当前整段拼音；关闭时连续退格")
+                StatsHeading(pal,"联想期间")
+                SettingsToggle(pal,"联想时直接删除",V3Prefs.DELETE_DIRECT,true,tick,"关闭后，第一次退格或清空只收起联想词")
+            }
+            Page.GLIDE -> {
+                StatsHeading(pal,"启用语言")
+                SettingsToggle(pal,"中文滑行",V3Prefs.GLIDE_ZH,p.getBoolean(Prefs.GLIDE,false),tick,onNavigate=go)
+                SettingsToggle(pal,"英文滑行",V3Prefs.GLIDE_EN,p.getBoolean(Prefs.GLIDE,false),tick,onNavigate=go)
+                StatsHeading(pal,"滑行反馈")
+                SettingsToggle(pal,"显示滑行轨迹",V3Prefs.GLIDE_TRACE,true,tick)
+                SettingsToggle(pal,"实时显示候选",V3Prefs.GLIDE_LIVE,true,tick)
+                StatsHeading(pal,"中文回删")
+                SettingsToggle(pal,"按字回删中文滑行",V3Prefs.GLIDE_WORD_DELETE,false,tick,"每次删除最后一个汉字对应的编码；关闭后每次删一个字母")
+            }
+            Page.VOICE -> {
+                StatsHeading(pal,"模型与语言")
+                Card(pal) {ActionRow(pal,"听写与标点模型","普通话、四川话及语音标点，下载后离线使用","管理") {go(Page.RESOURCES)}}
+                SettingsChoice(pal,"识别语言",Prefs.VOICE_LANG,listOf(0 to "普通话",1 to "四川话"),0,tick,showExample=false)
+                StatsHeading(pal,"播放与连续听写")
+                SettingsChoice(pal,"外放音处理",V3Prefs.MEDIA,listOf(0 to "不处理",1 to "暂停播放",2 to "压低音量"),0,tick,showExample=false)
+                SettingsToggle(pal,"收起后连续听写",V3Prefs.DRIVE,false,tick,"收起为听写条，发送后返回输入框自动继续聆听",showExample=false)
+                StatsHeading(pal,"转写整理")
+                SettingsToggle(pal,"自动标点",V3Prefs.VOICE_PUNCT,true,tick)
+                SettingsToggle(pal,"阿拉伯数字",V3Prefs.VOICE_NUMBERS,false,tick)
+                SettingsToggle(pal,"去除口头语",V3Prefs.VOICE_CLEAN,false,tick,"清理嗯、啊和重复表达")
+                Card(pal, Modifier.noticeAttention(pal, V3Prefs.VOICE_POLISH)) { DestinationRow(pal, Page.POLISH, tick, go) }
+            }
+            Page.POLISH -> {
+                StatsHeading(pal,"润色设置")
+                SettingsToggle(pal,"语句润色",V3Prefs.VOICE_POLISH,false,tick,"整理语序与表达；预览后确认，可恢复原文")
+                SettingsChoice(pal,"润色方式",VoicePolish.MODE,listOf(0 to "离线模型",1 to "联网接口"),0,tick,showExample=false)
+                if(p.getInt(VoicePolish.MODE,0)==0) {
+                    StatsHeading(pal,"离线模型")
+                    Card(pal) {ActionRow(pal,"离线润色模型",if(ResourcePacks.ready(this@SettingsActivity,"polish")) "已下载，处理结束释放模型内存" else "Qwen3 0.6B，约 640 MB，按需下载","管理") {go(Page.RESOURCES)}}
+                } else PolishConnection(pal)
+            }
+            Page.HAND -> {
+                SettingsToggle(pal,"显示带声调读音",V3Prefs.HAND_TONE,true,tick,"单字显示多种读音，词语按词注音")
+                Card(pal) {ActionRow(pal,"笔迹识别模型",if(ResourcePacks.ready(this@SettingsActivity,"handwriting")) "已下载，离线可用" else "下载后使用神经网络识别；未下载时使用基础备用识别","管理") {go(Page.RESOURCES)}}
+            }
+            Page.DISPLAY -> {
+                StatsHeading(pal,"输入中的拼音")
+                VisualChoice(pal,"输入拼音位置",V3Prefs.PINYIN_POSITION,listOf(0 to "键盘上方气泡",1 to "候选栏内",2 to "应用输入框内"),0,tick)
+                SettingsToggle(pal,"显示纠错标记",V3Prefs.FEEDBACK,true,tick)
+                StatsHeading(pal,"候选词辅助信息")
+                SettingsChoice(pal,"候选读音",V3Prefs.READINGS,listOf(0 to "自动",1 to "显示",2 to "隐藏"),if(p.getBoolean(Prefs.SHOW_PINYIN,false)) 1 else 2,tick)
+                SettingsChoice(pal,"候选翻译",V3Prefs.GLOSS,listOf(0 to "自动",1 to "显示",2 to "隐藏"),2,tick) {CandidateGloss.prepare(this)}
+            }
+            Page.SMS -> {
+              StatsHeading(pal,"自动复制")
+              Card(pal) {
+                val allowed=checkSelfPermission(Manifest.permission.RECEIVE_SMS)==PackageManager.PERMISSION_GRANTED
+                ToggleRow(pal,"短信验证码自动复制","仅处理新短信，10 分钟后清除，不进入剪贴板历史",allowed&&p.getBoolean(Prefs.SMS_CODE,false)) {
+                    if(it&&!allowed)smsRequest.launch(Manifest.permission.RECEIVE_SMS) else p.edit().putBoolean(Prefs.SMS_CODE,it).apply()
+                }
+                SettingComparison(pal,"短信验证码",Prefs.SMS_CODE,allowed&&p.getBoolean(Prefs.SMS_CODE,false)) {if(it==true)"开启" else "关闭"}
+            }
+              StatsHeading(pal,"权限与设置")
+              Card(pal) {
+                val allowed=checkSelfPermission(Manifest.permission.RECEIVE_SMS)==PackageManager.PERMISSION_GRANTED
+                StatusActionRow(pal,"短信权限","用于提取新短信中的验证码",R.drawable.ic_copy,allowed) {
+                    if(allowed)startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName")))
+                    else smsRequest.launch(Manifest.permission.RECEIVE_SMS)
+                }
+              }
+              StatsHeading(pal,"仍无法复制时")
+              Card(pal) {
+                BasicText("自动复制设置流程",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=12.dp,bottom=8.dp))
+                BasicText("已允许「短信权限」并开启「自动复制」后，仍无法复制时检查系统短信设置。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=21.sp),modifier=Modifier.padding(bottom=12.dp))
+                BasicText("「短信」 → 「右上角三个点」 → 「设置」 → 「智能信息服务」 → 关闭「验证码安全保护」",style=TextStyle(color=pal.ink,fontSize=14.sp,lineHeight=23.sp),modifier=Modifier.padding(bottom=12.dp))
+                AndroidView(
+                    factory = { SmsSetupGuideView(it) },
+                    update = { it.setPalette(pal.ink.toArgb(), pal.text2.toArgb(), pal.tile.toArgb(), pal.accent.toArgb(), pal.card.toArgb()) },
+                    onRelease = { it.destroy() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                BasicText("部分手机需要此设置，名称和路径可能不同。关闭保护后，已获短信权限的应用可读取验证码。",style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=19.sp),modifier=Modifier.padding(top=10.dp,bottom=6.dp))
+                ActionRow(pal,"短信应用",null,"打开设置") {
+                    val pkg=android.provider.Telephony.Sms.getDefaultSmsPackage(this@SettingsActivity)
+                    val launch=pkg?.let {packageManager.getLaunchIntentForPackage(it)}
+                    if(launch!=null)startActivity(launch) else startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                }
+              }
+            }
+            Page.TRANSLATION -> SettingsChoice(pal,"目标语言",Prefs.TRANS_TO,Translator.TARGETS,"auto",tick,showExample=false,inlineDropdown=true)
+            Page.STATS -> {
+                StatisticsPage(pal,tick)
+            }
+            Page.ABOUT -> Card(pal) {
+                Tip(pal,"空叶键盘","v${UpdateChecker.currentVersion(this)}")
+                UpdateEntry(pal,"查看版本和安装状态")
+                Line(pal);ActionRow(pal,"更新历史","搜索、分页与完整更新内容","›") {go(Page.HISTORY);loadHistory()}
+            }
+            else -> Unit
         }
     }
 
@@ -629,113 +1894,35 @@ class SettingsActivity : ComponentActivity() {
         val p = Prefs.of(this)
         val skin = remember(tick) { Prefs.skin(this) }
         val cur = remember(tick) { Prefs.layout(this) }
-        Card(pal) {
-            AndroidView(
-                factory = { ctx -> LayoutPicker(ctx, skin, cur) { p.edit().putString(Prefs.LAYOUT, it).apply() } },
-                update = { it.current = cur },
-                modifier = Modifier.fillMaxWidth().height(200.dp),
-            )
+        val separate=remember(tick){p.getBoolean(V3Prefs.ORIENTATION_LAYOUT,false)}
+        if(!separate) {
+            StatsHeading(pal,"基础布局")
+            Card(pal, Modifier.noticeAttention(pal, Prefs.LAYOUT)) {
+                AndroidView(
+                    factory = { ctx -> LayoutPicker(ctx, skin, cur) { V3Prefs.saveLayout(this,it) } },
+                    update = { it.current = cur },
+                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                )
+            }
         }
-        key(tick) { Preview(pal, tick) }
+        StatsHeading(pal,"横竖屏布局")
+        SettingsToggle(pal,"横竖屏分别记住布局",V3Prefs.ORIENTATION_LAYOUT,false,tick,"开启后分别设置竖屏和横屏；关闭时共用基础布局",showExample=false)
+        if(separate) {
+            VisualChoice(pal,"竖屏布局",Prefs.LAYOUT,listOf("26" to "26 键","14" to "14 键","9" to "九键"),"26",tick)
+            VisualChoice(pal,"横屏布局",V3Prefs.LAYOUT_LANDSCAPE,listOf("26" to "26 键","14" to "14 键","9" to "九键"),"26",tick)
+        }
+        StatsHeading(pal,"单手使用")
+        VisualChoice(pal,"单手模式",V3Prefs.ONE_HAND,listOf(0 to "关闭",1 to "靠左",2 to "靠右"),0,tick)
+        StatsHeading(pal,"大屏分体")
+        SettingsToggle(pal,"分体键盘",Prefs.SPLIT_LAYOUT,false,tick,"支持 26 键和 14 键，屏幕宽度不足时自动使用完整键盘")
+        SettingsToggle(pal,"铺满键盘空白区域",V3Prefs.FILL_GAPS,true,tick,"填充分体中缝与键盘两侧，关闭后透出应用内容")
+        StatsHeading(pal,"悬浮使用")
+        SettingsToggle(pal,"悬浮键盘",Prefs.FLOAT,false,tick,"以独立窗口显示，大小在「键盘调整」中设置")
+        SettingsToggle(pal,"悬浮分体键盘",FloatingKeyboard.SPLIT,false,tick,"仅用于悬浮键盘，支持 26 键和 14 键，宽屏下生效")
     }
 
     @Composable
     private fun key(k: Int, content: @Composable () -> Unit) = androidx.compose.runtime.key(k) { content() }
-
-    @Composable
-    private fun KeysPage(pal: Pal, tick: Int, onFlicks:()->Unit) {
-        val p = Prefs.of(this)
-        val vib = remember(tick) { p.getInt(Prefs.VIB_STRENGTH, 2) }
-        val sound = remember(tick) { p.getBoolean(Prefs.SOUND, false) }
-        val swipe = remember(tick) { p.getBoolean(Prefs.SWIPE, true) }
-        val spaceLong = remember(tick) { p.getInt(Prefs.SPACE_LONG, 0) }
-        Card(pal) {
-            Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                BasicText("按键震动", style = TextStyle(color = pal.ink, fontSize = 16.sp), modifier = Modifier.weight(1f))
-                Segment(pal, listOf("关", "弱", "中", "强"), vib) { p.edit().putInt(Prefs.VIB_STRENGTH, it).apply() }
-            }
-            Line(pal)
-            ToggleRow(pal, "按键音", null, sound) { p.edit().putBoolean(Prefs.SOUND, it).apply() }
-            Line(pal)
-            ToggleRow(pal, "上下滑输入符号", "下滑右上角，上滑左下角", swipe) { p.edit().putBoolean(Prefs.SWIPE, it).apply() }
-            Line(pal)
-            ToggleRow(pal,"滑行输入","26 键跨键滑动输入，默认关闭",p.getBoolean(Prefs.GLIDE,false)) {p.edit().putBoolean(Prefs.GLIDE,it).apply()}
-            Line(pal)
-            ActionRow(pal,"26 键上下滑","分别自定义中英文的符号或编辑功能","设置",onFlicks)
-            Line(pal)
-            Tip(pal, "删除键", "下滑清空，上滑撤销；组字时长按清空拼音")
-            Line(pal)
-            Column(Modifier.padding(vertical = 10.dp)) {
-                BasicText("空格长按", style = TextStyle(color = pal.ink, fontSize = 16.sp))
-                Spacer(Modifier.height(8.dp))
-                Segment(pal, listOf("移动光标", "连续空格", "语音"), spaceLong) { p.edit().putInt(Prefs.SPACE_LONG, it).apply() }
-                Spacer(Modifier.height(6.dp))
-                BasicText(
-                    when (spaceLong) { 1 -> "按住一直输入空格"; 2 -> "长按开关语音"; else -> "长按后滑动移动光标" },
-                    style = TextStyle(color = pal.text2, fontSize = 12.5.sp),
-                )
-            }
-            Tip(pal, "长按字母", "左右滑选大小写和符号")
-        }
-    }
-
-    @Composable
-    private fun PinyinPage(pal: Pal, tick: Int) {
-        val p = Prefs.of(this)
-        val r = remember(tick) { listOf(Prefs.ABBR, Prefs.ASSOC, Prefs.LEARN).associateWith { p.getBoolean(it, true) } }
-        var forgetHint by remember { mutableStateOf("") }
-        Card(pal) {
-            ToggleRow(pal, "候选区显示拼音", "只控制候选词旁的读音，上方拼音条始终保留", p.getBoolean(Prefs.SHOW_PINYIN, false)) { p.edit().putBoolean(Prefs.SHOW_PINYIN, it).apply() }
-            Line(pal)
-            ToggleRow(pal, "简拼", "zg → 中国", r[Prefs.ABBR]!!) { p.edit().putBoolean(Prefs.ABBR, it).apply() }
-            Line(pal)
-            ToggleRow(pal, "联想", null, r[Prefs.ASSOC]!!) { p.edit().putBoolean(Prefs.ASSOC, it).apply() }
-            Line(pal)
-            ToggleRow(pal, "记住选词", "常打的词排前面，也能用简拼打出", r[Prefs.LEARN]!!) { p.edit().putBoolean(Prefs.LEARN, it).apply() }
-            Line(pal)
-            Tip(pal, "纠错", "打错时给出正确的词，错的字母标红")
-        }
-        Card(pal) {
-            Tip(pal, "拼音引擎", "26 键：Fcitx5 · libime 原生排序纠错；其他布局：Rime，全程离线")
-            ActionRow(pal, "万象拼音 · CC BY 4.0", "作者、原始项目与许可", "查看") {
-                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/amzxyz/rime-wanxiang")))
-            }
-        }
-        BasicText("模糊音", style = TextStyle(color = pal.text2, fontSize = 15.sp), modifier = Modifier.padding(start = 4.dp))
-        Card(pal) {
-            val on = remember(tick) { Prefs.fuzzy(this@SettingsActivity) }
-            BasicText("例：开 z = zh，zi 也能出“只”", style = TextStyle(color = pal.text2, fontSize = 12.5.sp), modifier = Modifier.padding(vertical = 8.dp))
-            Prefs.FUZZY_RULES.chunked(3).forEach { row ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { (id, label) ->
-                        val sel = id in on
-                        Box(
-                            Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (sel) pal.accent else pal.track)
-                                .clickable {
-                                    val next = if (sel) on - id else on + id
-                                    p.edit().putString(Prefs.FUZZY, next.joinToString(",")).apply()
-                                }.padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { BasicText(label, style = TextStyle(color = if (sel) pal.onAccent else pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium)) }
-                    }
-                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-        }
-        Card(pal) {
-            Line(pal, top = 10.dp)
-            ActionRow(pal, "清除选词记录", forgetHint.ifEmpty { "只删学到的东西，不影响词库" }, "清除") {
-                if (confirmed("forget")) {
-                    forgetHint = "正在清除…"
-                    Thread {
-                        val result = runCatching { Lexicon.clearUser(this@SettingsActivity); PinyinEngine.clearUser(this@SettingsActivity) }
-                        runOnUiThread { forgetHint = if (result.isSuccess) "已清除" else "清除失败，请重试" }
-                    }.start()
-                } else forgetHint = "再点一次“清除”确认"
-            }
-        }
-    }
 
     @Composable
     private fun Preview(pal: Pal, tick: Int, scaleOverride: Float? = null) {
@@ -778,22 +1965,20 @@ class SettingsActivity : ComponentActivity() {
         val mode = remember(tick) { p.getInt(Prefs.MODE, 0) }
         val glass = remember(tick) { p.getBoolean(Prefs.GLASS, false) }
         var opacity by remember { mutableFloatStateOf(Prefs.opacity(this)) }
+        StatsHeading(pal,"当前效果")
         Preview(pal, tick)
+        StatsHeading(pal,"背景效果")
         Card(pal) {
-            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                BasicText("深色模式", style = TextStyle(color = pal.ink, fontSize = 16.sp), modifier = Modifier.weight(1f))
-                Segment(pal, listOf("跟随系统", "浅色", "深色"), mode) { p.edit().putInt(Prefs.MODE, it).apply() }
-            }
-            Line(pal)
             ToggleRow(pal, "液态玻璃", null, glass) { p.edit().putBoolean(Prefs.GLASS, it).apply() }
             Line(pal)
-            Column(Modifier.padding(vertical = 10.dp)) {
-                BasicText("键盘透明度 ${(opacity * 100).roundToInt()}%", style = TextStyle(color = pal.ink, fontSize = 16.sp))
-                Spacer(Modifier.height(10.dp))
-                Slider(pal, opacity, 0.3f, 1f, { opacity = it }) { p.edit().putFloat(Prefs.OPACITY, opacity).apply() }
+            BasicText("键盘透明度", style = TextStyle(color = pal.ink, fontSize = 16.sp), modifier = Modifier.padding(top = 12.dp))
+            Slider(pal, opacity, 0.3f, 1f, { opacity = it }, format = { "${(it * 100).roundToInt()}%" }) {
+                p.edit().putFloat(Prefs.OPACITY, it).apply()
             }
         }
-        BasicText("配色方案", style = TextStyle(color = pal.text2, fontSize = 15.sp), modifier = Modifier.padding(start = 4.dp))
+        StatsHeading(pal,"明暗模式")
+        VisualChoice(pal,"深色模式",Prefs.MODE,listOf(0 to "跟随系统",1 to "浅色模式",2 to "深色模式"),0,tick)
+        StatsHeading(pal,"配色方案")
         Card(pal) {
             val labelFg = pal.ink.toArgb()
             val hi = pal.accent.toArgb()
@@ -807,22 +1992,97 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun HeightPage(pal: Pal, tick: Int) {
-        val p = Prefs.of(this)
-        var scale by remember { mutableFloatStateOf(Prefs.heightScale(this)) }
-        Preview(pal, tick, scaleOverride = scale)
-        Card(pal) {
-            BasicText("键盘高度 ${(scale * 100).roundToInt()}%", style = TextStyle(color = pal.ink, fontSize = 16.sp, fontWeight = FontWeight.Medium))
-            Spacer(Modifier.height(14.dp))
-            Slider(pal, scale, 0.7f, 1.5f, { scale = it }) { p.edit().putFloat(Prefs.HEIGHT_SCALE, scale).apply() }
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill(pal, "恢复默认", false) { scale = 1f; p.edit().putFloat(Prefs.HEIGHT_SCALE, 1f).apply() }
+    private fun HeightPage(pal:Pal,tick:Int) {
+        val p=Prefs.of(this)
+        var previewMode by rememberSaveable {mutableIntStateOf(if(p.getBoolean(Prefs.FLOAT,false))2 else if(p.getBoolean(Prefs.SPLIT_LAYOUT,false))1 else 0)}
+        val floatingPreview=previewMode==2
+        val metrics=resources.displayMetrics
+        val widthRange=FloatingKeyboard.widthRange(metrics.widthPixels.toFloat(),metrics.heightPixels.toFloat())
+        var height by remember(tick,floatingPreview){mutableFloatStateOf(if(floatingPreview)FloatingKeyboard.height(this) else p.getFloat(Prefs.HEIGHT_SCALE,1f))}
+        var left by remember(tick){mutableFloatStateOf(p.getInt(Prefs.PAD_L,0).toFloat())}
+        var right by remember(tick){mutableFloatStateOf(p.getInt(Prefs.PAD_R,0).toFloat())}
+        var bottom by remember(tick){mutableFloatStateOf(p.getInt(Prefs.PAD_B,0).toFloat())}
+        var gap by remember(tick,floatingPreview){mutableFloatStateOf(p.getInt(if(floatingPreview)FloatingKeyboard.GAP else V3Prefs.SPLIT_GAP,72).toFloat())}
+        var size by remember(tick,floatingPreview){mutableFloatStateOf(p.getFloat(if(floatingPreview)FloatingKeyboard.SIZE else V3Prefs.SPLIT_SIZE,1f))}
+        var floatWidth by remember(tick){mutableFloatStateOf(FloatingKeyboard.width(this))}
+        val floatSplit=p.getBoolean(FloatingKeyboard.SPLIT,false)
+        var floatSplitPreview by rememberSaveable {mutableStateOf(floatSplit)}
+        LaunchedEffect(floatSplit){floatSplitPreview=floatSplit}
+        val splitPreview=previewMode==1||(floatingPreview&&floatSplitPreview)
+        val skin=remember(tick){Prefs.skin(this)}
+        fun resetDimensions() {
+            height=1f;gap=72f;size=1f
+            if(floatingPreview) {
+                floatWidth=FloatingKeyboard.defaultWidth(metrics.widthPixels.toFloat(),metrics.heightPixels.toFloat()).coerceIn(widthRange)
+                floatSplitPreview=floatSplit
+                p.edit().putFloat(FloatingKeyboard.HEIGHT,1f).putFloat(FloatingKeyboard.widthKey(this),floatWidth)
+                    .putInt(FloatingKeyboard.GAP,72).putFloat(FloatingKeyboard.SIZE,1f).apply()
+            } else {
+                left=0f;right=0f;bottom=0f
+                p.edit().putFloat(Prefs.HEIGHT_SCALE,1f).putInt(Prefs.PAD_L,0).putInt(Prefs.PAD_R,0).putInt(Prefs.PAD_B,0)
+                    .putInt(V3Prefs.SPLIT_GAP,72).putFloat(V3Prefs.SPLIT_SIZE,1f).apply()
             }
-            Spacer(Modifier.height(6.dp))
-            BasicText("在键盘上也能调：更多 → 键盘调节，拖动最上面的手柄。", style = TextStyle(color = pal.text2, fontSize = 12.5.sp))
+        }
+        Column(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=10.dp)) {
+                Row(Modifier.fillMaxWidth().padding(bottom=8.dp),verticalAlignment=Alignment.CenterVertically) {
+                    BasicText("实时预览",style=TextStyle(color=pal.ink,fontSize=14.sp,fontWeight=FontWeight.Medium),modifier=Modifier.weight(1f))
+                }
+                Card(pal) {
+                    Row(Modifier.fillMaxWidth().padding(vertical=6.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Row(Modifier.clip(RoundedCornerShape(10.dp)).background(pal.track).padding(3.dp)) {
+                            listOf(0 to "完整键盘",1 to "分体键盘",2 to "悬浮键盘").forEach { (mode,label)->
+                                val selected=previewMode==mode
+                                BasicText(label,style=TextStyle(color=if(selected)pal.ink else pal.text2,fontSize=12.sp,fontWeight=if(selected)FontWeight.Medium else FontWeight.Normal),
+                                    modifier=Modifier.clip(RoundedCornerShape(8.dp)).background(if(selected)pal.card else Color.Transparent).clickable {previewMode=mode;if(mode==2)floatSplitPreview=floatSplit}.padding(horizontal=8.dp,vertical=8.dp))
+                            }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        HeaderAction(pal,R.drawable.ic_refresh,"重置") {resetDimensions()}
+
+                    }
+                    AndroidView(factory={KeyboardAdjustmentPreview(it)},update={it.configure(skin,Prefs.layout(this@SettingsActivity),height,left.roundToInt(),right.roundToInt(),bottom.roundToInt(),gap,size,splitPreview,floatingPreview,floatWidth)},
+                        modifier=Modifier.fillMaxWidth().heightIn(max=minOf(380f,androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp*.42f).dp).clip(RoundedCornerShape(12.dp)))
+                }
+            }
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                @Composable fun adjust(title:String,key:String,value:Float,min:Float,max:Float,factor:Float=1f,unit:String="dp",floating:Boolean=false,inCard:Boolean=true,centerValue:Float?=null,change:(Float)->Unit) {
+                    ChoiceContainer(pal,inCard) {
+                        BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp),modifier=Modifier.padding(top=12.dp))
+                        Box(Modifier.semantics {contentDescription="$title 调整"}) {
+                            Slider(pal,value,min,max,change,format={"${(it*factor).roundToInt()}$unit"},centerValue=centerValue) {committed->
+                                val edit=p.edit()
+                                if(floating)edit.putFloat(key,committed) else edit.putInt(key,committed.roundToInt())
+                                edit.apply()
+                            }
+                        }
+                    }
+                }
+                StatsHeading(pal,if(floatingPreview)"悬浮尺寸" else "整体尺寸")
+                adjust("键盘高度",if(floatingPreview)FloatingKeyboard.HEIGHT else Prefs.HEIGHT_SCALE,height,.7f,1.5f,100f,"%",true,centerValue=1f){height=it}
+                if(floatingPreview) {
+                    adjust("悬浮宽度",FloatingKeyboard.widthKey(this@SettingsActivity),floatWidth,widthRange.start,widthRange.endInclusive,100f,"%",true){floatWidth=it}
+                } else {
+                    StatsHeading(pal,"左右收进")
+                    Card(pal) {
+                        adjust("左侧收进",Prefs.PAD_L,left,0f,120f,inCard=false){left=it}
+                        Line(pal)
+                        adjust("右侧收进",Prefs.PAD_R,right,0f,120f,inCard=false){right=it}
+                    }
+                    StatsHeading(pal,"底部留白")
+                    adjust("底部留白",Prefs.PAD_B,bottom,0f,120f){bottom=it}
+                }
+                StatsHeading(pal,"分体设置")
+                Card(pal) {
+                    adjust("分体间距",if(floatingPreview)FloatingKeyboard.GAP else V3Prefs.SPLIT_GAP,gap,24f,220f,inCard=false){gap=it;if(floatingPreview)floatSplitPreview=true else previewMode=1}
+                    Line(pal)
+                    adjust("分体按键尺寸",if(floatingPreview)FloatingKeyboard.SIZE else V3Prefs.SPLIT_SIZE,size,.7f,1f,100f,"%",true,inCard=false){size=it;if(floatingPreview)floatSplitPreview=true else previewMode=1}
+                }
+                Spacer(Modifier.height(92.dp))
+            }
         }
     }
+
 
     @Composable
     private fun ArrangePage(pal: Pal, tick: Int) {
@@ -831,7 +2091,7 @@ class SettingsActivity : ComponentActivity() {
         val menu = remember(tick) { Prefs.menu(this) }
         Card(pal) {
             AndroidView(
-                factory = { ctx -> ArrangeView(ctx, skin, tools, menu, pal.ink.toArgb(), pal.text2.toArgb()) { t, m -> Prefs.saveArrangement(ctx, t, m) } },
+                factory = { ctx -> ArrangeView(ctx, skin, tools, menu) { t, m -> Prefs.saveArrangement(ctx, t, m) } },
                 update = { it.updateArrangement(skin, tools, menu) },
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -840,77 +2100,121 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun ClipPage(pal: Pal, tick: Int) {
-        val p=Prefs.of(this)
         var hint by remember { mutableStateOf("") }
         val count = remember(tick, hint) { ClipStore.items.size }
         val pinned = remember(tick, hint) { ClipStore.items.count { it.pinned } }
         val images = remember(tick, hint) { ClipStore.items.count { it.image != null } }
+        SettingsChoice(pal,"记录上限",V3Prefs.CLIP_LIMIT,listOf(100 to "100 条",500 to "500 条",1000 to "1000 条",5000 to "5000 条"),500,tick,showExample=false,inlineDropdown=true) {ClipStore.prune()}
+        SettingsChoice(pal,"保留时间",V3Prefs.CLIP_DAYS,listOf(0 to "一直保留",1 to "1 天",7 to "7 天",30 to "30 天"),0,tick,showExample=false,inlineDropdown=true) {ClipStore.prune()}
         Card(pal) {
-            val allowed=checkSelfPermission(Manifest.permission.RECEIVE_SMS)==PackageManager.PERMISSION_GRANTED
-            ToggleRow(pal,"短信验证码自动复制","仅处理新短信，10 分钟后清除，不进入历史剪贴板",p.getBoolean(Prefs.SMS_CODE,false) && allowed) {enable ->
-                if(enable && !allowed) smsRequest.launch(Manifest.permission.RECEIVE_SMS)
-                else p.edit().putBoolean(Prefs.SMS_CODE,enable).apply()
+            BasicText("剪贴板记录", style = TextStyle(color = pal.ink, fontSize = 16.sp, fontWeight = FontWeight.Medium),
+                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("总记录" to count, "置顶" to pinned, "图片" to images).forEach { (label, total) ->
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(pal.tile).padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        BasicText(total.toString(), style = TextStyle(color = pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold))
+                        BasicText(label, style = TextStyle(color = pal.text2, fontSize = 12.sp), modifier = Modifier.padding(top = 2.dp))
+                    }
+                }
             }
+            BasicText("只保存在这台手机上。达到上限时，先移除最旧的普通记录。",
+                style = TextStyle(color = pal.text2, fontSize = 12.sp, lineHeight = 18.sp), modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
         }
         Card(pal) {
-            BasicText("共 $count 条（置顶 $pinned 条，图片 $images 张），普通历史最多 ${ClipStore.MAX} 条，满了淘汰最旧的历史；置顶和自定义分类长期保存。", style = TextStyle(color = pal.ink, fontSize = 15.sp, lineHeight = 22.sp))
-            BasicText("只保存在这台手机上", style = TextStyle(color = pal.text2, fontSize = 12.5.sp), modifier = Modifier.padding(top = 6.dp))
-            Line(pal, top = 12.dp)
-            ActionRow(pal, "清空历史（保留置顶和自定义分类）", hint.ifEmpty { null }, "清空") {
+            ActionRow(pal, "清空历史", hint.ifEmpty { "保留置顶和自定义分类" }, "清空") {
                 if (confirmed("clips")) { ClipStore.clearUnpinned(); hint = "已清空" } else hint = "再点一次“清空”确认"
             }
         }
     }
 
     @Composable
-    private fun FlicksPage(pal:Pal,tick:Int) {
+    private fun FlicksPage(pal:Pal,tick:Int,go:(Page)->Unit) {
+        StatsHeading(pal,"启用与方向")
+        Card(pal, Modifier.noticeAttention(pal, Prefs.SWIPE)) {
+            val p=Prefs.of(this)
+            val enabled=p.getBoolean(Prefs.SWIPE,true)
+            ToggleRow(pal,"启用上下滑",null,enabled) {p.edit().putBoolean(Prefs.SWIPE,it).apply()}
+            SettingNotice(pal,Prefs.SWIPE,go)
+            Line(pal)
+            ToggleRow(pal,"反转上下滑方向","仅反转手势方向，角标位置保持不变",enabled&&p.getBoolean(V3Prefs.SWIPE_REVERSE,false),enabled=enabled) {p.edit().putBoolean(V3Prefs.SWIPE_REVERSE,it).apply()}
+            SettingNotice(pal,V3Prefs.SWIPE_REVERSE)
+        }
         @Suppress("UNUSED_VARIABLE") val settingsRevision=tick
         var zh by remember {mutableStateOf(true)}
         var letter by remember {mutableStateOf('q')}
         var down by remember {mutableStateOf(true)}
         var content by remember {mutableStateOf("")}
+        var editKind by rememberSaveable {mutableIntStateOf(0)}
         var pendingCommand by remember {mutableStateOf<String?>(null)}
         var pendingSymbol by remember {mutableStateOf(false)}
         var clearHint by remember {mutableStateOf("")}
         var mappingRevision by remember {mutableIntStateOf(0)}
         val revision=mappingRevision
         val key=Layouts.letters(zh,this).flatMap {it.keys}.first {it.kind==Kind.LETTER && it.label==letter.toString()}
-        val action=if(down) key.downAction else key.upAction
+        val reverse=Prefs.of(this).getBoolean(V3Prefs.SWIPE_REVERSE,false)
+        val physicalDown=down!=reverse
+        val action=if(physicalDown) key.downAction else key.upAction
         val preview=pendingCommand?.let {KeyGestures.commands[it]}.orEmpty().ifEmpty {content}
         fun resetDraft() {content="";pendingCommand=null;pendingSymbol=false;clearHint=""}
+        StatsHeading(pal,"选择按键")
         Card(pal) {
-            Segment(pal,listOf("中文","英文"),if(zh) 0 else 1) {zh=it==0;resetDraft()}
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                Segment(pal,listOf("中文","英文"),if(zh) 0 else 1) {zh=it==0;resetDraft()}
+                Spacer(Modifier.weight(1f))
+                HeaderAction(pal,R.drawable.ic_trash,"清空${if(zh) "中文" else "英文"}上下滑") {
+                    if(confirmed("flick-clear-$zh")) {KeyGestures.clear(this@SettingsActivity,zh);mappingRevision++;resetDraft()}
+                    else clearHint="再点一次清空${if(zh) "中文" else "英文"}映射，可用重置恢复。"
+                }
+                HeaderAction(pal,R.drawable.ic_refresh,"恢复${if(zh) "中文" else "英文"}默认") {
+                    KeyGestures.reset(this@SettingsActivity,zh);mappingRevision++;resetDraft()
+                }
+            }
+            if(clearHint.isNotEmpty()) BasicText(clearHint,style=TextStyle(color=pal.accent,fontSize=12.sp,lineHeight=18.sp),modifier=Modifier.padding(top=6.dp))
             Spacer(Modifier.height(12.dp))
             AndroidView(factory={ctx ->FlickPreviewView(ctx)},
-                update={it.onPick={c->letter=c;resetDraft()};it.submit(zh,letter,down,preview,revision,pendingSymbol)},
+                update={it.onPick={c->letter=c;resetDraft()};it.submit(zh,letter,down,preview,revision,pendingSymbol,KeyGestures.icon(pendingCommand))},
                 modifier=Modifier.fillMaxWidth().height(178.dp))
             Spacer(Modifier.height(12.dp))
-            Segment(pal,listOf("下滑 · 右上角","上滑 · 左下角"),if(down) 0 else 1) {down=it==0;resetDraft()}
+            Segment(pal,if(reverse)listOf("上滑 · 右上角","下滑 · 左下角") else listOf("下滑 · 右上角","上滑 · 左下角"),if(down) 0 else 1) {down=it==0;resetDraft()}
             Spacer(Modifier.height(12.dp))
-            Tip(pal,"当前 ${letter.uppercaseChar()} ${if(down) "下滑" else "上滑"}",if(pendingSymbol && content.isEmpty()) "未设置" else preview.ifEmpty {action?.label.orEmpty().ifEmpty {"未设置"}})
-            ActionRow(pal,"自定义符号","输入后预览，保存后应用","保存") {
-                if(pendingSymbol) {KeyGestures.save(this@SettingsActivity,zh,letter,down,"text:$content");mappingRevision++;resetDraft()}
+            Tip(pal,"当前 ${letter.uppercaseChar()} ${if(physicalDown) "下滑" else "上滑"}",if(pendingSymbol && content.isEmpty()) "未设置" else preview.ifEmpty {action?.label.orEmpty().ifEmpty {"未设置"}})
+        }
+        StatsHeading(pal,"设置动作")
+        Card(pal) {
+            Segment(pal,listOf("符号文字","编辑功能"),editKind) {editKind=it}
+            ActionRow(pal,if(editKind==0)"自定义符号" else "编辑功能","${if(zh)"中文" else "英文"} ${letter.uppercaseChar()} · ${if(physicalDown)"下滑" else "上滑"}","保存") {
+                if(editKind==0&&pendingSymbol) {KeyGestures.save(this@SettingsActivity,zh,letter,down,"text:$content");mappingRevision++;resetDraft()}
+                else if(editKind==1)pendingCommand?.let {KeyGestures.save(this@SettingsActivity,zh,letter,down,"edit:$it");mappingRevision++;resetDraft()}
             }
+            if(editKind==0) {
             BasicTextField(content,{value ->
                 content=value.take(24)
                 pendingCommand=null
                 pendingSymbol=true
             },textStyle=TextStyle(color=pal.ink,fontSize=18.sp),modifier=Modifier.fillMaxWidth().background(pal.tile,RoundedCornerShape(12.dp)).padding(14.dp),
                 decorationBox={inner ->if(content.isEmpty()) BasicText("输入自定义符号或文字",style=TextStyle(color=pal.text2,fontSize=15.sp));inner()})
-            Line(pal)
-            ActionRow(pal,"编辑功能",null,"保存") {
-                pendingCommand?.let {KeyGestures.save(this@SettingsActivity,zh,letter,down,"edit:$it");mappingRevision++;resetDraft()}
+            } else {
+            val commandIcons=KeyGestures.commandIcons
+            Column(Modifier.padding(top=4.dp,bottom=14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                KeyGestures.commands.entries.chunked(4).forEach {row->
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                        row.forEach {(id,label)->
+                            val active=(pendingCommand ?: action?.command)==id
+                            Column(Modifier.weight(1f).height(62.dp).clip(RoundedCornerShape(13.dp))
+                                .background(if(active)pal.accent.copy(alpha=.08f) else pal.tile)
+                                .border(if(active)1.6.dp else 1.dp,if(active)pal.accent else pal.line,RoundedCornerShape(13.dp))
+                                .clickable {pendingCommand=id;pendingSymbol=false;content=""}.semantics {contentDescription="编辑功能：$label"},
+                                horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
+                                Image(painterResource(commandIcons.getValue(id)),null,Modifier.size(21.dp),colorFilter=ColorFilter.tint(if(active)pal.accent else pal.ink))
+                                Spacer(Modifier.height(6.dp))
+                                BasicText(label,style=TextStyle(color=if(active)pal.accent else pal.ink,fontSize=13.sp,fontWeight=if(active)FontWeight.Medium else FontWeight.Normal))
+                            }
+                        }
+                    }
+                }
             }
-            KeyGestures.commands.entries.chunked(4).forEach {row ->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
-                row.forEach {(id,label) ->Pill(pal,label,(pendingCommand ?: action?.command)==id) {pendingCommand=id;pendingSymbol=false;content=""}}
-            }}
-            Line(pal)
-            ActionRow(pal,"清空${if(zh) "中文" else "英文"}上下滑","仅清空当前语言的 26 键映射","清空") {
-                if(confirmed("flick-clear-$zh")) {KeyGestures.clear(this,zh);mappingRevision++;resetDraft()}
-                else clearHint="再点一次清空${if(zh) "中文" else "英文"}映射，可用重置恢复。"
             }
-            if(clearHint.isNotEmpty()) BasicText(clearHint,style=TextStyle(color=pal.accent,fontSize=12.sp))
-            ActionRow(pal,"恢复${if(zh) "中文" else "英文"}默认",null,"重置") {KeyGestures.reset(this,zh);mappingRevision++;resetDraft()}
         }
     }
 
@@ -922,7 +2226,7 @@ class SettingsActivity : ComponentActivity() {
         var customKeys by remember { mutableStateOf(initialKeys) }
         // selectedSlot: 0="6右边", 1="9右边", 2="0右边", 3="左侧符号列"
         var selectedSlot by remember { mutableIntStateOf(0) }
-        var selectedSideIdx by remember { mutableIntStateOf(0) }
+        var selectedSideIdx by remember { mutableIntStateOf(-1) }
         var customInput by remember { mutableStateOf("") }
 
         fun saveAll(newSide: List<String> = sideList, newKeys: List<String> = customKeys) {
@@ -934,125 +2238,41 @@ class SettingsActivity : ComponentActivity() {
                 .apply()
         }
 
-        fun displayKey(s: String) = if (s == " ") "␣ 空格" else s
+        fun displayKey(s: String) = if (s == " ") "空格" else s
 
         // 1. 顶部实时可视化数字键盘（点击任意可定制区域直接选中修改）
         Card(pal) {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                BasicText("点击下方键盘中的高亮区域即可直接修改", style = TextStyle(color = pal.text2, fontSize = 12.5.sp))
-                Pill(pal, "恢复默认", false) {
+                BasicText("数字键盘",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
+                HeaderAction(pal,R.drawable.ic_refresh,"恢复默认") {
                     p.edit().remove(Prefs.NUM_SIDE_KEY).remove(Prefs.NUM_KEYS).apply()
                     sideList = Prefs.DEFAULT_NUM_SIDE
                     customKeys = Prefs.DEFAULT_NUM_KEYS
-                    selectedSideIdx = 0
+                    selectedSideIdx = -1
                 }
             }
 
-            // 可视化数字键盘模拟布局
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(pal.bg).padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Row(Modifier.fillMaxWidth().height(156.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // 左列：可上下滑动的符号列
-                    val sideActive = selectedSlot == 3
-                    Column(
-                        Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(11.dp))
-                            .background(pal.card)
-                            .border(if (sideActive) 2.dp else 1.dp, if (sideActive) pal.accent else pal.line, RoundedCornerShape(11.dp))
-                            .clickable { selectedSlot = 3 }
-                            .padding(vertical = 4.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.SpaceEvenly,
-                    ) {
-                        BasicText("左列", style = TextStyle(color = if (sideActive) pal.accent else pal.text2, fontSize = 10.sp, fontWeight = FontWeight.Bold))
-                        sideList.take(4).forEach { sym ->
-                            BasicText(sym, style = TextStyle(color = pal.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium))
-                        }
-                        BasicText("⋮", style = TextStyle(color = pal.text2, fontSize = 12.sp))
-                    }
+            BasicText("点选描边区域，在下方修改",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(bottom=10.dp))
 
-                    // 中间 3x3 数字 + 右列（退格、6右边、9右边）
-                    Column(Modifier.weight(4.5f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        @Composable
-                        fun NumRow(n1: String, n2: String, n3: String, rightSlot: Int, rightLabel: String) {
-                            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(n1, n2, n3).forEach { num ->
-                                    Box(
-                                        Modifier.weight(1.3f).fillMaxSize().clip(RoundedCornerShape(10.dp)).background(pal.card),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        BasicText(num, style = TextStyle(color = pal.ink, fontSize = 19.sp, fontWeight = FontWeight.Medium))
-                                    }
-                                }
-                                if (rightSlot < 0) {
-                                    Box(
-                                        Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(10.dp)).background(pal.tile),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Image(painterResource(R.drawable.ic_del), null, Modifier.size(20.dp), colorFilter = ColorFilter.tint(pal.ink))
-                                    }
-                                } else {
-                                    val active = selectedSlot == rightSlot
-                                    Box(
-                                        Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(10.dp))
-                                            .background(if (active) pal.accent.copy(alpha = 0.14f) else pal.card)
-                                            .border(if (active) 2.dp else 1.dp, if (active) pal.accent else pal.line, RoundedCornerShape(10.dp))
-                                            .clickable { selectedSlot = rightSlot },
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        BasicText(rightLabel, style = TextStyle(color = if (active) pal.accent else pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Bold))
-                                    }
-                                }
-                            }
-                        }
-                        NumRow("1", "2", "3", -1, "")
-                        NumRow("4", "5", "6", 0, displayKey(customKeys[0]))
-                        NumRow("7", "8", "9", 1, displayKey(customKeys[1]))
-                    }
-                }
-
-                // 底行：符号、返回、0、0右边、回车
-                Row(Modifier.fillMaxWidth().height(46.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(10.dp)).background(pal.tile), contentAlignment = Alignment.Center) {
-                        Image(painterResource(R.drawable.ic_symbol), null, Modifier.size(19.dp), colorFilter = ColorFilter.tint(pal.ink))
-                    }
-                    Box(Modifier.weight(1.3f).fillMaxSize().clip(RoundedCornerShape(10.dp)).background(pal.tile), contentAlignment = Alignment.Center) {
-                        Image(painterResource(R.drawable.ic_back), null, Modifier.size(19.dp), colorFilter = ColorFilter.tint(pal.ink))
-                    }
-                    Box(Modifier.weight(1.3f).fillMaxSize().clip(RoundedCornerShape(10.dp)).background(pal.card), contentAlignment = Alignment.Center) {
-                        BasicText("0", style = TextStyle(color = pal.ink, fontSize = 19.sp, fontWeight = FontWeight.Medium))
-                    }
-                    val slot2Active = selectedSlot == 2
-                    Box(
-                        Modifier.weight(1.3f).fillMaxSize().clip(RoundedCornerShape(10.dp))
-                            .background(if (slot2Active) pal.accent.copy(alpha = 0.14f) else pal.card)
-                            .border(if (slot2Active) 2.dp else 1.dp, if (slot2Active) pal.accent else pal.line, RoundedCornerShape(10.dp))
-                            .clickable { selectedSlot = 2 },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        BasicText(displayKey(customKeys[2]), style = TextStyle(color = if (slot2Active) pal.accent else pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Bold))
-                    }
-                    Box(Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(10.dp)).background(pal.accent), contentAlignment = Alignment.Center) {
-                        Image(painterResource(R.drawable.ic_enter), null, Modifier.size(19.dp), colorFilter = ColorFilter.tint(pal.onAccent))
-                    }
-                }
-            }
+            AndroidView(factory={NumericKeyboardPreview(it)},update={view->
+                view.configure(Prefs.skin(this),customKeys,sideList,selectedSlot,pal.accent.toArgb()){selectedSlot=it}
+            },modifier=Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)))
             Spacer(Modifier.height(4.dp))
         }
 
         // 2. 下方对应选中区域的可视化配置面板
         val slotNames = listOf("「6 右边」按键", "「9 右边」按键", "「0 右边」按键", "「左侧上下滑动符号列」")
+        BasicText("当前编辑：${slotNames[selectedSlot]}",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=4.dp,bottom=2.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(0 to "6 右边", 1 to "9 右边", 2 to "0 右边", 3 to "左列符号").forEach { (idx, name) ->
                 val sel = selectedSlot == idx
                 Box(
-                    Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (sel) pal.accent else pal.card)
+                    Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (sel) pal.accent.copy(alpha=.1f) else pal.card)
                         .border(1.dp, if (sel) pal.accent else pal.line, RoundedCornerShape(50))
                         .clickable { selectedSlot = idx }.padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    BasicText(name, style = TextStyle(color = if (sel) pal.onAccent else pal.ink, fontSize = 13.sp, fontWeight = FontWeight.Medium))
+                    BasicText(name, style = TextStyle(color = if (sel) pal.accent else pal.text2, fontSize = 13.sp, fontWeight = FontWeight.Medium))
                 }
             }
         }
@@ -1061,7 +2281,7 @@ class SettingsActivity : ComponentActivity() {
             val curVal = customKeys[selectedSlot]
             val presets = listOf(" ", "@", ".", ",", "-", "+", "/", "*", "=", ":", "#", "%", "00", "¥", "$", "_")
             Card(pal) {
-                BasicText("点选要放在${slotNames[selectedSlot]}的功能或符号：", style = TextStyle(color = pal.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold), modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+                BasicText("选择功能或符号", style = TextStyle(color = pal.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold), modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
                 presets.chunked(4).forEach { row ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         row.forEach { item ->
@@ -1097,66 +2317,49 @@ class SettingsActivity : ComponentActivity() {
                 }
             }
         } else {
-            val candidatePool = listOf("·", "/", "+", "-", "=", "%", "*", "#", ",", ":", ";", "(", ")", "[", "]", "~", "_", "¥", "$", "@", "!", "?", "、", "。")
+            val symbolOptions = listOf("%", "+", "-", "/", ":", "=", "*", "#", "¥", "(", ")", "~", "_", "·", ",", ";", "!", "?", "、", "。", "[", "]", "$", "@")
+            val candidatePool = (Prefs.DEFAULT_NUM_SIDE + symbolOptions).distinct()
             Card(pal) {
-                BasicText("当前左列符号（点选可前移 / 后移 / 删除）：", style = TextStyle(color = pal.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold), modifier = Modifier.padding(top = 6.dp, bottom = 6.dp))
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    sideList.forEachIndexed { idx, sym ->
-                        val active = idx == selectedSideIdx
-                        Box(
-                            Modifier.size(42.dp).clip(RoundedCornerShape(11.dp))
-                                .background(if (active) pal.accent else pal.tile)
-                                .clickable { selectedSideIdx = idx },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            BasicText(sym, style = TextStyle(color = if (active) pal.onAccent else pal.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold))
-                        }
-                    }
-                }
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Pill(pal, "◀ 前移", false) {
-                        if (selectedSideIdx in 1 until sideList.size) {
-                            val m = sideList.toMutableList()
-                            val tmp = m[selectedSideIdx - 1]; m[selectedSideIdx - 1] = m[selectedSideIdx]; m[selectedSideIdx] = tmp
-                            selectedSideIdx--
-                            saveAll(newSide = m)
-                        }
-                    }
-                    Pill(pal, "后移 ▶", false) {
-                        if (selectedSideIdx in 0 until sideList.lastIndex) {
-                            val m = sideList.toMutableList()
-                            val tmp = m[selectedSideIdx + 1]; m[selectedSideIdx + 1] = m[selectedSideIdx]; m[selectedSideIdx] = tmp
-                            selectedSideIdx++
-                            saveAll(newSide = m)
-                        }
-                    }
-                    Pill(pal, "✕ 删除选中", false) {
-                        if (sideList.size > 1 && selectedSideIdx in sideList.indices) {
-                            val m = sideList.toMutableList().also { it.removeAt(selectedSideIdx) }
-                            selectedSideIdx = selectedSideIdx.coerceAtMost(m.lastIndex)
-                            saveAll(newSide = m)
+                BasicText("左列符号顺序", style = TextStyle(color = pal.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold), modifier = Modifier.padding(top = 6.dp, bottom = 6.dp))
+                BasicText("单击选中，再点取消；长按拖动调整位置",style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=18.sp),modifier=Modifier.padding(bottom=8.dp))
+                AndroidView(factory={SymbolOrderView(it)},update={view->
+                    view.configure(sideList,selectedSideIdx,pal.tile.toArgb(),pal.ink.toArgb(),pal.accent.toArgb(),
+                        {selectedSideIdx=it},{saveAll(newSide=it)})
+                },modifier=Modifier.fillMaxWidth())
+                if(selectedSideIdx in sideList.indices) {
+                    Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
+                        BasicText("已选中：${sideList[selectedSideIdx]}",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.weight(1f))
+                        Pill(pal,"删除选中",false) {
+                            val next = sideList.toMutableList().also { it.removeAt(selectedSideIdx) }
+                            selectedSideIdx = -1
+                            saveAll(newSide = next)
                         }
                     }
                 }
                 Line(pal, top = 4.dp)
-                BasicText("点击下方符号添加进左列：", style = TextStyle(color = pal.text2, fontSize = 13.sp), modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                BasicText("点灰色符号加入左列，点红色符号移除", style = TextStyle(color = pal.text2, fontSize = 13.sp), modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
                 candidatePool.chunked(6).forEach { row ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         row.forEach { sym ->
-                            val exists = sym in sideList
+                            val order = sideList.indexOf(sym) + 1
+                            val exists = order > 0
                             Box(
                                 Modifier.weight(1f).height(38.dp).clip(RoundedCornerShape(10.dp))
                                     .background(if (exists) pal.accent.copy(alpha = 0.14f) else pal.tile)
                                     .clickable {
-                                        if (!exists) {
-                                            val m = sideList + sym
-                                            selectedSideIdx = m.lastIndex
-                                            saveAll(newSide = m)
-                                        }
+                                        val previouslySelected = sideList.getOrNull(selectedSideIdx)
+                                        val next = if (exists) sideList.filterNot { it == sym } else sideList + sym
+                                        selectedSideIdx = if (exists) next.indexOf(previouslySelected) else next.lastIndex
+                                        saveAll(newSide = next)
+                                    }.semantics {
+                                        contentDescription = if (exists) "移除 $sym" else "加入 $sym"
+                                        if (exists) stateDescription = "左列第 $order 个"
                                     },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 BasicText(sym, style = TextStyle(color = if (exists) pal.accent else pal.ink, fontSize = 16.sp, fontWeight = FontWeight.Medium))
+                                if (exists) BasicText(order.toString(), style = TextStyle(color = pal.accent, fontSize = 10.sp, fontWeight = FontWeight.Medium),
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 5.dp))
                             }
                         }
                     }
@@ -1176,33 +2379,71 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun UpdatePage(pal: Pal,onHistory:()->Unit) {
-        val version = remember { UpdateChecker.currentVersion(this) }
-        val state = updateState.value
-        val rel = release.value
-        Card(pal) {
-            BasicText("当前版本 $version", style = TextStyle(color = pal.ink, fontSize = 16.sp, fontWeight = FontWeight.Medium), modifier = Modifier.padding(top = 10.dp))
-            BasicText(state.ifEmpty { "从 GitHub 读取最新发布的版本" }, style = TextStyle(color = if (rel != null) pal.accent else pal.text2, fontSize = 14.sp, lineHeight = 20.sp), modifier = Modifier.padding(top = 4.dp))
-            if (rel != null && rel.notes.isNotBlank()) {
-                Line(pal, top = 10.dp)
-                BasicText("更新内容", style = TextStyle(color = pal.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium), modifier = Modifier.padding(top = 10.dp))
-                MarkdownBody(pal,rel.notes)
+    private fun UpdateEntry(pal:Pal,sub:String) {
+        val tag=release.value?.tag ?: Prefs.of(this).getString("latest_update_tag","").orEmpty()
+        val newer=tag.isNotEmpty()&&UpdateChecker.newer(tag.trimStart('v','V'),UpdateChecker.currentVersion(this))
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {openUpdateDialog()}.padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(end=12.dp)) {
+                BasicText("检查更新",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=if(LocalPlainMenu.current)FontWeight.Bold else FontWeight.Medium))
+                BasicText(if(newer)"发现新版本 "+tag else sub,style=TextStyle(color=if(newer)pal.accent else pal.text2,fontSize=12.5.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
             }
-            val local=UpdateChecker.localRelease(this)
-            if(local!=null) {
-                Line(pal,top=10.dp)
-                BasicText("本机版本更新内容",style=TextStyle(color=pal.ink,fontSize=15.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=10.dp))
-                MarkdownBody(pal,local.notes)
+            if(newer)Box(Modifier.size(7.dp).clip(CircleShape).background(pal.accent))
+            else Image(painterResource(R.drawable.ic_refresh),null,Modifier.size(18.dp),colorFilter=ColorFilter.tint(pal.text2))
+        }
+    }
+
+    @Composable
+    private fun UpdateDialog(pal:Pal,tick:Int,onHistory:()->Unit) {
+        val version=remember {UpdateChecker.currentVersion(this)}
+        val rel=release.value
+        val newer=rel!=null&&UpdateChecker.newer(rel.version,version)
+        val ready=newer&&downloadedApk.value?.isFile==true
+        val permission=remember(tick) {android.os.Build.VERSION.SDK_INT<26||packageManager.canRequestPackageInstalls()}
+        val status=when {
+            downloading.value->"正在下载安装包"
+            checkingUpdate->"正在检查更新"
+            rel==null->"检查失败，请稍后重试。"
+            !newer->"当前版本 v"+version+"，无需更新。"
+            ready&&permission->"可以直接安装"
+            ready->"需先允许安装"
+            rel.apkUrl==null->"暂无适配本机的安装包"
+            else->"需先下载安装包"
+        }
+        val detail=when {
+            ready&&permission->"安装包已通过校验，点击确认即可覆盖安装并保留设置。"
+            ready->"安装包已通过校验，点击确认允许安装，返回后继续安装。"
+            rel?.apkUrl==null->"请稍后重新检查。"
+            else->"点击确认下载更新，下载完成后可继续安装。"
+        }
+        androidx.compose.ui.window.Dialog(onDismissRequest={updateDialogVisible.value=false},
+            properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
+            Column(Modifier.widthIn(max=420.dp).fillMaxWidth(.9f).heightIn(max=560.dp)
+                .clip(RoundedCornerShape(14.dp)).background(pal.card).padding(24.dp)) {
+                BasicText("检查更新",style=TextStyle(color=pal.ink,fontSize=19.sp,fontWeight=FontWeight.Bold))
+                Column(Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(top=20.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                    if(newer&&rel!=null)BasicText("发现新版本 "+rel.tag,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
+                    BasicText(status,style=TextStyle(color=if(ready&&permission)pal.ok else pal.text2,fontSize=15.sp,lineHeight=23.sp))
+                    if(downloading.value) {
+                        BasicText(downloadState.value,style=TextStyle(color=pal.text2,fontSize=13.sp))
+                        BasicText("取消下载",style=TextStyle(color=pal.accent,fontSize=13.sp),modifier=Modifier.clickable {updateDownloadCancelled=true}.padding(vertical=6.dp))
+                    } else if(newer&&!checkingUpdate) {
+                        BasicText(detail,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
+                        if(downloadState.value.isNotBlank())BasicText(downloadState.value,style=TextStyle(color=pal.text2,fontSize=12.sp))
+                        if(rel!=null&&rel.notes.isNotBlank())MarkdownBody(pal,rel.notes.take(480))
+                    }
+                }
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                    BasicText("更新历史",style=TextStyle(color=pal.accent,fontSize=14.sp),modifier=Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick=onHistory).padding(top=10.dp,bottom=10.dp,end=12.dp))
+                    Pill(pal,"确认",true) {
+                        when {
+                            downloading.value||checkingUpdate->updateDialogVisible.value=false
+                            ready->installUpdate()
+                            newer&&rel?.apkUrl!=null->downloadUpdate(rel)
+                            else->updateDialogVisible.value=false
+                        }
+                    }
+                }
             }
-            Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (rel != null && UpdateChecker.newer(rel.version,version) && rel.apkUrl!=null && !downloading.value && downloadedApk.value==null) Pill(pal, "下载 ${rel.tag}", true) {downloadUpdate(rel)}
-                if(downloadedApk.value!=null) Pill(pal,"安装更新",true) {installUpdate()}
-                if(downloading.value) Pill(pal,"取消下载",false) {updateDownloadCancelled=true}
-                Pill(pal, "重新检查", rel == null) { checkUpdate(silent = false) }
-            }
-            if(downloadState.value.isNotBlank()) BasicText(downloadState.value,style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(bottom=8.dp))
-            ActionRow(pal,"历史更新内容","按版本查看完整 Markdown 说明","查看",onHistory)
-            BasicText("覆盖安装，设置和词库保留", style = TextStyle(color = pal.text2, fontSize = 12.5.sp), modifier = Modifier.padding(bottom = 8.dp))
         }
     }
 
@@ -1214,30 +2455,52 @@ class SettingsActivity : ComponentActivity() {
     private fun HistoryPage(pal:Pal,onPick:(UpdateChecker.Release)->Unit) {
         val local=UpdateChecker.localRelease(this)
         val releases=listOfNotNull(local)+historyState.value.filter {it.version!=local?.version}
-        Card(pal) {
-            ActionRow(pal,"版本记录",historyMessage.value.ifEmpty {"包含本地缓存，可离线阅读"},if(historyLoading.value)"读取中" else "刷新") {loadHistory()}
-        }
-        var query by remember {mutableStateOf("")}
-        var page by remember {mutableIntStateOf(0)}
+        var query by rememberSaveable {mutableStateOf("")}
+        var page by rememberSaveable {mutableIntStateOf(0)}
         val filtered=releases.filter {query.isBlank() || it.tag.contains(query,true) || it.notes.contains(query,true)}
         val pages=maxOf(1,(filtered.size+9)/10)
         val current=page.coerceAtMost(pages-1)
-        Card(pal) {
-            BasicTextField(query,{query=it;page=0},singleLine=true,
-                textStyle=TextStyle(color=pal.ink,fontSize=16.sp),
-                modifier=Modifier.fillMaxWidth().background(pal.tile,RoundedCornerShape(12.dp)).padding(14.dp),
-                decorationBox={inner ->if(query.isEmpty()) BasicText("搜索版本或更新内容",style=TextStyle(color=pal.text2,fontSize=16.sp));inner()})
-            Row(Modifier.fillMaxWidth().padding(top=12.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-                Pill(pal,"上一页",false) {page=(current-1).coerceAtLeast(0)}
-                BasicText("${current+1} / $pages",style=TextStyle(color=pal.text2,fontSize=14.sp))
-                Pill(pal,"下一页",false) {page=(current+1).coerceAtMost(pages-1)}
+        val scroll=rememberScrollState()
+        var lastScrollKey by rememberSaveable {mutableStateOf("$current/$query")}
+        LaunchedEffect(current,query) {val next="$current/$query";if(lastScrollKey!=next){scroll.scrollTo(0);lastScrollKey=next}}
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(top=12.dp,bottom=10.dp).clip(RoundedCornerShape(16.dp)).background(pal.card).padding(horizontal=14.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
+                Image(painterResource(R.drawable.ic_search),null,Modifier.size(19.dp),colorFilter=ColorFilter.tint(pal.text2))
+                Spacer(Modifier.width(9.dp))
+                BasicTextField(query,{query=it;page=0},singleLine=true,textStyle=TextStyle(color=pal.ink,fontSize=15.sp),cursorBrush=SolidColor(pal.accent),modifier=Modifier.weight(1f),
+                    decorationBox={inner->Box {if(query.isEmpty())BasicText("搜索版本或更新内容",style=TextStyle(color=pal.text2,fontSize=15.sp));inner()}})
+                Box(Modifier.padding(start = 8.dp).width(32.dp).height(24.dp), contentAlignment = Alignment.Center) {
+                    if (query.isNotEmpty()) {
+                        Box(Modifier.fillMaxSize().clip(CircleShape)
+                            .clickable(role = androidx.compose.ui.semantics.Role.Button) { query = ""; page = 0 }
+                            .semantics { contentDescription = "清空更新历史搜索" }, contentAlignment = Alignment.Center) {
+                            Image(painterResource(R.drawable.ic_close), null, Modifier.size(18.dp), colorFilter = ColorFilter.tint(pal.text2))
+                        }
+                    }
+                }
+            }
+            if(historyLoading.value)BasicText("正在刷新…",style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(bottom=6.dp))
+            else if(historyMessage.value.contains("失败")||historyMessage.value.contains("暂时"))BasicText(historyMessage.value,style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(bottom=6.dp))
+            Column(Modifier.weight(1f).verticalScroll(scroll),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                filtered.drop(current*10).take(10).forEach {item->Card(pal) {
+                    ActionRow(pal,item.tag,item.notes.lineSequence().firstOrNull {it.isNotBlank()}?.trimStart('#',' ')?.take(72),"详情") {onPick(item)}
+                }}
+                if(filtered.isEmpty())Card(pal){Tip(pal,"没有匹配的版本","试试其他关键词。")}
+                Row(Modifier.fillMaxWidth().padding(top=10.dp,bottom=12.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                @Composable fun Pager(label:String,enabled:Boolean,click:()->Unit) {
+                    Box(Modifier.clip(RoundedCornerShape(50)).background(pal.card).clickable(enabled=enabled,onClick=click).padding(horizontal=18.dp,vertical=11.dp),contentAlignment=Alignment.Center) {
+                        BasicText(label,style=TextStyle(color=if(enabled)pal.ink else pal.text2.copy(alpha=.4f),fontSize=14.sp))
+                    }
+                }
+                Pager("上一页",current>0) {page=current-1}
+                BasicText("${current+1} / $pages",style=TextStyle(color=pal.text2,fontSize=13.sp))
+                Pager("下一页",current<pages-1) {page=current+1}
+                }
+                Spacer(Modifier.height(92.dp))
             }
         }
-        filtered.drop(current*10).take(10).forEach {item ->Card(pal) {
-            ActionRow(pal,item.tag,item.notes.lineSequence().firstOrNull {it.isNotBlank()}?.trimStart('#',' ')?.take(72),"详情") {onPick(item)}
-        }}
-        if(filtered.isEmpty()) Card(pal) {Tip(pal,"没有匹配的版本","试试其他关键词。")}
     }
+
     @Composable
     private fun ReleasePage(pal:Pal) {
         val item=selectedRelease.value ?: return
@@ -1253,69 +2516,74 @@ class SettingsActivity : ComponentActivity() {
         val enabled=remember(tick) {prefs.getBoolean(Prefs.VAULT,false)}
         val source=remember(tick) {VaultGateway(this).owner()}
         var state by remember {mutableStateOf("")}
-        LaunchedEffect(enabled,source) {
-            if(!enabled) state="已关闭，不访问密码空间"
-            else Thread {
-                val status=VaultGateway(this@SettingsActivity).call("status",Bundle())
-                val label=when(status.getString("status")) {
-                    "ok" -> if(status.getBoolean("enabled")) "已连接空叶文档密码空间" else "请在空叶文档中允许键盘读取"
-                    "disabled" -> "请在空叶文档中允许键盘读取"
-                    "denied" -> "未获得密码空间权限，请确认两个应用签名一致"
-                    "not_found" -> "未安装对应空叶文档，或密码接口尚未就绪"
-                    else -> "密码空间暂不可用"
+        var diagnostic by remember {mutableStateOf("")}
+        var more by rememberSaveable {mutableStateOf(false)}
+        LaunchedEffect(enabled,source,tick) {
+            if(!enabled){state="已关闭";diagnostic=""}
+            else {
+                state="正在检查连接…"
+                val result=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val status=VaultGateway(this@SettingsActivity).call("status",Bundle())
+                    val message=when(status.getString("status")) {
+                        "ok" -> if(status.getBoolean("enabled")) "已连接" else "请在空叶文档中允许键盘读取"
+                        "disabled" -> "请在空叶文档中允许键盘读取"
+                        "denied" -> "连接未授权"
+                        "not_found" -> "未找到空叶文档密码空间"
+                        else -> "暂时无法连接"
+                    }
+                    val detail=when(status.getString("status")) {
+                        "denied"->"请确认空叶键盘与空叶文档来自同一发行版本。"
+                        "not_found"->"请安装对应版本的空叶文档，并启用密码空间。"
+                        else->""
+                    }
+                    status.clear();message to detail
                 }
-                status.clear()
-                runOnUiThread {if(prefs.getBoolean(Prefs.VAULT,false)==enabled && VaultGateway(this@SettingsActivity).owner()==source) state=label}
-            }.start()
-        }
-        Card(pal) {
-            ToggleRow(pal,"密码填充","使用空叶文档中的密码空间",enabled) {prefs.edit().putBoolean(Prefs.VAULT,it).apply()}
-            BasicText(state,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=19.sp),modifier=Modifier.padding(vertical=8.dp))
-            BasicText("登录、注册时直接点击键盘工具栏里的系统候选即可填入；「更多密码」可打开空叶文档的密码搜索页。未解锁时会先验证身份。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
-        }
-        Card(pal) {
-            BasicText("系统自动填充候选",style=TextStyle(color=pal.ink,fontSize=15.sp))
-            BasicText("在系统设置中选空叶文档作为自动填充服务，候选会显示在键盘工具栏，不再弹输入框下方的密码框。需要 Android 11 及以上。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=8.dp))
-        }
-        Card(pal) {
-            Tip(pal,"选错账号会怎样？","通过键盘工具栏的系统候选填入时，空叶文档会记录账号与 App 或网站的关联。误选后仍可打开「更多密码」改选正确账号，可点击候选旁的设置图标，直接管理此页面推荐。")
-            Line(pal)
-            Tip(pal,"关联到哪里？","系统自动填充按 App 或网站匹配账号。同一 App 内的不同页面可共用推荐。可在键盘的推荐管理中解除 App 关联，或停止在当前网站推荐。再次通过「更多密码」手动选择该账号即可重新关联。")
-        }
-        Card(pal) {
-            BasicText("密码空间来源",style=TextStyle(color=pal.ink,fontSize=15.sp))
-            VaultGateway.PACKAGES.forEachIndexed {index,pkg ->
-                ActionRow(pal,listOf("正式版","测试 audit","测试 docktest","升级验证 fixture")[index],null,if(source==pkg) "已选择" else "选择") {
-                    prefs.edit().putString(Prefs.VAULT_PACKAGE,pkg).apply()
-                }
+                state=result.first;diagnostic=result.second
             }
         }
         Card(pal) {
-            BasicText("输入的密码只暂存在内存，粘贴内容不记录；点击保存才写入空叶文档。关闭提示、锁屏或超时会清除暂存。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
-            BasicText("网页账号由空叶文档的系统自动填充服务按网站匹配。系统安全键盘可能替换第三方键盘，可在系统设置中关闭；银行等应用的自绘键盘不支持填充。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=8.dp))
+            ToggleRow(pal,"密码填充","从空叶文档读取账号，点击键盘推荐即可填充",enabled) {prefs.edit().putBoolean(Prefs.VAULT,it).apply()}
+            Row(Modifier.fillMaxWidth().padding(bottom=12.dp),verticalAlignment=Alignment.CenterVertically) {
+                Box(Modifier.size(6.dp).background(if(state=="已连接")pal.ok else pal.text2,CircleShape))
+                BasicText(state,style=TextStyle(color=if(state=="已连接")pal.ok else pal.text2,fontSize=13.sp,lineHeight=19.sp),modifier=Modifier.padding(start=8.dp))
+            }
+        }
+        Card(pal) {
+            BasicText("开始使用",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=12.dp,bottom=4.dp))
+            ActionRow(pal,"1. 开启密码空间","在空叶文档中允许键盘读取","打开") {
+                val launch=packageManager.getLaunchIntentForPackage(source)
+                if(launch!=null)startActivity(launch) else android.widget.Toast.makeText(this@SettingsActivity,"请先安装对应版本的空叶文档",android.widget.Toast.LENGTH_SHORT).show()
+            }
+            Line(pal)
+            ActionRow(pal,"2. 设置自动填充服务","选择空叶文档，在键盘显示账号候选","去设置") {
+                val intent=Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).setData(Uri.parse("package:$source"))
+                runCatching {startActivity(intent)}.onFailure {startActivity(Intent(Settings.ACTION_SETTINGS))}
+            }
+            Line(pal)
+            BasicText("3. 登录时点选键盘上的账号",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=14.dp,bottom=4.dp))
+            BasicText("找不到账号时点「更多密码」；未解锁时先验证身份。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(bottom=14.dp))
+        }
+        Card(pal) {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {more=!more}.padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+                BasicText("更多信息",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.weight(1f))
+                ExpandArrow(pal, more)
+            }
+            if(more) {
+                if(diagnostic.isNotEmpty())Tip(pal,"连接排查",diagnostic)
+                Tip(pal,"选错账号","点「更多密码」重新选择，或点候选旁的设置管理推荐；可解除 App 关联、清除账号网址后重新关联。")
+                Tip(pal,"隐私与支持范围","密码暂存在内存，点击保存才写入空叶文档；关闭提示、锁屏或超时会清除暂存。系统安全键盘和部分应用的自绘键盘可能不支持填充。系统候选需要 Android 11 及以上。")
+            }
         }
     }
 
-    @Composable
-    private fun TipsPage(pal: Pal) {
-        Card(pal) {
-            Tip(pal, "上下滑", "下滑输入右上角符号，上滑输入左下角")
-            Tip(pal, "删除键", "下滑清空，上滑撤销")
-            Tip(pal, "分词", "打拼音时大写键变成分词：xi 分词 an → 西安")
-            Tip(pal, "移动光标", "左右滑空格，或长按空格后滑动")
-            Tip(pal, "拼音条", "点拼音中间，可以在那里改字母")
-            Tip(pal, "手写", "内置开源笔画识别，候选显示声调与多种读音")
-            Tip(pal, "翻译", "译文直接出现在光标处，首次使用下载模型")
-            Tip(pal, "工具栏", "再点一次已打开的工具，回到键盘")
-        }
-    }
+
 }
 
 @Composable
-private fun Card(pal: Pal, content: @Composable () -> Unit) {
+private fun Card(pal: Pal, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(pal.card)
-            .padding(horizontal = 14.dp, vertical = 6.dp),
+            .then(modifier).padding(horizontal = 14.dp, vertical = 6.dp),
     ) { content() }
 }
 
@@ -1346,6 +2614,21 @@ private fun NavRow(pal: Pal, it: Item) {
 }
 
 @Composable
+private fun ExpandArrow(pal: Pal, expanded: Boolean, pressed: Boolean = false) {
+    val angle by animateFloatAsState(if (expanded) 180f else 0f, tween(160), label = "expandArrow")
+    Box(
+        Modifier.size(30.dp).background(
+            if (expanded || pressed) pal.accent.copy(alpha = .13f) else Color.Transparent,
+            CircleShape,
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(painterResource(R.drawable.ic_menu_expand), null, Modifier.size(19.dp).graphicsLayer { rotationZ = angle },
+            colorFilter = ColorFilter.tint(if (expanded || pressed) pal.accent else pal.text2))
+    }
+}
+
+@Composable
 private fun Pill(pal: Pal, text: String, strong: Boolean, onClick: () -> Unit) {
     Box(Modifier.clip(RoundedCornerShape(50)).background(if (strong) pal.accent else pal.track).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 7.dp)) {
         BasicText(text, style = TextStyle(color = if (strong) pal.onAccent else pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium))
@@ -1353,8 +2636,8 @@ private fun Pill(pal: Pal, text: String, strong: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ToggleRow(pal: Pal, title: String, sub: String?, on: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun ToggleRow(pal: Pal, title: String, sub: String?, on: Boolean, enabled:Boolean=true, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().alpha(if(enabled)1f else .4f).clickable(enabled=enabled) { onChange(!on) }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             BasicText(title, style = TextStyle(color = pal.ink, fontSize = 16.sp))
             if (sub != null) BasicText(sub, style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp))
@@ -1368,13 +2651,44 @@ private fun ToggleRow(pal: Pal, title: String, sub: String?, on: Boolean, onChan
 }
 
 @Composable
-private fun ActionRow(pal: Pal, title: String, sub: String?, button: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            BasicText(title, style = TextStyle(color = pal.ink, fontSize = 16.sp))
-            if (sub != null) BasicText(sub, style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp))
+private fun SearchResultRow(pal: Pal, match: String, path: String, query: String, onClick: () -> Unit) {
+    val hit = match.indexOf(query, ignoreCase = true)
+    val left = (hit - 11).coerceAtLeast(0)
+    val right = (hit + query.length + 17).coerceIn(left, match.length)
+    val label = (if (left > 0) "…" else "") + match.substring(left, right) + (if (right < match.length) "…" else "")
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 10.dp)) {
+            BasicText(highlightSearch(label, query, pal.searchMatch), style = TextStyle(color = pal.ink, fontSize = 16.sp,
+                fontWeight = FontWeight.Medium), maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            BasicText(path, style = TextStyle(color = pal.text2, fontSize = 12.sp, lineHeight = 17.sp),
+                modifier = Modifier.padding(top = 3.dp), maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
-        Pill(pal, button, true, onClick)
+        Image(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(19.dp), colorFilter = ColorFilter.tint(pal.text2))
+    }
+}
+
+private fun highlightSearch(value: String, query: String, matchColor: Color): AnnotatedString {
+    val result=AnnotatedString.Builder(value)
+    if(query.isBlank())return result.toAnnotatedString()
+    var start=value.indexOf(query,ignoreCase=true)
+    while(start>=0) {
+        result.addStyle(SpanStyle(color = matchColor, fontWeight = FontWeight.Bold),start,start+query.length)
+        start=value.indexOf(query,start+query.length,ignoreCase=true)
+    }
+    return result.toAnnotatedString()
+}
+
+@Composable
+private fun ActionRow(pal: Pal, title: String, sub: String?, button: String, onClick: () -> Unit) {
+    val navigation=button in listOf("›","⌄","⌃","○","✓")
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick=onClick).padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end=12.dp)) {
+            BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=if(LocalPlainMenu.current)FontWeight.Bold else FontWeight.Medium))
+            if(sub!=null) BasicText(sub,style=TextStyle(color=pal.text2,fontSize=12.5.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
+        }
+        if(navigation) BasicText(button,style=TextStyle(color=if(button=="✓")pal.accent else pal.text2,fontSize=24.sp),modifier=Modifier.padding(horizontal=8.dp))
+        else Pill(pal,button,true,onClick=onClick)
     }
 }
 
@@ -1392,22 +2706,80 @@ private fun Segment(pal: Pal, options: List<String>, index: Int, onSel: (Int) ->
 
 /** 拖动的滑条 */
 @Composable
-private fun Slider(pal: Pal, value: Float, min: Float, max: Float, onChange: (Float) -> Unit, onDone: () -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxWidth().height(36.dp)) {
-        val w = constraints.maxWidth.toFloat()
-        val density = LocalDensity.current
-        val thumb = with(density) { 28.dp.toPx() }
-        fun toValue(x: Float) = (min + (x - thumb / 2) / (w - thumb) * (max - min)).coerceIn(min, max)
-        val pos = (value - min) / (max - min) * (w - thumb)
-        Box(
-            Modifier.fillMaxSize()
-                .pointerInput(w) { detectTapGestures { o -> onChange(toValue(o.x)); onDone() } }
-                .pointerInput(w) { detectDragGestures(onDragEnd = onDone) { change, _ -> onChange(toValue(change.position.x)) } },
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(pal.track))
-            Box(Modifier.width(with(density) { (pos + thumb / 2).toDp() }).height(6.dp).clip(RoundedCornerShape(3.dp)).background(pal.accent))
-            Box(Modifier.offset { IntOffset(pos.roundToInt(), 0) }.size(28.dp).clip(CircleShape).background(pal.accent))
+private fun Slider(
+    pal: Pal,
+    value: Float,
+    min: Float,
+    max: Float,
+    onChange: (Float) -> Unit,
+    labels: List<String> = emptyList(),
+    format: (Float) -> String = { "${it.roundToInt()}" },
+    enabled: Boolean = true,
+    centerValue: Float? = null,
+    onDone: (Float) -> Unit,
+) {
+    val currentChange by rememberUpdatedState(onChange)
+    val currentDone by rememberUpdatedState(onDone)
+    val drawing = remember { SliderDrawing() }
+    val stops = (labels.size - 1).coerceAtLeast(0)
+    // Keep the normal height at the center without changing either endpoint.
+    val center = centerValue?.takeIf { it > min && it < max }
+    val fraction = (if (center == null) (value - min) / (max - min)
+        else if (value <= center) .5f * (value - min) / (center - min)
+        else .5f + .5f * (value - center) / (max - center)).coerceIn(0f, 1f)
+    fun valueAt(fraction: Float): Float = if (center == null) min + (max - min) * fraction
+        else if (fraction <= .5f) min + (center - min) * fraction * 2f
+        else center + (max - center) * (fraction - .5f) * 2f
+    val selection = (fraction * stops).roundToInt()
+    val valueText = labels.getOrNull(selection) ?: format(value)
+
+    fun snap(next: Float): Float {
+        val clamped = next.coerceIn(min, max)
+        if (stops == 0) return clamped
+        val step = ((clamped - min) / (max - min) * stops).roundToInt()
+        return min + (max - min) * step / stops
+    }
+
+    val gestures = if (enabled) {
+        Modifier.pointerInput(min, max, stops, center) {
+            detectTapGestures { point ->
+                val next = snap(valueAt(drawing.fractionAt(point.x, size.width.toFloat(), density)))
+                currentChange(next)
+                currentDone(next)
+            }
+        }.pointerInput(min, max, stops, center) {
+            var draft: Float? = null
+            detectHorizontalDragGestures(
+                onDragStart = { draft = null },
+                onDragEnd = { draft?.let(currentDone) },
+                onDragCancel = { draft?.let(currentDone) },
+            ) { change, _ ->
+                change.consume()
+                val next = snap(valueAt(drawing.fractionAt(change.position.x, size.width.toFloat(), density)))
+                draft = next
+                currentChange(next)
+            }
+        }
+    } else Modifier
+
+    androidx.compose.foundation.Canvas(
+        Modifier.fillMaxWidth().height(60.dp).alpha(if (enabled) 1f else .45f).semantics {
+            progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(value, min..max, (stops - 1).coerceAtLeast(0))
+            stateDescription = valueText
+            if (enabled) setProgress {
+                val next = snap(it)
+                currentChange(next)
+                currentDone(next)
+                true
+            } else disabled()
+        }.then(gestures)
+    ) {
+        drawIntoCanvas { canvas ->
+            drawing.draw(
+                canvas.nativeCanvas, size.width, 22.dp.toPx(), density, fraction,
+                pal.track.toArgb(), (if (enabled) pal.accent else pal.text2).toArgb(), pal.text2.toArgb(),
+                42.dp.toPx(), 12.sp.toPx(), valueText, labels,
+            )
         }
     }
 }

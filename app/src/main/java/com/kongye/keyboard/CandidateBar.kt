@@ -35,12 +35,17 @@ class CandidateBar(context: Context) : View(context) {
         fun onClipPaste() {}
         fun onClipSplit() {}
         fun onClipDismiss() {}
+        fun onSmsCodePaste() {}
+        fun onSmsCodeDismiss() {}
         /** 长按工具栏的“编辑”后左右滑：每一步移动一格光标 */
         fun onToolCursor(dir: Int) {}
     }
 
-    enum class Mode { TOOLS, CANDS, ASSOC, MESSAGE, CLIP_SUGGEST, ACTIONS }
+    enum class Mode { TOOLS, CANDS, ASSOC, MESSAGE, CLIP_SUGGEST, ACTIONS, SMS_CODE }
 
+    var onVisibleWords:(List<String>)->Unit = {}
+    var inputSpelling=""
+        set(value) {if(field!=value){field=value;requestLayout();invalidate()}}
     var onLongCandidate: (String?) -> Unit = {}
     var listener: Listener? = null
     var skin: Skin = Skins.KONGYE
@@ -48,6 +53,7 @@ class CandidateBar(context: Context) : View(context) {
     var cursorMode: Boolean = false
         set(v) { if (field != v) { field = v; invalidate() } }
 
+    private var smsCode=""
     private var actionPick: (Int) -> Unit = {}
     private var actionClose: () -> Unit = {}
     private var mode = Mode.TOOLS
@@ -97,14 +103,18 @@ class CandidateBar(context: Context) : View(context) {
         override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,Float>?)=size>512
     }
     private val pad get() = 12 * d
-    private val expandW get() = if (mode == Mode.CANDS || mode == Mode.ASSOC || mode == Mode.ACTIONS) 44 * d else 0f
+    var showCandidateExpand = true
+        set(value) { if (field != value) { field = value; invalidate() } }
+    private val expandW get() = if ((mode == Mode.CANDS && showCandidateExpand) || mode == Mode.ASSOC || mode == Mode.ACTIONS) 44 * d else 0f
 
     fun showTools(t: List<String>, active: String? = null) {
+        if(mode==Mode.SMS_CODE)requestLayout()
         contentDescription=null
         mode = Mode.TOOLS; tools = t; activeTool = active; onLongCandidate(null); invalidate()
     }
 
     fun showCandidates(list: List<CandItem>, expanded: Boolean) {
+        if(mode==Mode.SMS_CODE)requestLayout()
         val visible=list
         val same=mode==Mode.CANDS && this.expanded==expanded && items.size==visible.size && items.indices.all { i ->
             items[i].w==visible[i].w && items[i].py==visible[i].py && items[i].mask.contentEquals(visible[i].mask)
@@ -117,12 +127,14 @@ class CandidateBar(context: Context) : View(context) {
     }
 
     fun showAssoc(list: List<String>) {
+        if(mode==Mode.SMS_CODE)requestLayout()
         contentDescription=null
         mode = Mode.ASSOC; items = list.map { CandItem(it) };onLongCandidate(null)
         layoutItems(); resetScroll(); invalidate()
     }
 
     fun showActions(labels: List<String>, pick: (Int) -> Unit, close: () -> Unit) {
+        if(mode==Mode.SMS_CODE)requestLayout()
         val same = mode == Mode.ACTIONS && items.map { it.w } == labels
         contentDescription=labels.joinToString("；")
         actionPick = pick; actionClose = close; mode = Mode.ACTIONS
@@ -131,11 +143,19 @@ class CandidateBar(context: Context) : View(context) {
     }
 
     fun showMessage(msg: String) {
+        if(mode==Mode.SMS_CODE)requestLayout()
         contentDescription=msg
         mode = Mode.MESSAGE; message = msg;onLongCandidate(null); invalidate()
     }
 
+    fun showSmsCode(value:String) {
+        val resize=mode!=Mode.SMS_CODE
+        mode=Mode.SMS_CODE;smsCode=value;contentDescription="来自「信息」的验证码：$value，点击填入";onLongCandidate(null)
+        if(resize)requestLayout()
+        invalidate()
+    }
     fun showClipSuggestion(text: String) {
+        if(mode==Mode.SMS_CODE)requestLayout()
         contentDescription=null
         mode = Mode.CLIP_SUGGEST;onLongCandidate(null); clipSuggest = text; clipPressedZone = 0; invalidate()
     }
@@ -174,12 +194,19 @@ class CandidateBar(context: Context) : View(context) {
     private fun maxScroll() = max(0f, contentW - (width - expandW))
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), (44 * d).toInt())
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), ((if(mode==Mode.SMS_CODE)64 else 44+if(inputSpelling.isNotEmpty())16 else 0) * d).toInt())
     }
 
     override fun onDraw(c: Canvas) {
         if (toolDrag) { drawToolDrag(c); return }
         when (mode) {
+            Mode.SMS_CODE -> {
+                small.textSize=12*d;small.color=skin.barFg
+                val source="来自「信息」";c.drawText(source,(width-small.measureText(source))/2,23*d,small)
+                text.textSize=25*d;text.color=skin.candFg;text.typeface=Typeface.DEFAULT_BOLD
+                c.drawText(smsCode,(width-text.measureText(smsCode))/2,51*d,text);text.typeface=Typeface.DEFAULT
+                icons.draw(c,R.drawable.ic_close,width-20*d,height/2f,16f,skin.barFg)
+            }
             Mode.TOOLS -> drawTools(c)
             Mode.CANDS, Mode.ASSOC, Mode.ACTIONS -> drawItems(c)
             Mode.CLIP_SUGGEST -> drawClipSuggest(c)
@@ -194,30 +221,43 @@ class CandidateBar(context: Context) : View(context) {
     }
 
     private fun clipCloseX() = width - 40 * d
-    private fun clipSplitLeft() = clipCloseX() - 44 * d
+    private fun clipText() = clipSuggest.replace('\n', ' ').replace('\r', ' ').trim()
 
-    /** 复制快捷条：左边一条浅色胶囊（剪贴板图标 + 一行内容，点一下粘贴），右边分词图标按钮和关闭 */
-    private fun drawClipSuggest(c: Canvas) {
-        val h = height.toFloat()
-        val cy = h / 2f
-        val pillLeft = 8 * d
-        val pillRight = clipSplitLeft() - 6 * d
-        fill.color = if (clipPressedZone == 1) skin.keyDown else skin.keyBg
-        rect.set(pillLeft, 7 * d, pillRight, h - 7 * d)
-        c.drawRoundRect(rect, 15 * d, 15 * d, fill)
-        icons.draw(c, R.drawable.ic_clip, pillLeft + 18 * d, cy, 17f, skin.barFg)
+    private fun clipPillBounds(): RectF {
         text.textSize = 14.5f * d
         text.typeface = Typeface.DEFAULT
+        val available = max(0f, width - 100 * d)
+        val pillWidth = (text.measureText(clipText()) + 46 * d).coerceAtMost(available)
+        val left = (width - pillWidth) / 2f
+        return RectF(left, 7 * d, left + pillWidth, height - 7 * d)
+    }
+
+    private fun clipZone(x: Float, y: Float): Int = when {
+        y < 0f || y >= height -> 0
+        x >= 0f && x < 44 * d -> 2
+        x >= clipCloseX() && x < width -> 3
+        clipPillBounds().contains(x, y) -> 1
+        else -> 0
+    }
+
+    /** 分词在最左侧，复制内容胶囊按内容宽度居中，关闭在最右侧。 */
+    private fun drawClipSuggest(c: Canvas) {
+        val cy = height / 2f
+        val pill = clipPillBounds()
+        fill.color = if (clipPressedZone == 1) skin.keyDown else skin.keyBg
+        c.drawRoundRect(pill, 15 * d, 15 * d, fill)
+        icons.draw(c, R.drawable.ic_clip, pill.left + 18 * d, cy, 17f, skin.barFg)
         text.color = skin.candFg
-        val clean = clipSuggest.replace('\n', ' ').replace('\r', ' ').trim()
-        val left = pillLeft + 34 * d
-        val availW = max(10f, pillRight - left - 12 * d)
-        val shown = android.text.TextUtils.ellipsize(clean, android.text.TextPaint(text), availW, android.text.TextUtils.TruncateAt.END).toString()
+        val left = pill.left + 34 * d
+        val availW = max(0f, pill.right - left - 12 * d)
+        val shown = android.text.TextUtils.ellipsize(clipText(), android.text.TextPaint(text), availW, android.text.TextUtils.TruncateAt.END).toString()
         val fm = text.fontMetrics
         c.drawText(shown, left, cy - (fm.ascent + fm.descent) / 2, text)
-        // 分词：圆形图标按钮
-        val sx = clipSplitLeft() + 22 * d
-        icons.draw(c, R.drawable.ic_split, sx, cy, 17f, skin.modFg)
+        if (clipPressedZone == 2) {
+            fill.color = skin.keyDown
+            c.drawCircle(22 * d, cy, 14 * d, fill)
+        }
+        icons.draw(c, R.drawable.ic_split, 22 * d, cy, 17f, skin.modFg)
         if (clipPressedZone == 3) {
             fill.color = skin.keyDown
             c.drawCircle(width - 20 * d, cy, 14 * d, fill)
@@ -263,7 +303,13 @@ class CandidateBar(context: Context) : View(context) {
         c.translate(-scrollPos, 0f)
         text.textSize = 17 * d
         val fm = text.fontMetrics
-        val base = h / 2 - (fm.ascent + fm.descent) / 2
+        val spellingHeight=if(inputSpelling.isNotEmpty())16*d else 0f
+        if(spellingHeight>0) {
+            small.textSize=12*d;small.color=skin.barFg
+            val value=android.text.TextUtils.ellipsize(inputSpelling,android.text.TextPaint(small),viewW-16*d,android.text.TextUtils.TruncateAt.START).toString()
+            c.drawText(value,scrollPos+8*d,13*d,small)
+        }
+        val base = (h+spellingHeight) / 2 - (fm.ascent + fm.descent) / 2
         for (i in items.indices) {
             val x = starts[i]
             val w = widths[i]
@@ -271,7 +317,7 @@ class CandidateBar(context: Context) : View(context) {
             val it = items[i]
             val hi = mode == Mode.CANDS && i == 0
             val kongyeHi = hi && skin.style == SkinStyle.KONGYE
-            rect.set(x + 3 * d, 7 * d, x + w - 3 * d, h - 7 * d)
+            rect.set(x + 3 * d, spellingHeight+7 * d, x + w - 3 * d, h - 7 * d)
             // 只有第一个候选有底色（空叶是朱红底白字，其他配色是主题浅色底）；按下的候选给一点按下色
             if (kongyeHi) {
                 fill.color = if (i == pressed) darken(Color.rgb(240, 73, 44), 0.88f) else Color.rgb(240, 73, 44)
@@ -308,6 +354,10 @@ class CandidateBar(context: Context) : View(context) {
             }
         }
         c.restore()
+        if(mode==Mode.CANDS) {
+            val visible=items.indices.filter {starts[it]+widths[it]>=scrollPos && starts[it]<=scrollPos+viewW}.map {items[it].w}
+            post {onVisibleWords(visible)}
+        }
         if (expandW > 0) {
             fill.color = skin.kbBg
             c.drawRect(viewW, 0f, width.toFloat(), h, fill)
@@ -344,11 +394,7 @@ class CandidateBar(context: Context) : View(context) {
                     val i = ((e.x - p) / ((width - 2 * p) / tools.size)).toInt().coerceIn(0, tools.size - 1)
                     if (tools[i] == "edit") postDelayed(toolLong, 380)
                 }
-                clipPressedZone = if (mode == Mode.CLIP_SUGGEST) when {
-                    e.x >= clipCloseX() -> 3
-                    e.x >= clipSplitLeft() -> 2
-                    else -> 1
-                } else 0
+                clipPressedZone = if (mode == Mode.CLIP_SUGGEST) clipZone(e.x, e.y) else 0
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
@@ -391,7 +437,7 @@ class CandidateBar(context: Context) : View(context) {
                     val v = -(vt?.xVelocity ?: 0f)
                     scroller.fling(scrollPos.toInt(), 0, v.toInt(), 0, 0, maxScroll().toInt(), 0, 0)
                     postInvalidateOnAnimation()
-                } else tap(e.x)
+                } else if (mode != Mode.CLIP_SUGGEST || clipZone(e.x, e.y) == clipPressedZone) tap(e.x, e.y)
                 pressed = -1
                 clipPressedZone = 0
                 vt?.recycle()
@@ -412,8 +458,9 @@ class CandidateBar(context: Context) : View(context) {
         return true
     }
 
-    private fun tap(x: Float) {
+    private fun tap(x: Float, y: Float) {
         when (mode) {
+            Mode.SMS_CODE -> if(x>=width-42*d)listener?.onSmsCodeDismiss() else listener?.onSmsCodePaste()
             Mode.TOOLS -> {
                 if (tools.isEmpty()) return
                 val p = 6 * d
@@ -432,10 +479,10 @@ class CandidateBar(context: Context) : View(context) {
                 if (x >= width - expandW) actionClose()
                 else indexAt(x + scrollPos).takeIf { it >= 0 }?.let(actionPick)
             }
-            Mode.CLIP_SUGGEST -> when {
-                x >= clipCloseX() -> listener?.onClipDismiss()
-                x >= clipSplitLeft() -> listener?.onClipSplit()
-                else -> listener?.onClipPaste()
+            Mode.CLIP_SUGGEST -> when (clipZone(x, y)) {
+                1 -> listener?.onClipPaste()
+                2 -> listener?.onClipSplit()
+                3 -> listener?.onClipDismiss()
             }
             Mode.MESSAGE -> Unit
         }

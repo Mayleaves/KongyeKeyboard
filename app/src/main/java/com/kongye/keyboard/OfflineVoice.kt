@@ -57,7 +57,7 @@ object OfflineVoice {
     /** Ordinary Mandarin can start immediately with the bundled streaming model.
      * Pack readiness still means the separate, higher-capacity final pass exists.
      */
-    fun available(ctx: Context, dialect: Int) = dialect == 0 || ready(ctx, dialect)
+    fun available(ctx: Context, dialect: Int) = if(dialect==0)ResourcePacks.ready(ctx,"streaming") else ready(ctx,dialect)
 
     private fun sha(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -70,56 +70,16 @@ object OfflineVoice {
 
     /** 安装后先校验哈希，两个文件都完整才能启用离线识别。 */
     fun install(ctx: Context, dialect: Int, cb: (Boolean, String) -> Unit) {
-        val app = ctx.applicationContext
-        val p = pack(dialect)
-        if (ready(app, dialect)) { cb(true, "${p.name}离线包已安装，断网可用"); return }
-        synchronized(installs) {
-            installs[p.id]?.let { it.add(cb); return }
-            installs[p.id] = mutableListOf(cb)
+        val app=ctx.applicationContext
+        val id=if(dialect==0 && !ResourcePacks.ready(app,"streaming")) "streaming" else if(dialect==1) "sichuan" else "mandarin"
+        ResourcePacks.start(app,id) {ok,message->cb(ok,message)}
+        fun progress() {
+            val state=ResourcePacks.state(id)
+            if(!state.busy)return
+            cb(false,"正在下载${name(dialect)}离线包：${if(state.total>0)state.downloaded*100/state.total else 0}%")
+            main.postDelayed({progress()},500)
         }
-        fun report(ok: Boolean, message: String, finish: Boolean = false) {
-            val callbacks = synchronized(installs) {
-                val copy = installs[p.id]?.toList().orEmpty()
-                if (finish) installs.remove(p.id)
-                copy
-            }
-            main.post { callbacks.forEach { it(ok, message) } }
-        }
-        Thread({
-            runCatching {
-                val dir = directory(app, dialect).apply { check(mkdirs() || isDirectory) { "离线资源目录不可用" } }
-                report(false, "正在校验${p.name}离线包…")
-                for ((fileName, hash) in listOf("model.int8.onnx" to p.modelHash, "tokens.txt" to p.tokensHash)) {
-                    val dest = File(dir, fileName)
-                    if (dest.isFile && sha(dest) == hash) continue
-                    val temporary = File(dir, "$fileName.part")
-                    val connection = URL("https://huggingface.co/${p.repo}/resolve/${p.revision}/$fileName?download=true").openConnection() as HttpURLConnection
-                    connection.connectTimeout = 20_000
-                    connection.readTimeout = 30_000
-                    connection.setRequestProperty("User-Agent", "KongyeKeyboard")
-                    try {
-                        check(connection.responseCode in 200..299) { "下载服务返回 ${connection.responseCode}" }
-                        val total = if (fileName == "model.int8.onnx") p.bytes else p.tokensBytes
-                        var count = 0L
-                        var shown = -1
-                        connection.inputStream.buffered().use { input -> temporary.outputStream().buffered().use { out ->
-                            val buf = ByteArray(128 * 1024)
-                            while (true) {
-                                val n = input.read(buf); if (n < 0) break
-                                out.write(buf, 0, n); count += n
-                                check(count <= total) { "下载内容大小异常" }
-                                val percent = (count * 100 / total).toInt()
-                                if (shown != percent) { shown = percent; report(false, "正在下载${p.name}离线包：$percent%") }
-                            }
-                        } }
-                        check(temporary.length() == total && sha(temporary) == hash) { "文件校验失败，请重试" }
-                        check(temporary.renameTo(dest)) { "保存离线包失败" }
-                    } finally { connection.disconnect() }
-                }
-                File(dir, ".verified").writeText(signature(p))
-                report(true, "${p.name}离线包已安装，断网可用", true)
-            }.onFailure { report(false, "${p.name}离线包安装失败：${it.message ?: "请检查网络重试"}", true) }
-        }, "KongyeVoiceInstall-${p.id}").start()
+        main.post {progress()}
     }
 
     private fun recognizer(ctx: Context, dialect: Int): OfflineRecognizer {
@@ -144,9 +104,10 @@ object OfflineVoice {
     /** Called on the decoder worker while engineLock is held. */
     private fun punctuate(ctx:Context,text:String):String {
         if(text.isBlank()) return text
-        val model=punctuationEngine ?: OfflinePunctuation(ctx.assets,
-            OfflinePunctuationConfig(OfflinePunctuationModelConfig(
-                ctTransformer="voice-punctuation/model.int8.onnx",numThreads=1))).also {punctuationEngine=it}
+        if(!ResourcePacks.ready(ctx,"punctuation"))return if(text.lastOrNull() in listOf('。','！','？','!','?'))text else "$text。"
+        val model=punctuationEngine ?: OfflinePunctuation(
+            config=OfflinePunctuationConfig(OfflinePunctuationModelConfig(
+                ctTransformer=ResourcePacks.file(ctx,"punctuation").absolutePath,numThreads=1))).also {punctuationEngine=it}
         return model.addPunctuation(text)
     }
 
@@ -162,13 +123,16 @@ object OfflineVoice {
         return recognizer(ctx,dialect).also { cachedEngine=it; cachedDialect=dialect }
     }
 
-    private fun streaming(ctx: Context): OnlineRecognizer = streamingEngine ?: OnlineRecognizer(
-        assetManager = ctx.assets,
-        config = OnlineRecognizerConfig(modelConfig = OnlineModelConfig(
-            zipformer2Ctc = OnlineZipformer2CtcModelConfig("voice-streaming/model.int8.onnx"),
-            tokens = "voice-streaming/tokens.txt", numThreads = 2, debug = false,
-            modelType = "zipformer2", provider = "cpu"), enableEndpoint = false)
-    ).also { streamingEngine = it }
+    private fun streaming(ctx:Context):OnlineRecognizer {
+        streamingEngine?.let {return it}
+        check(ResourcePacks.ready(ctx,"streaming")) {"请先下载普通话实时听写模型"}
+        val model=ResourcePacks.file(ctx,"streaming")
+        val tokens=File(model.parentFile,"tokens.txt")
+        if(!tokens.isFile)ctx.assets.open("voice-streaming/tokens.txt").use {input->tokens.outputStream().use {input.copyTo(it)}}
+        return OnlineRecognizer(config=OnlineRecognizerConfig(modelConfig=OnlineModelConfig(
+            zipformer2Ctc=OnlineZipformer2CtcModelConfig(model.absolutePath),tokens=tokens.absolutePath,
+            numThreads=2,debug=false,modelType="zipformer2",provider="cpu"),enableEndpoint=false)).also {streamingEngine=it}
+    }
 
     /** 只预热模型，不打开麦克风。 */
     fun prewarm(ctx: Context, dialect: Int) {
@@ -182,6 +146,19 @@ object OfflineVoice {
             } } }
             finally { synchronized(warmRequests) { warmRequests.remove(dialect) } }
         },"KongyeVoiceWarmup").start()
+    }
+
+    /** Called on the polish worker after capture stops; do not retain ASR weights beside the LLM. */
+    fun releaseForPolish() = engineLock.withLock {
+        preferredDialect=-1
+        cachedDialect=-1;cachedEngine?.release();cachedEngine=null
+        streamingEngine?.release();streamingEngine=null
+        punctuationEngine?.release();punctuationEngine=null
+    }
+
+    fun <T> withModelFilesReleased(action:()->T):T {
+        check(engineLock.tryLock()) {"语音资源正在使用，请先结束听写后重试"}
+        try {releaseForPolish();return action()} finally {engineLock.unlock()}
     }
 
     fun releaseCache() {
@@ -317,7 +294,7 @@ object OfflineVoice {
                             if(spoken && length>3200) {
                                 val result=if(loaded!=null) decode(loaded,samples.copyOf(length)) else streamed
                                 if(result.isNotBlank()) {
-                                    val punctuated=punctuate(ctx,result)
+                                    val punctuated=VoiceText.process(ctx,if(V3Prefs.enabled(ctx,V3Prefs.VOICE_PUNCT))punctuate(ctx,result) else result)
                                     post {listener.result(punctuated)}
                                 }
                             }

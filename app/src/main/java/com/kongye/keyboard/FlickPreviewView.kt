@@ -10,11 +10,13 @@ class FlickPreviewView(ctx:Context):View(ctx) {
     var onPick:(Char)->Unit={}
     private var keys=emptyList<Key>()
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
+    private val icons=Icons(ctx)
+    private var draftIcon=0
     private val boxes=ArrayList<Pair<Char,RectF>>()
     private val d get()=resources.displayMetrics.density
-    fun submit(zh:Boolean,letter:Char,down:Boolean,draft:String,revision:Int=0,literalDraft:Boolean=false) {
+    fun submit(zh:Boolean,letter:Char,down:Boolean,draft:String,revision:Int=0,literalDraft:Boolean=false,draftIcon:Int=0) {
         tag=revision
-        chinese=zh;selected=letter;this.down=down;this.draft=draft;this.literalDraft=literalDraft
+        chinese=zh;selected=letter;this.down=down;this.draft=draft;this.literalDraft=literalDraft;this.draftIcon=draftIcon
         keys=Layouts.letters(zh,context).flatMap {it.keys}.filter {it.kind==Kind.LETTER};invalidate()
     }
     override fun onMeasure(w:Int,h:Int) {setMeasuredDimension(MeasureSpec.getSize(w),(178*d).toInt())}
@@ -35,11 +37,14 @@ class FlickPreviewView(ctx:Context):View(ctx) {
                 c.drawText(ch.toString(),rect.centerX(),rect.centerY()+7*d,paint)
                 val key=keys.firstOrNull {it.label==ch.toString()}
                 var top=key?.hint.orEmpty();var bottom=key?.hint2.orEmpty()
-                if(ch==selected && (draft.isNotEmpty() || literalDraft)) {if(down)top=draft else bottom=draft}
+                var topIcon=key?.hintIcon ?: 0;var bottomIcon=key?.hint2Icon ?: 0
+                if(ch==selected && (draft.isNotEmpty() || literalDraft)) {if(down){top=draft;topIcon=draftIcon}else{bottom=draft;bottomIcon=draftIcon}}
                 fun short(s:String)=if(s.codePointCount(0,s.length)>3)s.substring(0,s.offsetByCodePoints(0,2))+"…" else s
                 paint.textSize=9*d;paint.color=skin.barFg;paint.textAlign=Paint.Align.RIGHT
-                c.drawText(short(top),rect.right-3*d,rect.top+11*d,paint)
-                paint.textAlign=Paint.Align.LEFT;c.drawText(short(bottom),rect.left+3*d,rect.bottom-4*d,paint)
+                if(topIcon!=0)icons.draw(c,topIcon,rect.right-8*d,rect.top+8*d,10f,skin.barFg)
+                else c.drawText(short(top),rect.right-3*d,rect.top+11*d,paint)
+                if(bottomIcon!=0)icons.draw(c,bottomIcon,rect.left+8*d,rect.bottom-8*d,10f,skin.barFg)
+                else {paint.textAlign=Paint.Align.LEFT;c.drawText(short(bottom),rect.left+3*d,rect.bottom-4*d,paint)}
             }
         }
     }

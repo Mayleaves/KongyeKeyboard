@@ -46,8 +46,22 @@ object EditorDeletion {
             tap(c, KeyEvent.KEYCODE_DEL)
         } else {
             val selected = c.getSelectedText(0)
-            if (!selected.isNullOrEmpty()) c.commitText("", 1)
-            else if (!c.deleteSurroundingTextInCodePoints(1, 0)) tap(c, KeyEvent.KEYCODE_DEL)
+            val before=c.getTextBeforeCursor(2,0)
+            // Rich note editors may report a successful surrounding-text edit
+            // without merging paragraphs. Their native Backspace handler owns
+            // paragraph boundaries (including boundaries absent from context).
+            val notes=packageName in setOf("com.coloros.note","com.oplus.note","com.oneplus.note")
+            val boundary=!before.isNullOrEmpty() && before.last() in "\r\n\u2028\u2029"
+            if(notes || selected.isNullOrEmpty() && before.isNullOrEmpty())tap(c,KeyEvent.KEYCODE_DEL)
+            else if(selected.isNullOrEmpty() && boundary) {
+                // A line separator has a known UTF-16 width. Use the widely
+                // supported text-edit API: some landscape dialog connections
+                // accept synthetic key events without dispatching them.
+                val count=if(before.toString().endsWith("\r\n"))2 else 1
+                if(!c.deleteSurroundingText(count,0))tap(c,KeyEvent.KEYCODE_DEL)
+            } else if (!selected.isNullOrEmpty()) {
+                if(!c.commitText("",1))tap(c,KeyEvent.KEYCODE_DEL)
+            } else if (!c.deleteSurroundingTextInCodePoints(1, 0)) tap(c, KeyEvent.KEYCODE_DEL)
         }
     }
 

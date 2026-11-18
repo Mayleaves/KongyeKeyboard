@@ -33,13 +33,17 @@ object LiveInteraction240Regression {
         fun clear() {val e=editor() ?: error("Isolated field missing");check(e.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply {putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"")}));Thread.sleep(200)}
         fun text()=editor()?.text?.toString().orEmpty().takeUnless {it=="只使用虚构测试内容"}.orEmpty()
         val p=Prefs.of(ctx)
-        val keys=listOf(Prefs.GLIDE,Prefs.ZH,Prefs.LAYOUT,Prefs.VAULT,Prefs.COUNT_TODAY,Prefs.COUNT_DATE,Prefs.SPACE_LONG)
+        val keys=listOf(Prefs.GLIDE,Prefs.ZH,Prefs.LAYOUT,Prefs.VAULT,Prefs.COUNT_TODAY,Prefs.COUNT_DATE,Prefs.SPACE_LONG,V3Prefs.GLIDE_ZH,V3Prefs.GLIDE_EN,V3Prefs.EN_SPACE,V3Prefs.CAPS)
         val backup=keys.associateWith {p.all[it]}
         try {
-            ui {p.edit().putBoolean(Prefs.GLIDE,true).putBoolean(Prefs.ZH,true).putString(Prefs.LAYOUT,"26").putBoolean(Prefs.VAULT,false).putInt(Prefs.SPACE_LONG,0).commit()}
-            ctx.startActivity(Intent(inst.context,TypingFormActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("bottom",true))
+            ui {p.edit().putBoolean(Prefs.GLIDE,true).putBoolean(Prefs.ZH,true).putString(Prefs.LAYOUT,"26").putBoolean(Prefs.VAULT,false).putInt(Prefs.SPACE_LONG,0).putBoolean(V3Prefs.GLIDE_ZH,true).putBoolean(V3Prefs.GLIDE_EN,true).putBoolean(V3Prefs.EN_SPACE,false).putBoolean(V3Prefs.CAPS,false).commit()}
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(auto.executeShellCommand("am start -W -f 0x10008000 -n com.kongye.keyboard.test/com.kongye.keyboard.TypingFormActivity --ez bottom true")).use {it.readBytes()}
             waitFor("isolated editor") {editor()!=null}
             editor()!!.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            val inputBounds=Rect();editor()!!.getBoundsInScreen(inputBounds)
+            val focusTime=SystemClock.uptimeMillis()
+            event(0,inputBounds.centerX().toFloat(),inputBounds.centerY().toFloat(),focusTime)
+            event(1,inputBounds.centerX().toFloat(),inputBounds.centerY().toFloat(),focusTime)
             waitFor("keyboard window") {ui {keyboard()!=null}}
             val k=ui {keyboard()!!};val ime=k.listener as KongyeIME
             fun type(raw:String) {for(ch in raw){ui {ime.onKey(Key(Kind.LETTER,ch.toString()))};Thread.sleep(20)}}

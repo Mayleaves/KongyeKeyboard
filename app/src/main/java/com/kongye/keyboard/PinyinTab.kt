@@ -27,6 +27,12 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
     private val d get() = resources.displayMetrics.density * uiScale
     var skin: Skin = Skins.KONGYE
         set(value) { field=value; invalidate() }
+    /** Used only by fixed settings comparisons; live keyboard keeps its theme color. */
+    var bubbleColor:Int?=null
+        set(value){field=value;invalidate()}
+    var errorUnderlineColor = Color.rgb(230, 57, 70)
+    var drawOutline=true
+        set(value){field=value;invalidate()}
     private var text = ""
     private var errors=BooleanArray(0)
     private var swaps=emptyList<Int>()
@@ -135,10 +141,10 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
         textPaint.textSize=size;textPaint.color=skin.candFg
         val radius=(if(expanded) 13 else 11)*d
         path.reset();path.addRoundRect(RectF(d,top,right,height+radius),floatArrayOf(radius,radius,radius,radius,0f,0f,0f,0f),Path.Direction.CW)
-        fill.color=withAlpha(if(skin.dark) skin.popBg else Color.WHITE,222)
+        fill.color=bubbleColor ?: withAlpha(if(skin.dark) skin.popBg else Color.WHITE,222)
         c.drawPath(path,fill)
         stroke.strokeWidth=.8f*d;stroke.color=if(skin.dark) Color.parseColor("#777B80") else Color.parseColor("#C5C7CA")
-        c.drawPath(path,stroke)
+        if(drawOutline)c.drawPath(path,stroke)
         c.save();c.clipRect(bodyLeft-2*d,top,right-pad+3*d,height.toFloat())
         if(expanded) {
             val l=layout
@@ -176,7 +182,7 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
         }
         if(swaps.isEmpty() && errors.none {it}) return
         val positions=text.indices.filter {text[it] in 'a'..'z' || text[it] in 'A'..'Z'}
-        stroke.color=Color.rgb(230,57,70);stroke.strokeWidth=1.1f*d
+        stroke.color=errorUnderlineColor;stroke.strokeWidth=1.1f*d
         fun x(i:Int)=left+textPaint.measureText(text,start,i.coerceIn(start,end))
         errors.forEachIndexed {i,error ->
             val at=positions.getOrNull(i)
@@ -188,6 +194,7 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
                 c.drawPath(path,stroke)
             }
         }
+        stroke.color=Color.rgb(230,57,70)
         for(i in swaps) {
             val a=positions.getOrNull(i) ?: continue;val b=positions.getOrNull(i+1) ?: continue
             if(a !in start until end || b !in start until end) continue

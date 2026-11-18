@@ -183,6 +183,7 @@ class CandFlowView(context: Context, private val skin: Skin, private var items: 
     private val hintLayouts=ArrayList<android.text.StaticLayout?>()
 
     var onOverflow:(String?)->Unit = {}
+    var onVisibleWords:(List<String>)->Unit = {}
     private val shown=ArrayList<String>()
     fun submit(items:List<String>,subtitles:List<String?> = emptyList()) {
         this.items=items;this.subtitles=subtitles;pressed=-1;requestLayout();invalidate()
@@ -222,6 +223,9 @@ class CandFlowView(context: Context, private val skin: Skin, private var items: 
     }
 
     override fun onDraw(c: Canvas) {
+        val clip=c.clipBounds
+        val visible=boxes.indices.filter {boxes[it].bottom>=clip.top && boxes[it].top<=clip.bottom}.map {items[it]}
+        post {onVisibleWords(visible)}
         val fm = text.fontMetrics
         for ((i, r) in boxes.withIndex()) {
             val kongyeFirst = i == 0 && skin.style == SkinStyle.KONGYE
@@ -499,7 +503,7 @@ class SkinPanel(
 }
 
 /** “更多”面板：图标 + 名字的格子 */
-class TileGridView(context: Context, private val skin: Skin, private val items: List<Triple<String, String, Int>>, private val onPick: (String) -> Unit) : View(context) {
+class TileGridView(context: Context, private val skin: Skin, private val items: List<Triple<String, String, Int>>, private val activeItems:Set<String> = emptySet(), private val onPick: (String) -> Unit) : View(context) {
     private val d = resources.displayMetrics.density
     private val icons = Icons(context)
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -523,7 +527,7 @@ class TileGridView(context: Context, private val skin: Skin, private val items: 
             r.set(cx - box / 2, top, cx + box / 2, top + box)
             fill.color = if (i == pressed) skin.keyDown else skin.keyBg
             c.drawRoundRect(r, 14 * d, 14 * d, fill)
-            icons.draw(c, it.third, cx, r.centerY(), 24f, skin.keyFg)
+            icons.draw(c, it.third, cx, r.centerY(), 24f, if(it.first in activeItems) Color.rgb(240,73,44) else skin.keyFg)
             text.textSize = 12 * d
             text.color = skin.candFg
             c.drawText(it.second, cx, r.bottom + 16 * d, text)
@@ -777,6 +781,11 @@ fun optionList(context: Context, skin: Skin, opts: List<Opt>): ScrollView {
 
 /** 键盘最下面一条：左边切换输入法，右边剪贴板（照截图 1 的红框） */
 class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private val onClip: () -> Unit) : View(context) {
+    var cursorEnabled=false
+    var onCursor:(Int,Int)->Unit = {_,_->}
+    private var dragX=0f
+    private var dragY=0f
+    private var moved=false
     var uiScale = 1f
         set(v) { if(field!=v) {field=v;icons.scale=v;requestLayout();invalidate() } }
     private val d get() = resources.displayMetrics.density * uiScale
@@ -805,7 +814,15 @@ class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private 
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (e.actionMasked == MotionEvent.ACTION_UP) {
+        if(e.actionMasked==MotionEvent.ACTION_DOWN) {dragX=e.x;dragY=e.y;moved=false}
+        if(e.actionMasked==MotionEvent.ACTION_MOVE && cursorEnabled && e.x>70*d && e.x<width-70*d) {
+            val dx=e.x-dragX;val dy=e.y-dragY
+            if(kotlin.math.abs(dx)>12*d || kotlin.math.abs(dy)>22*d) {
+                moved=true;onCursor(if(kotlin.math.abs(dx)>12*d)if(dx>0)1 else -1 else 0,if(kotlin.math.abs(dy)>22*d)if(dy>0)1 else -1 else 0)
+                dragX=e.x;dragY=e.y
+            }
+        }
+        if (e.actionMasked == MotionEvent.ACTION_UP && !moved) {
             if (e.x < 70 * d) onKeyboard() else if (e.x > width - 70 * d) onClip()
         }
         return true

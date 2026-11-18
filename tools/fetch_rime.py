@@ -25,7 +25,7 @@ DEPS = {
     'rime-ice.zip': ('https://codeload.github.com/iDvel/rime-ice/zip/99662ba01e3affa6a0f009174ca530b887bac3b6', '459eb85d0555f29888452114b48914e7b9b9407db765731629d322ba8a648aaa'),
     'jna.aar': ('https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.17.0/jna-5.17.0.aar', '4dbeffffa665d97ad5aa7eee297531d3c841a86716ab7f774fd6956422b3cf38'),
     'wanxiang.zip': ('https://github.com/amzxyz/rime-wanxiang/releases/download/v18.1.11/rime-wanxiang-base.zip', '6f3b50a3cbf66227b8f8c490aefc6715a92243eec0d3eab6b920741cd2c07cd6'),
-    'wanxiang-lts-zh-hans.gram': ('https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/wanxiang-lts-zh-hans.gram', '3457b69f5fe0fc4f5d211c878bbfa2e2361b90639952c9845c8e31e9d047cde6'),
+    'wanxiang-lts-zh-hans.gram': ('https://api.github.com/repos/amzxyz/rime-wanxiang-data/releases/assets/747939897', 'd4f64356231764ff27b79c9b0db79cd9d665013464cf5544e2fbd9a71e0f1c5a'),
     'rime.7z': ('https://github.com/rime/librime/releases/download/1.17.0/rime-33e7814-Windows-clang-x64.7z', 'f850177bb2d256574348258f221730dbf3d358a53dbeca4bd49cdc338d927438'),
     'rime-deps.7z': ('https://github.com/rime/librime/releases/download/1.17.0/rime-deps-33e7814-Windows-clang-x64.7z', '4a494d253b886bcba6eb2fde22eae74940b75f25db7612e6f99a53317995c952'),
     'rime_api.h': ('https://raw.githubusercontent.com/rime/librime/1.17.0/src/rime_api.h', '6eb5629162c44761e7b878f1b122f464de5c8685bd3cd5ac1e8519badc6d6424'),

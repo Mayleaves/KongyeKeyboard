@@ -11,8 +11,8 @@ android {
         applicationId = "com.kongye.keyboard"
         minSdk = 26
         targetSdk = 36
-        versionCode = 39
-        versionName = "2.4.7"
+        versionCode = 40
+        versionName = "3.0.0"
         testInstrumentationRunner = "com.kongye.keyboard.OfflineResourcesCheck"
         // ML Kit 的识别、翻译带原生库；只要 64 位 ARM，安装包小很多
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
@@ -39,6 +39,8 @@ android {
     buildFeatures {
         compose = true
     }
+    androidResources {noCompress += "gguf"}
+    sourceSets.getByName("main").assets.setSrcDirs(listOf(layout.buildDirectory.dir("lightAssets")))
     // Fcitx loads its official addons with dlopen from nativeLibraryDir.
     packaging { jniLibs.useLegacyPackaging = true }
     testBuildType = "release"
@@ -53,6 +55,7 @@ android {
 }
 
 dependencies {
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation(fileTree("libs") { include("markdown-*.aar", "markdown-*.jar") })
     implementation(files("libs/sherpa-onnx-2.0.1.aar", "libs/fcitx5-0.1.3.aar"))
     implementation(files("libs/jna-5.17.0.aar", "libs/rime-1.17.0.aar"))
@@ -71,3 +74,20 @@ dependencies {
     implementation("com.google.mlkit:language-id:17.0.6")
     implementation("com.google.mlkit:digital-ink-recognition:18.1.0")
 }
+
+// Keep the reproducible upstream inputs outside the packaged asset set. The
+// essential native decoder and base dictionaries still work on first launch.
+val basePinyinAssets by tasks.registering(Zip::class) {
+    from(zipTree("src/main/assets/rime-data.zip")) { exclude("*.gram") }
+    archiveFileName.set("rime-data.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("basePinyin"))
+}
+val lightAssets by tasks.registering(Sync::class) {
+    dependsOn(basePinyinAssets)
+    from("src/main/assets") {
+        exclude("rime-data.zip", "voice-polish/*.gguf", "voice-streaming/*.onnx", "voice-punctuation/*.onnx", "handwriting-neural/*.onnx")
+    }
+    from(basePinyinAssets.map { it.archiveFile })
+    into(layout.buildDirectory.dir("lightAssets"))
+}
+tasks.named("preBuild").configure { dependsOn(lightAssets) }

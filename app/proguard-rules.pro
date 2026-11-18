@@ -93,3 +93,81 @@
 -keep class com.kongye.keyboard.CandidateHost { *; }
 
 -keepclassmembers class com.kongye.keyboard.PinyinTab { boolean caretVisible; }
+
+# Release-device regression exercises the new settings through the production IME.
+-keep class com.kongye.keyboard.V3Prefs { *; }
+-keep class com.kongye.keyboard.EnglishInput { *; }
+-keep class com.kongye.keyboard.VoiceText { *; }
+-keep class com.kongye.keyboard.VoiceMedia { *; }
+-keep class com.kongye.keyboard.VoiceBoard { *; }
+
+-keep class com.kongye.keyboard.VoiceSupport { *; }
+
+-keep class com.kongye.keyboard.NativePolish { *; }
+-keep class com.kongye.keyboard.VoicePolish** { *; }
+-keep class com.kongye.keyboard.PolishSecret { *; }
+
+-keep class com.kongye.keyboard.TypingStats** { *; }
+-keep class com.kongye.keyboard.StatsSnapshot { *; }
+-keep class com.kongye.keyboard.StatsMethod { *; }
+-keep class com.kongye.keyboard.StatsReport { *; }
+
+-keepclassmembers class com.kongye.keyboard.KongyeIME {
+    private java.lang.StringBuilder voiceText;
+    private void openVoice();
+    private void updateVoice();
+}
+
+# The separately packaged device checks share Result callbacks with the app.
+-keep class kotlin.Result** { *; }
+
+-keep class com.kongye.keyboard.ResourcePacks** { *; }
+-keep class com.kongye.keyboard.ResourceTransfer** { *; }
+
+-keep class com.kongye.keyboard.SettingExampleView { *; }
+
+-keepclassmembers class com.kongye.keyboard.KongyeIME { private boolean statsAllowed(); }
+
+# Production updater dialog state coverage (no installer interaction).
+-keepclassmembers class com.kongye.keyboard.SettingsActivity {
+    private boolean checkingUpdate;
+    private *** release;
+    private *** downloadedApk;
+    private *** downloading;
+    private *** updateState;
+    private *** downloadState;
+}
+-keep class com.kongye.keyboard.SettingAvailability** { *; }
+-keep class com.kongye.keyboard.KeyboardBackup** { *; }
+-keep class com.kongye.keyboard.StatsYearView { *; }
+
+# Direct Unicode pairing checks from the release instrumentation.
+-keep class com.kongye.keyboard.PairedSymbols { *; }
+
+# Release-device validation of shared editing, live sizing and WebDAV transfers.
+-keep class com.kongye.keyboard.KeyboardAdjustmentPreview { *; }
+-keep class com.kongye.keyboard.ArrangeView { *; }
+-keep class com.kongye.keyboard.WebDavBackup** { *; }
+
+-keep class com.kongye.keyboard.NumericKeyboardPreview { *; }
+-keep class com.kongye.keyboard.SymbolOrderView { *; }
+
+-keep class com.kongye.keyboard.SmsSetupGuideView { *; }
+
+# The instrumented clipboard test restores the original clip without recapturing it.
+-keepclassmembers class com.kongye.keyboard.KongyeIME { private long ignoreClipUntil; }
+
+# Validate the same first-install path from the release companion tests.
+-keep class com.kongye.keyboard.InstallDefaults { *; }
+
+-keep class com.kongye.keyboard.FloatingKeyboard { *; }
+-keep class com.kongye.keyboard.Adjust { *; }
+-keep class com.kongye.keyboard.TileGridView { *; }
+
+-keep class com.kongye.keyboard.AdjustOverlay { *; }
+-keepclassmembers class com.kongye.keyboard.KongyeIME {
+    private *** adj;
+    private *** col;
+    private void applyFloat();
+    private void applySkin(boolean,boolean);
+}

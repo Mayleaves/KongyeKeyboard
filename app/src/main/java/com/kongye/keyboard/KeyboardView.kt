@@ -86,6 +86,7 @@ class KeyboardView(context: Context) : View(context) {
         /** 移动光标：dx 左右一步，dy 上下一步 */
         fun onCursorMove(dx: Int, dy: Int)
         /** 删除键下滑清空（down=true），上滑撤回 */
+        fun onDeleteGesture(direction:String) {onSwipeDel(direction=="down")}
         fun onSwipeDel(down: Boolean)
         /** 光标模式开关状态变化 */
         fun onCursorModeChange(active: Boolean) {}
@@ -102,6 +103,11 @@ class KeyboardView(context: Context) : View(context) {
     /** 中文组字时大写键变成“分词” */
     var splitMode = false
     var clearCompositionOnHold = false
+    var letterLong=0
+    var showGlideTrace=true
+    var splitGap=72f
+    var splitSize=1f
+    var fillGaps=true
     var glideEnabled = false
     var swipeEnabled = true
     var enterIcon = R.drawable.ic_enter
@@ -210,14 +216,15 @@ class KeyboardView(context: Context) : View(context) {
                 for (k in row.keys) { val kw = k.w * unit; k.rect.set(x, y, x + kw, y + rh); x += kw + gap }
             }
             if (splitLayout && sideList == null && n >= 4) {
-                val splitGap = wv * .13f
+                val splitGap = (this.splitGap*resources.displayMetrics.density).coerceAtMost(wv*.35f)
                 val usable = wv - 2 * pad
                 val factor = (usable - splitGap) / usable
                 val midpoint = n / 2
                 row.keys.forEachIndexed { index, key ->
                     val left = pad + (key.rect.left - pad) * factor + if (index >= midpoint) splitGap else 0f
                     val right = pad + (key.rect.right - pad) * factor + if (index >= midpoint) splitGap else 0f
-                    key.rect.set(left, y, right, y + rh)
+                    val inset=(right-left)*(1-splitSize.coerceIn(.7f,1f))/2
+                    key.rect.set(left+inset, y, right-inset, y+rh)
                 }
             }
             if (ri == rows.lastIndex && row.keys.lastOrNull()?.kind == Kind.ENTER) {
@@ -249,6 +256,29 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
+    /** Blank settings thumbnails share the exact live key rectangles. */
+    fun drawSilhouette(c:Canvas,box:RectF,background:Int,normal:Int,modifier:Int) {
+        val paint=Paint(Paint.ANTI_ALIAS_FLAG)
+        val save=c.save();c.translate(box.left,box.top);c.scale(box.width()/width,box.height()/height)
+        if(background!=0){paint.color=background;c.drawRoundRect(RectF(0f,0f,width.toFloat(),height.toFloat()),8*d,8*d,paint)}
+        for(row in rows)for(key in row.keys){paint.color=if(key.look==Look.MOD)modifier else normal;c.drawRoundRect(key.rect,6*d,6*d,paint)}
+        if(side!=null){paint.color=modifier;c.drawRoundRect(sideRect,6*d,6*d,paint)}
+        c.restoreToCount(save)
+    }
+
+    fun previewSideBounds():RectF = RectF(sideRect)
+
+    /** Edit outlines follow the same key contour, including the leaf-shaped corners. */
+    fun drawPreviewOutline(canvas:Canvas,rect:RectF,sideColumn:Boolean,paint:Paint) {
+        if(sideColumn) {
+            val radius=skin.radius*d
+            canvas.drawRoundRect(rect,radius,radius,paint)
+        } else {
+            buildShape(rect)
+            canvas.drawPath(path,paint)
+        }
+    }
+
     private fun findKey(x: Float, y: Float): Key? {
         for (row in rows) for (k in row.keys) if (k.hit.contains(x, y)) return k
         return null
@@ -257,6 +287,12 @@ class KeyboardView(context: Context) : View(context) {
     // —————————— 绘制 ——————————
 
     override fun onDraw(c: Canvas) {
+        fill.color=skin.kbBg
+        if(!fillGaps && splitLayout) {
+            val center=width/2f;val halfGap=splitGap*resources.displayMetrics.density/2
+            c.drawRect(0f,0f,center-halfGap,height.toFloat(),fill)
+            c.drawRect(center+halfGap,0f,width.toFloat(),height.toFloat(),fill)
+        } else c.drawRect(0f,0f,width.toFloat(),height.toFloat(),fill)
         if (cursorMode) {
             drawCursorMode(c)
             return
@@ -273,7 +309,7 @@ class KeyboardView(context: Context) : View(context) {
             for(row in rows) for(k in row.keys) if(k.look==Look.MOD) drawKey(c,k,pressMap[k])
         }
         val trace=presses.values.firstOrNull {it.gliding}?.trace
-        if(trace!=null && trace.size>1) {
+        if(showGlideTrace && trace!=null && trace.size>1) {
             val line=Path();line.moveTo(trace[0].x,trace[0].y);trace.drop(1).forEach {line.lineTo(it.x,it.y)}
             stroke.color=withAlpha(skin.candHi,150);stroke.strokeWidth=3*d;stroke.strokeCap=Paint.Cap.ROUND;c.drawPath(line,stroke)
         }
@@ -358,8 +394,9 @@ class KeyboardView(context: Context) : View(context) {
         val s = skin
         val r = k.rect
         val down = p != null && !cursorMode
-        val base = if (k.look == Look.MOD) s.modBg else s.keyBg
-        val fg = if (k.look == Look.MOD) s.modFg else s.keyFg
+        val capsLocked = k.kind == Kind.SHIFT && shiftState == 2 && !splitMode
+        val base = if (capsLocked) s.accBg else if (k.look == Look.MOD) s.modBg else s.keyBg
+        val fg = if (capsLocked) s.accFg else if (k.look == Look.MOD) s.modFg else s.keyFg
         // 按下：底色变深，再描一圈边
         val bg = if (down) (if (k.look == Look.MOD) darken(base, if (s.dark) 1.25f else 0.86f) else s.keyDown) else base
         buildShape(r)
@@ -409,7 +446,10 @@ class KeyboardView(context: Context) : View(context) {
                 if (raw > 0.01f && activeDir != 0) {
                     val t = (raw * 1.15f).coerceIn(0f, 1f)
                     val ease = t * t * (3f - 2f * t)
-                    val tintColor = if (activeDir > 0) RED else BLUE
+                    val preference=when(activeDir){2->V3Prefs.DEL_RIGHT;-2->V3Prefs.DEL_LEFT;1->V3Prefs.DEL_DOWN;else->V3Prefs.DEL_UP}
+                    val command=Prefs.of(context).getString(preference,when(activeDir){1->"clear";-1->"undo";else->"none"})
+                    val label=mapOf("none" to "无动作","clear" to "清空","undo" to "撤回","redo" to "重做","delete" to "删除","left" to "左移","right" to "右移")[command] ?: "删除"
+                    val tintColor = if (command=="clear") RED else BLUE
                     // 清空用红色，撤回用深蓝色，均配白色文字
                     fill.color = withAlpha(tintColor, (ease * 255).toInt())
                     c.drawPath(path, fill)
@@ -424,7 +464,7 @@ class KeyboardView(context: Context) : View(context) {
                     if (labelAlpha > 8) {
                         val textY = cy - activeDir * (1f - ease) * 11f * d
                         val textSize = 11f + 4.5f * ease
-                        drawText(c, if (activeDir > 0) "清空" else "撤回", cx, textY, textSize, withAlpha(Color.WHITE, labelAlpha))
+                        drawText(c, label, cx, textY, textSize, withAlpha(Color.WHITE, labelAlpha))
                     }
                 } else {
                     icons.draw(c, R.drawable.ic_del, cx, cy, 22f, fg)
@@ -451,19 +491,26 @@ class KeyboardView(context: Context) : View(context) {
 
     /** 两个角标；滑动时被选中的那个随进度移到按键中间、变大 */
     private fun drawHints(c: Canvas, k: Key, r: RectF, prog: Float, dir: Int, bigSize: Float) {
-        val topX = r.right - 5 * d
-        val topY = r.top + 3 * d
-        val botX = r.left + 5 * d
-        val botY = r.bottom - 14 * d
-        k.hint?.let { h ->
-            if (dir > 0 && prog > 0f) moving(c, h, topX, topY, Paint.Align.RIGHT, r, prog, bigSize)
-            else drawHint(c, h, topX, topY, Paint.Align.RIGHT, 10f, withAlpha(skin.hintFg, (255 * (1 - prog)).toInt()))
+        val hintDir=if(k.reversedSwipe)-dir else dir
+        fun hint(value:String?,icon:Int,top:Boolean) {
+            if(value==null&&icon==0)return
+            val selected=if(top)hintDir>0 else hintDir<0
+            if(icon!=0) {
+                val progress=if(selected)prog else 0f
+                val startX=if(top)r.right-10*d else r.left+10*d
+                val startY=if(top)r.top+9*d else r.bottom-9*d
+                val color=if(selected)mix(skin.hintFg,skin.keyFg,progress) else withAlpha(skin.hintFg,(255*(1-prog)).toInt())
+                icons.draw(c,icon,startX+(r.centerX()-startX)*progress,startY+(r.centerY()-startY)*progress,10f+(bigSize-10f)*progress,color)
+            } else if(value!=null) {
+                val x=if(top)r.right-5*d else r.left+5*d
+                val y=if(top)r.top+3*d else r.bottom-14*d
+                val align=if(top)Paint.Align.RIGHT else Paint.Align.LEFT
+                if(selected&&prog>0f)moving(c,value,x,y,align,r,prog,bigSize)
+                else drawHint(c,value,x,y,align,if(top)10f else 9.5f,withAlpha(skin.hintFg,(255*(1-prog)).toInt()))
+            }
         }
-        if (!swipeEnabled) return
-        k.hint2?.let { h ->
-            if (dir < 0 && prog > 0f) moving(c, h, botX, botY, Paint.Align.LEFT, r, prog, bigSize)
-            else drawHint(c, h, botX, botY, Paint.Align.LEFT, 9.5f, withAlpha(skin.hintFg, (255 * (1 - prog)).toInt()))
-        }
+        hint(k.hint,k.hintIcon,true)
+        if(swipeEnabled)hint(k.hint2,k.hint2Icon,false)
     }
 
     private fun moving(c: Canvas, h: String, x0: Float, y0: Float, align: Paint.Align, r: RectF, prog: Float, bigSize: Float) {
@@ -708,6 +755,7 @@ class KeyboardView(context: Context) : View(context) {
         longTask = null
         val k = p.key
         val popLong = k.kind == Kind.LETTER
+        if(popLong && letterLong==2 && k.letters.length==1)return
         val hintLong = k.hint != null && k.kind == Kind.CHAR && !k.longEmoji
         val actionLong = k.longEmoji || k.kind == Kind.SPACE || k.kind == Kind.SHIFT || popLong
         if (!hintLong && !actionLong) return
@@ -715,10 +763,13 @@ class KeyboardView(context: Context) : View(context) {
             if (p.key !== k || p.dragging || p.swipe != 0) return@Runnable
             p.long = true
             when {
+                popLong && letterLong==1 && k.letters.length==1 -> {p.fired=true;listener?.onKey(Key(Kind.CHAR,k.letters.uppercase()))}
                 popLong -> {
                     // 小写、大写，再加上角标的符号
                     val letters = k.letters.map { it.toString() }
-                    val opts = (letters + letters.map { it.uppercase() } + listOfNotNull(k.hint.takeIf {k.downAction?.command==null}, k.hint2.takeIf {k.upAction?.command==null})).distinct()
+                    val topAction=if(k.reversedSwipe)k.upAction else k.downAction
+                    val bottomAction=if(k.reversedSwipe)k.downAction else k.upAction
+                    val opts = (letters + letters.map { it.uppercase() } + listOfNotNull(k.hint.takeIf {topAction?.command==null}, k.hint2.takeIf {bottomAction?.command==null})).distinct()
                     p.popup = opts
                     p.popDefault = if (letters.size == 1 && opts.size > 1) 1 else 0
                     p.popSel = p.popDefault
@@ -759,8 +810,8 @@ class KeyboardView(context: Context) : View(context) {
         handler.postDelayed(task, longMs)
     }
 
-    private fun canSwipe(k: Key) = swipeEnabled && when (k.kind) {
-        Kind.LETTER, Kind.CHAR -> k.hint != null || k.hint2 != null
+    private fun canSwipe(k: Key) = when (k.kind) {
+        Kind.LETTER, Kind.CHAR -> swipeEnabled && (k.hint != null || k.hint2 != null)
         Kind.DEL -> k.hint != null
         else -> false
     }
@@ -791,6 +842,11 @@ class KeyboardView(context: Context) : View(context) {
             val sel = ((x - r.left) / (r.width() / items.size)).toInt().coerceIn(0, items.size - 1)
             if (sel != p.popSel) { p.popSel = sel; listener?.onPress(k); invalidate() }
             return
+        }
+        if(k.kind==Kind.DEL && abs(x-p.x0)>18*d && abs(x-p.x0)>abs(y-p.y0)*1.2f) {
+            p.swipe=if(x>p.x0) 2 else -2;p.prog=(abs(x-p.x0)/(40*d)).coerceAtMost(1f)
+            repeatTask?.let {handler.removeCallbacks(it)};repeatTask=null
+            invalidate();return
         }
         if (k.kind == Kind.SPACE) {
             if (p.repeating) return
@@ -888,11 +944,11 @@ class KeyboardView(context: Context) : View(context) {
         val swiped = p.swipe != 0 && p.prog > 0.12f
         if (p.long && k.hint != null) { listener?.onKey(Key(Kind.CHAR, k.hint)); return }
         if (swiped) {
-            if (k.kind == Kind.DEL) listener?.onSwipeDel(p.swipe > 0)
+            if (k.kind == Kind.DEL) listener?.onDeleteGesture(when(p.swipe){2->"right";-2->"left";1->"down";else->"up"})
             else {
                 val action=if(p.swipe>0) k.downAction else k.upAction
                 if(action?.command!=null) listener?.onKey(Key(Kind.ACTION,action.label,out=action.command!!))
-                else (action?.text ?: if(p.swipe>0) k.hint else k.hint2)?.let {listener?.onKey(Key(Kind.CHAR,it))}
+                else (action?.text ?: if((p.swipe>0)!=k.reversedSwipe) k.hint else k.hint2)?.let {listener?.onKey(Key(Kind.CHAR,it))}
             }
             return
         }
