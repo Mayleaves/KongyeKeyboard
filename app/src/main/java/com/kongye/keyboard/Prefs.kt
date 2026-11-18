@@ -83,10 +83,13 @@ object Prefs {
 
     fun opacity(ctx: Context) = of(ctx).getFloat(OPACITY, 1f).coerceIn(0.3f, 1f)
 
+    const val FUZZY_V_U = "v-u"
+
     /** 模糊音规则：id 到说明 */
     val FUZZY_RULES = listOf(
         "z-zh" to "z = zh", "c-ch" to "c = ch", "s-sh" to "s = sh", "n-l" to "n = l", "f-h" to "f = h", "r-l" to "r = l",
         "an-ang" to "an = ang", "en-eng" to "en = eng", "in-ing" to "in = ing", "ian-iang" to "ian = iang", "uan-uang" to "uan = uang",
+        FUZZY_V_U to "v = u",
     )
 
     fun fuzzy(ctx: Context): Set<String> = if(of(ctx).getBoolean(V3Prefs.FUZZY_ENABLED,true)) fuzzySelection(ctx) else emptySet()

@@ -191,7 +191,9 @@ object SpellingAssist {
 
     private fun fuzzyEquivalent(input:String,target:String):Boolean {
         var a=input;var b=target
-        for(rule in Lexicon.fuzzyRules) {
+        val rules=Lexicon.fuzzyRules
+        for(rule in rules) {
+            if(rule == Prefs.FUZZY_V_U) continue
             val pair=rule.split('-');if(pair.size!=2)continue
             val from=pair[1];val to=pair[0]
             if(rule in setOf("z-zh","c-ch","s-sh","n-l","f-h","r-l")) {
@@ -202,7 +204,11 @@ object SpellingAssist {
                 if(b.endsWith(from))b=b.removeSuffix(from)+to
             }
         }
-        return a==b
+        if(a == b) return true
+        // Only the complete u/v final is fuzzy. Do not treat iu, ong, etc. as typing variants.
+        return Prefs.FUZZY_V_U in rules &&
+            a.length == 2 && b.length == 2 && a[0] == b[0] && a[0] in "nl" &&
+            (a[1] == 'u' && b[1] == 'v' || a[1] == 'v' && b[1] == 'u')
     }
     private fun permittedDistance(a:String,b:String):Int {
         val rows=listOf("qwertyuiop","asdfghjkl","zxcvbnm")

@@ -35,6 +35,44 @@ object CorrectionSwitchRegression {
             for(case in cases.filter {it.bit in listOf(4,8)})check(PinyinEngine.candidates(case.raw.map {it.toString()},false).any {it.w==case.word&&it.n==case.raw.length}) {"Full-pinyin mode missing ${case.raw}"}
             p.edit().putString(Prefs.FUZZY,"n-l").putBoolean(V3Prefs.FUZZY_ENABLED,false).commit();check(Prefs.fuzzy(ctx).isEmpty()&&Prefs.fuzzySelection(ctx)==setOf("n-l"))
             p.edit().putBoolean(V3Prefs.FUZZY_ENABLED,true).commit();check(Prefs.fuzzy(ctx)==setOf("n-l"))
+            p.edit().putBoolean(V3Prefs.CORRECTION_ENABLED,false).commit()
+            SpellingAssist.configure(ctx)
+            data class FuzzyCase(val raw:String,val word:String,val reading:String)
+            val fuzzyCases=listOf(
+                FuzzyCase("luse", "绿色", "lv se"),
+                FuzzyCase("lvshang", "路上", "lu shang"),
+                FuzzyCase("nuer", "女儿", "nv er"),
+            )
+            try {
+                for (enabled in listOf(false, true, false)) {
+                    p.edit().putString(Prefs.FUZZY,Prefs.FUZZY_V_U)
+                        .putBoolean(V3Prefs.FUZZY_ENABLED,enabled).commit()
+                    check(Prefs.fuzzySelection(ctx) == setOf(Prefs.FUZZY_V_U))
+                    Lexicon.fuzzyRules=Prefs.fuzzy(ctx)
+                    for ((raw, word, reading) in fuzzyCases) {
+                        val keys=raw.map(Char::toString)
+                        check(SpellingAssist.allows(raw,reading) == enabled)
+                        if (enabled) check(SpellingAssist.edits(raw,reading).isEmpty())
+                        for (abbreviation in listOf(true, false)) {
+                            val words=PinyinEngine.candidates(keys,abbreviation)
+                            val match=words.firstOrNull { it.w == word && it.n == keys.size }
+                            check((match != null) == enabled) {
+                                "v/u enabled=$enabled abbreviation=$abbreviation $raw -> $word: " +
+                                    words.take(20).joinToString { "${it.w}:${it.n}" }
+                            }
+                            if (match != null && abbreviation) {
+                                check(FcitxEngine.consume(match,false) == keys.size)
+                            }
+                        }
+                    }
+                    check(("lv" in Lexicon.syllableVariants("lu", false)) == enabled)
+                    check(("lu" in Lexicon.syllableVariants("lv", false)) == enabled)
+                    check("niv" !in Lexicon.syllableVariants("niu", false))
+                }
+                report("v/u fuzzy finals passed in both directions with correction off, including full spelling and live switch changes")
+            } finally {
+                FcitxEngine.clear()
+            }
             report("CORRECTION SWITCHES PASSED: 16 combinations, no neighboring/swap bypass, full extra/missing consumption, master off, normal words/abbreviations, full-pinyin and fuzzy selection preservation")
 
         } finally {

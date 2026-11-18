@@ -243,6 +243,7 @@ object Lexicon {
     private val FINAL_PAIRS = mapOf(
         "an-ang" to ("an" to "ang"), "en-eng" to ("en" to "eng"), "in-ing" to ("in" to "ing"),
         "ian-iang" to ("ian" to "iang"), "uan-uang" to ("uan" to "uang"),
+        Prefs.FUZZY_V_U to ("v" to "u"),
     )
 
     private fun initialOf(x: String): String = when {

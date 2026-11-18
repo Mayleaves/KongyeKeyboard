@@ -25,7 +25,7 @@ object FactoryResetRegression {
             changed.putString(V3Prefs.LAYOUT_LANDSCAPE,"9").putInt(V3Prefs.CLIP_DAYS,30)
                 .putString(VoicePolish.ENDPOINT,"https://example.invalid/api")
                 .putString(VoicePolish.MODEL,"custom")
-                .putString("flick26_zh_a_down","edit:copy")
+                .putString("flick26_zh_a_down","edit:copy").putString("flick26_zh_comma_down","text:!").putString("flick26_en_period_up","edit:undo")
                 .putString(Prefs.CLIP_CATS,"personal categories")
                 .putString(Prefs.FAV_EMOJI,"personal favorites")
                 .putInt(Prefs.COUNT_TODAY,321).putLong("backup_last_export",123L).commit()
@@ -43,7 +43,7 @@ object FactoryResetRegression {
                 }
                 check(p.all[key]==expected) {"Reset did not restore $key"}
             }
-            for(key in listOf(V3Prefs.LAYOUT_LANDSCAPE,V3Prefs.CLIP_DAYS,VoicePolish.ENDPOINT,VoicePolish.MODEL,"flick26_zh_a_down"))check(!p.contains(key)) {"Custom setting remains: $key"}
+            for(key in listOf(V3Prefs.LAYOUT_LANDSCAPE,V3Prefs.CLIP_DAYS,VoicePolish.ENDPOINT,VoicePolish.MODEL,"flick26_zh_a_down","flick26_zh_comma_down","flick26_en_period_up"))check(!p.contains(key)) {"Custom setting remains: $key"}
             FloatingKeyboard.keys.forEach {check(!p.contains(it)) {"Floating override remains: $it"}}
             check(p.getString(Prefs.CLIP_CATS,"")=="personal categories")
             check(p.getString(Prefs.FAV_EMOJI,"")=="personal favorites")

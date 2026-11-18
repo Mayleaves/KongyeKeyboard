@@ -47,11 +47,8 @@ object SettingsInteraction241Regression {
                     val preview=WindowInspector.getGlobalWindowViews().flatMap {descendants(it)}.filterIsInstance<FlickPreviewView>().firstOrNull {it.isShown}
                     if(preview!=null) {
                         @Suppress("UNCHECKED_CAST")
-                        val keys=FlickPreviewView::class.java.getDeclaredField("keys").apply {isAccessible=true}.get(preview) as List<Key>
-                        val draft=FlickPreviewView::class.java.getDeclaredField("draft").apply {isAccessible=true}.get(preview) as String
-                        val literal=FlickPreviewView::class.java.getDeclaredField("literalDraft").apply {isAccessible=true}.getBoolean(preview)
-                        val down=FlickPreviewView::class.java.getDeclaredField("down").apply {isAccessible=true}.getBoolean(preview)
-                        passed=(if((draft.isNotEmpty() || literal) && down) draft else keys.first().hint)==expected
+                        val rows=FlickPreviewView::class.java.getDeclaredField("rows").apply {isAccessible=true}.get(preview) as List<Row>
+                        passed=rows.first().keys.first().hint==expected
                     }
                 }
                 if(passed)return
@@ -68,7 +65,7 @@ object SettingsInteraction241Regression {
             check(search.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply {putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"编辑")}))
             Thread.sleep(350)
             check(ownNodes().any {it.text?.toString()?.contains("匹配：编辑功能")==true}) {"Search result lacks matched feature"}
-            click("26 键上下滑")
+            click("上下滑")
             inst.sendStatus(0,Bundle().apply {putString("stream","Search 编辑 shows matching feature and settings path, then opens flick editor\n")})
             KeyGestures.save(ctx,false,'q',true,"edit:cut")
             val before=prefs.all.filterKeys {it.startsWith("flick26_") && it !in setOf("flick26_en_q_down")}

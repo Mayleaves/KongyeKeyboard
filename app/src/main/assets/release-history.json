@@ -1,5 +1,27 @@
 [
   {
+    "tag_name": "v3.0.0",
+    "html_url": "https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.0",
+    "body": "# 空叶键盘 3.0.0\n\n这次更新重新整理了设置、键盘调整和语音输入，加入打字统计、本地与 WebDAV 备份，并将大型离线模型改为按需下载。\n\n## 安装与离线资源\n\n- 基础中文、英文输入仍可在首次安装后使用；整句增强、神经手写、普通话与四川话听写、语音标点、离线润色在「使用准备 → 离线资源」按需下载。\n- 下载支持进度、取消、断点续传和大小、SHA256 校验。删除扩展资源会保留基础词库和学习记录。\n- 翻译与数字墨水识别继续由 ML Kit 管理语言模型。联网润色需要自行配置 HTTPS 接口。\n\n## 设置与预览\n\n- 主页按使用准备、输入设置、外观与布局、工具、关于分组；二级入口去掉图标、标题加粗。搜索支持设置名称、说明及选项中的任意连续文字，匹配内容高亮，输入和清空时搜索框高度保持一致。\n- 返回页面保留原滚动位置；提示中的相关功能可点击定位并闪动整个目标，反复互跳不会累积重复返回记录。\n- 开关示例同时展示关闭与开启效果，当前状态变亮，另一侧灰显；多个选项使用固定对比图。\n- 单手、分体、悬浮开关集中到「键盘布局」。悬浮与悬浮分体增加无字键帽对比图。\n- 「键盘调整」固定顶部完整、分体、悬浮实时预览，拖动尺寸即时显示、松手保存；普通和悬浮尺寸分别保存。预览和重置尺寸不会改变布局开关。\n- 数字键盘直接使用实际按键布局，支持右侧快捷键与左列符号设置；左列可点击选中、取消、长按排序，符号池固定排列并显示选中顺序。\n- 删除键动作、剪贴板选项和目标语言使用下拉菜单；按键音、触感及尺寸滑动条统一样式。\n\n## 输入与手势\n\n- 拼音纠错、模糊音有独立总开关与子规则；修复关闭后仍出现纠错，以及多输、漏输纠错未生效的问题。\n- 改善中英混输、候选读音与翻译的设置和示例；支持首字母大写、大写锁定与多种自动空格规则。\n- 成对符号补齐常见中英文括号，光标停在中间。组字期间可分别控制退格还原拼音和长按清空拼音。\n- 26 键上下滑支持文字和编辑动作，编辑动作在真实键盘上显示图标；反转只改变手势方向。清空、恢复默认图标放在语言切换右侧。\n- 中文、英文滑行分别设置；上下滑与滑行冲突时可直接跳转调整。\n\n## 语音与验证码\n\n- 语音按模型与语言、播放与连续听写、转写整理分组。可收起为听写条，再展开；填入、暂停和停止使用图标。未点确认时保留语音草稿。\n- 润色可选择本机离线模型或自行配置的联网接口，先预览、可恢复原文，再确认填入。\n- 短信验证码提供权限入口、纯 SVG 循环设置演示和关闭／开启对比。新短信验证码在键盘显示来源和大号数字，10 分钟后清除，不进入普通剪贴板历史。\n\n## 统计与备份\n\n- 打字统计提供每日、全年字数、速度、时段、输入方式、码长、首选率及纠错热图，可分享文字和长图。\n- 剪贴板可设置普通记录上限、保留时间；置顶和自定义分类长期保存。\n- 本地备份与 WebDAV 备份可选择设置、选词记录、统计和剪贴板，恢复前校验并确认。WebDAV 服务器配置默认收起。\n- 「恢复默认设置」重置功能配置，保留个人词库、学习记录、剪贴板、统计和已下载资源。\n\n## 下载\n\n- `arm64`：多数当前 Android 手机，包括索尼手机。\n- `x86_64`：对应架构的模拟器或设备。\n- `universal`：包含以上两种架构；不支持 32 位设备。\n\nAndroid 8.0 及以上。沿用此前签名，可覆盖安装；系统权限和离线模型不会随备份导出。源码及固定版本第三方源码附件一并提供，文件校验见 `SHA256SUMS.txt`。\n",
+    "assets": [
+      {
+        "name": "KongyeKeyboard-3.0.0-arm64.apk",
+        "browser_download_url": "https://github.com/Mayleaves/KongyeKeyboard/releases/download/untagged-066b2853ff14f84a553c/KongyeKeyboard-3.0.0-arm64.apk",
+        "digest": "sha256:97e5da7a45c8661dd350e38f87c82ad8f9ab75739579e80e61192a28bb7d9900"
+      },
+      {
+        "name": "KongyeKeyboard-3.0.0-universal.apk",
+        "browser_download_url": "https://github.com/Mayleaves/KongyeKeyboard/releases/download/untagged-066b2853ff14f84a553c/KongyeKeyboard-3.0.0-universal.apk",
+        "digest": "sha256:167a7ea7f11502d7483514542b94a62f05979142e9c62fc9bfa6461de4bddede"
+      },
+      {
+        "name": "KongyeKeyboard-3.0.0-x86_64.apk",
+        "browser_download_url": "https://github.com/Mayleaves/KongyeKeyboard/releases/download/untagged-066b2853ff14f84a553c/KongyeKeyboard-3.0.0-x86_64.apk",
+        "digest": "sha256:a4072cc0a291dae9441ab9651356728bfd50760e4fe841442a882cba8a8042b5"
+      }
+    ]
+  },
+  {
     "url": "https://api.github.com/repos/Mayleaves/KongyeKeyboard/releases/441819769",
     "assets_url": "https://api.github.com/repos/Mayleaves/KongyeKeyboard/releases/441819769/assets",
     "upload_url": "https://uploads.github.com/repos/Mayleaves/KongyeKeyboard/releases/441819769/assets{?name,label}",

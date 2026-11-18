@@ -57,11 +57,13 @@ object Interaction240Regression {
                 preview.layout(0,0,preview.measuredWidth,preview.measuredHeight)
                 preview.draw(Canvas(Bitmap.createBitmap(1000,preview.height,Bitmap.Config.ARGB_8888)))
                 var picked=' ';preview.onPick={picked=it}
-                val at=MotionEvent.obtain(0,0,MotionEvent.ACTION_UP,45f,60f,0);preview.onTouchEvent(at);at.recycle()
+                val bounds=checkNotNull(preview.keyBounds('q'))
+                val at=MotionEvent.obtain(0,0,MotionEvent.ACTION_UP,bounds.centerX(),bounds.centerY(),0)
+                preview.onTouchEvent(at);at.recycle()
                 check(picked=='q')
-                val fields=FlickPreviewView::class.java.getDeclaredField("keys").apply {isAccessible=true}
-                @Suppress("UNCHECKED_CAST") val keys=fields.get(preview) as List<Key>
-                check(keys.first().hint2=="☆")
+                val fields=FlickPreviewView::class.java.getDeclaredField("rows").apply {isAccessible=true}
+                @Suppress("UNCHECKED_CAST") val rows=fields.get(preview) as List<Row>
+                check(rows.first().keys.first().hint2=="☆")
             }
             KeyGestures.clearAll(isolated)
             for(zh in listOf(true,false))check(Layouts.letters(zh,isolated).flatMap {it.keys}.filter {it.kind==Kind.LETTER}.all {it.hint==null && it.hint2==null})

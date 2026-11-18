@@ -151,9 +151,9 @@ object FeedbackControlsRegression {
             check(ui {views().filterIsInstance<SettingExampleView>().none {it.key in listOf(V3Prefs.DEL_UP,V3Prefs.DEL_DOWN,V3Prefs.DEL_LEFT,V3Prefs.DEL_RIGHT)}})
             for(label in listOf("上滑","下滑","左滑","右滑")){click(label);waitFor("action dropdown"){has(label+" 下拉菜单")};check(!has("取消"));auto.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);SystemClock.sleep(200)}
             report("Four delete gestures share one group without diagrams; each picker opens")
-            start();click("输入设置");click("按键与手势");click("26 键上下滑")
+            start();click("输入设置");click("按键与手势");click("上下滑")
             conflictLink("滑行");waitFor("flick warning link"){has("滑行输入")&&has("中文滑行")}
-            conflictLink("上下滑");waitFor("glide warning link"){has("26 键上下滑")&&has("启用上下滑")}
+            conflictLink("上下滑");waitFor("glide warning link"){has("上下滑")&&has("启用上下滑")}
             report("Underlined conflict links navigate both directions")
             start();click("输入设置");click("语音输入")
             check(ui {views().filterIsInstance<SettingExampleView>().none {it.key in listOf(Prefs.VOICE_LANG,V3Prefs.MEDIA,V3Prefs.DRIVE)}}) {"Removed voice diagrams still present"}

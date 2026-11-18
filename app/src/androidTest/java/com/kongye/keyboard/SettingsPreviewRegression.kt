@@ -84,7 +84,7 @@ object SettingsPreviewRegression {
             waitFor("main group hides search IME"){ui {keyboard()?.let {(it.listener as? KongyeIME)?.isInputViewShown}!=true}}
             if(allNodes().none {it.text?.toString()=="中文与拼音"})click("输入设置")
             waitFor("input group expanded"){allNodes().any {it.text?.toString()=="中文与拼音"}}
-            click("按键与手势");click("26 键上下滑")
+            click("按键与手势");click("上下滑")
             ui {prefs.edit().putBoolean(Prefs.SWIPE,true).putBoolean(V3Prefs.SWIPE_REVERSE,false).apply()}
             waitFor("normal direction labels"){allNodes().any {it.text?.toString()=="下滑 · 右上角"}}
             click("反转上下滑方向")

@@ -69,7 +69,7 @@ object InstallDefaults {
     @Synchronized fun reset(ctx:Context,p:SharedPreferences=ctx.getSharedPreferences("kongye",Context.MODE_PRIVATE)) {
         val data=profile(ctx)
         val edit=p.edit()
-        p.all.keys.filter {it in functionalKeys||it in FloatingKeyboard.keys||it.matches(Regex("flick26_(zh|en)_[a-z]_(up|down)"))}.forEach {edit.remove(it)}
+        p.all.keys.filter {it in functionalKeys||it in FloatingKeyboard.keys||KeyGestures.isPreferenceKey(it)}.forEach {edit.remove(it)}
         writeProfile(data,edit)
         check(edit.putInt(MARKER,1).commit())
         WebDavBackup.clear(ctx)

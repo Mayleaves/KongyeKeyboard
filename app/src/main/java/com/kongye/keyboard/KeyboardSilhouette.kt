@@ -18,7 +18,7 @@ class KeyboardSilhouette(private val ctx:Context) {
         val next="$layout/$w/$split/$scale/$gap/$size/${skin.keyGap}/${skin.keyH}/${skin.rowGap}/${skin.padH}"
         if(signature!=next) {
             board.heightScale=scale;board.splitLayout=split&&layout!="9";board.splitGap=gap;board.splitSize=size
-            val rows=when(layout){"14"->Layouts.fourteen();"9"->Layouts.nine();else->Layouts.letters(true,ctx)}
+            val rows=when(layout){"14"->Layouts.fourteen(ctx);"9"->Layouts.nine();else->Layouts.letters(true,ctx)}
             board.setup(skin,rows,if(layout=="9")Layouts.NINE_SIDE else null)
             board.measure(View.MeasureSpec.makeMeasureSpec(w,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED))
             board.layout(0,0,w,board.measuredHeight);signature=next

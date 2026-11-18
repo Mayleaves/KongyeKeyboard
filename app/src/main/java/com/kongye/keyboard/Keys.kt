@@ -26,6 +26,7 @@ class Key(
     val letters: String = label.lowercase(),
 ) {
     /** Gesture reversal changes input direction, never the keycap legend positions. */
+    var gestureId:Char? = null
     var reversedSwipe = false
     var hintIcon = 0
     var hint2Icon = 0
@@ -55,42 +56,44 @@ object Layouts {
     private val EN3_UP = List(7) {""}
 
     /** 所有皮肤共用的底行（空叶布局）：123、中/英、逗号、空格、句号、回车 */
-    private fun bottom(zh: Boolean): List<Key> = listOf(
+    private fun bottom(zh:Boolean,context:android.content.Context?=null):List<Key> = listOf(
         Key(Kind.NUM, "123", w = 1.3f, look = Look.MOD),
         Key(Kind.LANG, w = 1f, look = Look.MOD),
-        Key(Kind.CHAR, if (zh) "，" else ",", hint = if (zh) "," else null, longEmoji = false),
+        flickKey(Kind.CHAR,if(zh)"，" else ",",context,zh,',',if(zh)"," else null,null),
         Key(Kind.SPACE, w = 3.6f),
-        Key(Kind.CHAR, if (zh) "。" else ".", hint = if (zh) "." else null),
+        flickKey(Kind.CHAR,if(zh)"。" else ".",context,zh,'.',if(zh)"." else null,null),
         Key(Kind.ENTER, w = 1.6f, look = Look.MOD),
     )
 
     private fun del(w: Float = 1.5f) = Key(Kind.DEL, hint = "清空", w = w, look = Look.MOD, repeat = true)
+
+    private fun flickKey(kind:Kind,label:String,context:android.content.Context?,zh:Boolean,id:Char,down:String?,up:String?):Key {
+        val reverse=context?.let {V3Prefs.enabled(it,V3Prefs.SWIPE_REVERSE,false)} ?: false
+        val top=KeyGestures.action(context,zh,id,true,down)
+        val bottom=KeyGestures.action(context,zh,id,false,up)
+        return Key(kind,label,hint=top?.label,hint2=bottom?.label).apply {
+            gestureId=id;reversedSwipe=reverse
+            hintIcon=top?.icon ?: 0;hint2Icon=bottom?.icon ?: 0
+            downAction=if(reverse)bottom else top
+            upAction=if(reverse)top else bottom
+        }
+    }
 
     fun letters(zh: Boolean, context: android.content.Context? = null): List<Row> {
         val d2 = if (zh) ZH2_DOWN else EN2_DOWN
         val u2 = if (zh) ZH2_UP else EN2_UP
         val d3 = if (zh) ZH3_DOWN else EN3_DOWN
         val u3 = if (zh) ZH3_UP else EN3_UP
-        fun letter(c:Char,down:String,up:String):Key {
-            val reverse=context?.let {V3Prefs.enabled(it,V3Prefs.SWIPE_REVERSE,false)} ?: false
-            val top=KeyGestures.action(context,zh,c,true,down)
-            val bottom=KeyGestures.action(context,zh,c,false,up)
-            return Key(Kind.LETTER,c.toString(),hint=top?.label,hint2=bottom?.label).apply {
-                reversedSwipe=reverse
-                hintIcon=top?.icon ?: 0;hint2Icon=bottom?.icon ?: 0
-                downAction=if(reverse)bottom else top
-                upAction=if(reverse)top else bottom
-            }
-        }
+        fun letter(c:Char,down:String,up:String)=flickKey(Kind.LETTER,c.toString(),context,zh,c,down,up)
         val r1 = "qwertyuiop".mapIndexed {i,c -> letter(c,DIGITS[i],ROW1_UP[i])}
         val r2 = "asdfghjkl".mapIndexed { i, c -> letter(c,d2[i],u2[i]) }
         val r3 = listOf(Key(Kind.SHIFT, w = 1.5f, look = Look.MOD)) +
             "zxcvbnm".mapIndexed { i, c -> letter(c,d3[i],u3[i]) } + del()
-        return listOf(Row(r1), Row(r2, indent = true), Row(r3), Row(bottom(zh)))
+        return listOf(Row(r1), Row(r2, indent = true), Row(r3), Row(bottom(zh,context)))
     }
 
     /** 14 键：两个字母合一个键（只用于中文） */
-    fun fourteen(): List<Row> {
+    fun fourteen(context:android.content.Context?=null):List<Row> {
         // 26-key customization must not alter the existing paired-key legends.
         val d2=listOf("～","…","¥","【","！");val u2=listOf("~","_","=","[","/")
         val d3=listOf("（","：","《","？");val u3=listOf("\"",":","<","?")
@@ -98,10 +101,10 @@ object Layouts {
         val r2 = listOf("AS", "DF", "GH", "JK", "L").mapIndexed { i, t -> Key(Kind.LETTER, t, hint = d2[i], hint2 = u2[i]) }
         val r3 = listOf(Key(Kind.SHIFT, w = 1.2f, look = Look.MOD)) +
             listOf("ZX", "CV", "BN", "M").mapIndexed { i, t -> Key(Kind.LETTER, t, hint = d3[i], hint2 = u3[i]) } + del(1.2f)
-        return listOf(Row(r1), Row(r2), Row(r3), Row(bottom(true)))
+        return listOf(Row(r1), Row(r2), Row(r3), Row(bottom(true,context)))
     }
 
-    fun splitFourteen():List<Row> = fourteen().map {row ->
+    fun splitFourteen(context:android.content.Context?=null):List<Row> = fourteen(context).map {row ->
         val middle=row.keys.size/2
         if(row.keys.size%2==1 && row.keys[middle].kind==Kind.LETTER && row.keys[middle].letters.length==2) {
             val source=row.keys[middle]

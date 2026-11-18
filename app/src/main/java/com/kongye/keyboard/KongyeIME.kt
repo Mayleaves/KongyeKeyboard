@@ -1097,7 +1097,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         layer == Layer.NUM -> Layouts.numpad(Prefs.numKeys(this))
         !zh -> Layouts.letters(false,this)
         else -> when (Prefs.layout(this)) {
-            "14" -> if(useSplit()) Layouts.splitFourteen() else Layouts.fourteen()
+            "14" -> if(useSplit()) Layouts.splitFourteen(this) else Layouts.fourteen(this)
             "9" -> Layouts.nine()
             else -> Layouts.letters(true,this)
         }

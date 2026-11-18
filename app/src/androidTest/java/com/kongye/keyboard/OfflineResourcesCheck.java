@@ -50,6 +50,7 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("punctuation-flicks".equals(mode)) {PunctuationFlickRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("settings-restored-controls".equals(mode)) {SettingsOrganizationRegression.INSTANCE.run(this,true);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("settings-organization".equals(mode)) {SettingsOrganizationRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("floating-mode".equals(mode)) {FloatingModeRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}

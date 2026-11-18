@@ -18,7 +18,7 @@ object DefaultProfileCapture {
             }
         }.toSet()+VoicePolish.MODE
         val values=Prefs.of(ctx).all.filterKeys {key->
-            key !in excluded&&(key in allowed||key.matches(Regex("flick26_(zh|en)_[a-z]_(up|down)")))
+            key !in excluded&&(key in allowed||KeyGestures.isPreferenceKey(key))
         }.toMutableMap()
         values[Prefs.NUM_SIDE_KEY]=Prefs.numSide(ctx).joinToString(" ")
         values[Prefs.NUM_KEYS]=Prefs.numKeys(ctx).joinToString("\u0001")

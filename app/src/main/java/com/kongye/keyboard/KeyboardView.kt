@@ -776,7 +776,7 @@ class KeyboardView(context: Context) : View(context) {
                     listener?.onPress(k)
                     invalidate()
                 }
-                hintLong -> { p.swipe = 1; p.prog = 1f; invalidate() }
+                hintLong -> { p.swipe = if(k.reversedSwipe)-1 else 1; p.prog = 1f; invalidate() }
                 k.kind == Kind.SPACE && spaceLong == 1 -> {
                     // 连续输入空格
                     p.fired = true
@@ -942,7 +942,12 @@ class KeyboardView(context: Context) : View(context) {
         p.popup?.let { items -> items.getOrNull(p.popSel)?.let { listener?.onKey(Key(Kind.CHAR, it)) }; return }
         // 滑得够远（进度过 0.12）才算滑动输入，不够就当普通点击
         val swiped = p.swipe != 0 && p.prog > 0.12f
-        if (p.long && k.hint != null) { listener?.onKey(Key(Kind.CHAR, k.hint)); return }
+        if(p.long && k.hint!=null) {
+            val action=if(k.gestureId!=null && k.kind==Kind.CHAR) {if(k.reversedSwipe)k.upAction else k.downAction} else null
+            if(action?.command!=null)listener?.onKey(Key(Kind.ACTION,action.label,out=action.command!!))
+            else listener?.onKey(Key(Kind.CHAR,action?.text ?: k.hint))
+            return
+        }
         if (swiped) {
             if (k.kind == Kind.DEL) listener?.onDeleteGesture(when(p.swipe){2->"right";-2->"left";1->"down";else->"up"})
             else {

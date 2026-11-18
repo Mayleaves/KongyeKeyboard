@@ -56,7 +56,7 @@ object FcitxEngine {
     private fun config(name:String,value:String)=RawConfig(name,"",value,null)
     private fun configure(rules:Set<String>) {
         val ids=mapOf("z-zh" to "Z_ZH","c-ch" to "C_CH","s-sh" to "S_SH","n-l" to "L_N","f-h" to "F_H","r-l" to "L_R",
-            "an-ang" to "AN_ANG","en-eng" to "EN_ENG","in-ing" to "IN_ING","ian-iang" to "IAN_IANG","uan-uang" to "UAN_UANG")
+            "an-ang" to "AN_ANG","en-eng" to "EN_ENG","in-ing" to "IN_ING","ian-iang" to "IAN_IANG","uan-uang" to "UAN_UANG", Prefs.FUZZY_V_U to "V_U")
         val sounds=ids.map {(id,key)->config(key,if(id in rules) "True" else "False")}+config("Correction",if(SpellingAssist.correctionFlags and 1!=0)"Qwerty" else "None")
         val settings=arrayOf(config("SpellEnabled","False"),config("SymbolsEnabled","False"),config("CloudPinyinEnabled","False"),
             config("Prediction","False"),config("KeepCurrentContext","False"),config("StrokeCandidateEnabled","False"),

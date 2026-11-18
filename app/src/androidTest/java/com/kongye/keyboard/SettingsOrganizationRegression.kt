@@ -62,7 +62,7 @@ object SettingsOrganizationRegression {
                 click("0 右边");check(has("当前编辑：「0 右边」按键"))
                 report("Previous numeric page restored: four peer buttons remain visible when switching between shortcuts and side symbols")
 
-                open("按键与手势","26 键上下滑")
+                open("按键与手势","上下滑")
                 fun rect(text:String)=android.graphics.Rect().also {locate(text).getBoundsInScreen(it)}
                 val language=rect("英文");val clear=rect("清空中文上下滑");val reset=rect("恢复中文默认")
                 check(language.right<clear.left&&clear.right<=reset.left&&kotlin.math.abs(clear.centerY()-language.centerY())<24)
@@ -78,7 +78,7 @@ object SettingsOrganizationRegression {
                     check(p.getString("flick26_${code}_q_down",null)=="edit:copy")
                     check(has("再点一次清空${label}映射，可用重置恢复。"))
                     click("清空${label}上下滑")
-                    check(p.all.filterKeys {it.startsWith("flick26_${code}_")}.let {it.size==52&&it.values.all {value->value=="text:"}})
+                    check(p.all.filterKeys {it.startsWith("flick26_${code}_")}.let {it.size==56&&it.values.all {value->value=="text:"}})
                     check(p.all.filterKeys {it.startsWith("flick26_${other}_")}==untouched)
                     click("恢复${label}默认")
                     check(p.all.keys.none {it.startsWith("flick26_${code}_")})
@@ -192,7 +192,7 @@ object SettingsOrganizationRegression {
             report("Home menus follow preparation, input methods, suggestions, gestures, appearance and utility order; numeric keyboard appears under Input")
             walk("01-english",listOf("英文与空格"),listOf("单词输入","大小写","英文自动空格","混合输入空格"),"中文与数字之间自动加空格")
             walk("02-association",listOf("候选与联想"),listOf("词语联想","修改后的推荐","表情与符号推荐"),"推荐符号")
-            walk("03-flick",listOf("按键与手势","26 键上下滑"),listOf("启用与方向","选择按键","设置动作"),"自定义符号")
+            walk("03-flick",listOf("按键与手势","上下滑"),listOf("启用与方向","选择按键","设置动作"),"自定义符号")
             walk("04-delete",listOf("按键与手势","删除键"),listOf("滑动与清空","组字期间","联想期间"),"联想时直接删除")
             walk("05-glide",listOf("滑行输入"),listOf("启用语言","滑行反馈","中文回删"),"按字回删中文滑行")
             if(p.getInt(VoicePolish.MODE,0)==0)walk("06-polish",listOf("语音输入","语句润色"),listOf("润色设置","离线模型"),"离线润色模型")
@@ -207,10 +207,10 @@ object SettingsOrganizationRegression {
             report("All ten page layouts open and scroll without changing saved preferences")
 
             // The large editing pages now have explicit edit regions/types; verify saving still works.
-            open("按键与手势","26 键上下滑");locate("设置动作");click("编辑功能");click("编辑功能：复制");click("保存")
+            open("按键与手势","上下滑");locate("设置动作");click("编辑功能");click("编辑功能：复制");click("保存")
             check(p.getString("flick26_zh_q_down","")=="edit:copy")
             shot("11-flick-edit-command")
-            open("按键与手势","26 键上下滑");locate("设置动作");click("符号文字")
+            open("按键与手势","上下滑");locate("设置动作");click("符号文字")
             val input=all().first {it.isEditable}
             check(input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply {putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"☆")}))
             click("保存");check(p.getString("flick26_zh_q_down","")=="text:☆")

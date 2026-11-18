@@ -144,7 +144,7 @@ private val DARK = Pal(Color(0xFF0F1013), Color(0xFF1A1B20), Color(0xFFF4F5F8), 
 
 internal enum class Page(val title: String) {
     MAIN("空叶键盘"), LAYOUT("键盘布局"), KEYS("按键与手势"), PINYIN("中文与拼音"), LOOK("主题与外观"), HEIGHT("键盘调整"),
-    FLICKS("26 键上下滑"), ARRANGE("工具栏与菜单"), CLIP("剪贴板"), NUMPAD("数字键盘"), VAULT("密码填充"), UPDATE("检查更新"), HISTORY("更新历史"), RELEASE("更新详情"),
+    FLICKS("上下滑"), ARRANGE("工具栏与菜单"), CLIP("剪贴板"), NUMPAD("数字键盘"), VAULT("密码填充"), UPDATE("检查更新"), HISTORY("更新历史"), RELEASE("更新详情"),
     READY("使用准备"), INPUT("输入设置"), APPEARANCE("外观与布局"), TOOLS("工具"), ABOUT("关于"),
     ENGLISH("英文与空格"), ASSOC("候选与联想"), GLIDE("滑行输入"), VOICE("语音输入"), HAND("手写输入"),
     DISPLAY("拼音与候选显示"), DELETE("删除键"), RESOURCES("离线资源"), PERMISSIONS("功能权限"), STATS("打字统计"), TRANSLATION("翻译"), CORRECTION("拼音纠错"), FUZZY("模糊音"), POLISH("语句润色"), SMS("短信验证码"), BACKUP("备份与恢复")
@@ -1229,7 +1229,7 @@ class SettingsActivity : ComponentActivity() {
         Page.RESOURCES->"下载、继续或删除离线资源"
         Page.BACKUP->"导出或恢复设置、词库与个人数据"
         Page.POLISH->"润色方式、模型与联网配置"
-        Page.FLICKS->"自定义上滑、下滑符号和编辑功能"
+        Page.FLICKS->"字母、逗号和句号的符号与编辑动作"
         Page.CORRECTION->"邻键、顺序、多输与漏输纠错"
         Page.FUZZY->"声母、韵母的近似读音匹配"
         Page.UPDATE->"查看版本、下载进度和安装状态"
@@ -1948,7 +1948,7 @@ class SettingsActivity : ComponentActivity() {
                         (ll.getChildAt(1) as KeyboardView).apply {
                             heightScale = scaleOverride ?: Prefs.heightScale(this@SettingsActivity)
                             zh = true
-                            val rows = when (layout) { "14" -> Layouts.fourteen(); "9" -> Layouts.nine(); else -> Layouts.letters(true) }
+                            val rows = when (layout) { "14" -> Layouts.fourteen(this@SettingsActivity); "9" -> Layouts.nine(); else -> Layouts.letters(true,this@SettingsActivity) }
                             setup(skin, rows, if (layout == "9") Layouts.NINE_SIDE else null)
                         }
                     },
@@ -2151,7 +2151,7 @@ class SettingsActivity : ComponentActivity() {
         var clearHint by remember {mutableStateOf("")}
         var mappingRevision by remember {mutableIntStateOf(0)}
         val revision=mappingRevision
-        val key=Layouts.letters(zh,this).flatMap {it.keys}.first {it.kind==Kind.LETTER && it.label==letter.toString()}
+        val key=Layouts.letters(zh,this).flatMap {it.keys}.first {it.gestureId==letter}
         val reverse=Prefs.of(this).getBoolean(V3Prefs.SWIPE_REVERSE,false)
         val physicalDown=down!=reverse
         val action=if(physicalDown) key.downAction else key.upAction
@@ -2174,16 +2174,16 @@ class SettingsActivity : ComponentActivity() {
             Spacer(Modifier.height(12.dp))
             AndroidView(factory={ctx ->FlickPreviewView(ctx)},
                 update={it.onPick={c->letter=c;resetDraft()};it.submit(zh,letter,down,preview,revision,pendingSymbol,KeyGestures.icon(pendingCommand))},
-                modifier=Modifier.fillMaxWidth().height(178.dp))
+                modifier=Modifier.fillMaxWidth().heightIn(max=280.dp).clip(RoundedCornerShape(12.dp)))
             Spacer(Modifier.height(12.dp))
             Segment(pal,if(reverse)listOf("上滑 · 右上角","下滑 · 左下角") else listOf("下滑 · 右上角","上滑 · 左下角"),if(down) 0 else 1) {down=it==0;resetDraft()}
             Spacer(Modifier.height(12.dp))
-            Tip(pal,"当前 ${letter.uppercaseChar()} ${if(physicalDown) "下滑" else "上滑"}",if(pendingSymbol && content.isEmpty()) "未设置" else preview.ifEmpty {action?.label.orEmpty().ifEmpty {"未设置"}})
+            Tip(pal,"当前 ${KeyGestures.displayName(zh,letter)} ${if(physicalDown) "下滑" else "上滑"}",if(pendingSymbol && content.isEmpty()) "未设置" else preview.ifEmpty {action?.label.orEmpty().ifEmpty {"未设置"}})
         }
         StatsHeading(pal,"设置动作")
         Card(pal) {
             Segment(pal,listOf("符号文字","编辑功能"),editKind) {editKind=it}
-            ActionRow(pal,if(editKind==0)"自定义符号" else "编辑功能","${if(zh)"中文" else "英文"} ${letter.uppercaseChar()} · ${if(physicalDown)"下滑" else "上滑"}","保存") {
+            ActionRow(pal,if(editKind==0)"自定义符号" else "编辑功能","${if(zh)"中文" else "英文"} ${KeyGestures.displayName(zh,letter)} · ${if(physicalDown)"下滑" else "上滑"}","保存") {
                 if(editKind==0&&pendingSymbol) {KeyGestures.save(this@SettingsActivity,zh,letter,down,"text:$content");mappingRevision++;resetDraft()}
                 else if(editKind==1)pendingCommand?.let {KeyGestures.save(this@SettingsActivity,zh,letter,down,"edit:$it");mappingRevision++;resetDraft()}
             }

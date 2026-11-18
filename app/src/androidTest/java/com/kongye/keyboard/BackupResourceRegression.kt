@@ -34,7 +34,7 @@ object BackupResourceRegression {
         }
         fun fails(f:()->Unit)=try {f();false}catch(_:Exception){true}
         try {
-            p.edit().clear().putBoolean(Prefs.SOUND,true).putInt(V3Prefs.SOUND_VOLUME,37).putString("flick26_zh_q_down","text:☆").putString("api_key","must-not-export").putString(Prefs.CLIP_CATS,"工作").commit()
+            p.edit().clear().putBoolean(Prefs.SOUND,true).putInt(V3Prefs.SOUND_VOLUME,37).putString("flick26_zh_q_down","text:☆").putString("flick26_zh_comma_down","text:!").putString("flick26_en_period_up","edit:undo").putString("api_key","must-not-export").putString(Prefs.CLIP_CATS,"工作").commit()
             put("user_lexicon.txt","P\t空叶\tkong'ye\t7\n")
             put("rime/user/sample.userdb/data","native-rime")
             put("fcitx-user/data/pinyin/user.dict","native-fcitx")
@@ -48,6 +48,7 @@ object BackupResourceRegression {
             put("user_lexicon.txt","old");put("clips/obsolete.png","old")
             KeyboardBackup.restore(ctx,KeyboardBackup.read(ctx,ByteArrayInputStream(backup)),false)
             check(p.getBoolean(Prefs.SOUND,false)&&p.getInt(V3Prefs.SOUND_VOLUME,0)==37&&p.getString("api_key","")=="keep-local-secret")
+            check(p.getString("flick26_zh_comma_down",null)=="text:!"&&p.getString("flick26_en_period_up",null)=="edit:undo")
             check(File(ctx.filesDir,"user_lexicon.txt").readText().contains("空叶"))
             check(File(ctx.filesDir,"rime/user/sample.userdb/data").readText()=="native-rime")
             check(File(ctx.filesDir,"fcitx-user/data/pinyin/user.dict").readText()=="native-fcitx")
