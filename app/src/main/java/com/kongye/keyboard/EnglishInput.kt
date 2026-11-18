@@ -5,10 +5,17 @@ import android.content.Context
 /** Bounded local prefix and edit-distance lookup using the bundled English vocabulary. */
 object EnglishInput {
     @Volatile private var vocabulary:Map<String,List<String>> = emptyMap()
+    private val names = mapOf(
+        "github" to "GitHub", "gitlab" to "GitLab", "claude" to "Claude",
+        "anthropic" to "Anthropic", "openai" to "OpenAI", "chatgpt" to "ChatGPT",
+        "codex" to "Codex", "gemini" to "Gemini", "deepseek" to "DeepSeek",
+        "android" to "Android", "iphone" to "iPhone", "ipad" to "iPad",
+        "javascript" to "JavaScript", "typescript" to "TypeScript",
+    )
     private val common=listOf("the","to","and","a","of","in","is","it","you","that","hello","world","thanks","keyboard","please","today","tomorrow")
     @Synchronized fun load(ctx:Context) {
         if(vocabulary.isNotEmpty())return
-        val words=LinkedHashSet<String>();words.addAll(common)
+        val words=LinkedHashSet<String>();words.addAll(common);words.addAll(names.keys)
         ctx.assets.open("glide-english.tsv").bufferedReader().useLines {lines->
             lines.forEach {line->val word=line.substringBefore('\t');if(word.length in 2..32 && word.all {it in 'a'..'z'}) words.add(word)}
         }
@@ -45,6 +52,24 @@ object EnglishInput {
                 if(tail !in vocabulary[tail.take(1)].orEmpty())null else Cand(prefix.w+tail,raw.length,null,prefix.score)
             }.distinctBy {it.w}.take(2).toList()
     }
+    /** Exact English words are offered independently of Chinese/English mixed input. */
+    fun recognize(ctx: Context, raw: String, base: List<Cand>): List<Cand> {
+        if (!V3Prefs.enabled(ctx, V3Prefs.RECOGNIZE_ENGLISH, true) ||
+            raw.length < 2 || raw.any { it !in 'a'..'z' }) return base
+        load(ctx)
+        if (raw !in vocabulary[raw.take(1)].orEmpty()) return base
+        val word = names[raw] ?: raw
+        val candidate = Cand(word, raw.length, null, 0f)
+        val result = base.filterNot { it.w == word && it.n == raw.length }.toMutableList()
+        // An English word that is also full pinyin keeps Chinese as the first choice.
+        val pinyin = Lexicon.decode(raw)
+        val completePinyin = pinyin.joinToString("") == raw &&
+            pinyin.all { it in Lexicon.pinyinSyllables() }
+        val position = if (raw in names || raw.length >= 3 && !completePinyin) 0 else minOf(1, result.size)
+        result.add(position, candidate)
+        return result
+    }
+
     private fun distance(a:String,b:String):Int {
         if(a==b)return 0
         if(a.length==b.length) {

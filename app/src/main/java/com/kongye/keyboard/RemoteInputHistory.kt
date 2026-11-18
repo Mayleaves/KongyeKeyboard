@@ -37,10 +37,12 @@ class RemoteInputHistory(private val clock:()->Long=SystemClock::uptimeMillis) {
         remember("delete",true)
         EditorDeletion.erase(c,1,{tail=tail.dropLast(Character.charCount(tail.codePointBefore(tail.length)))},{})
     }
-    fun clear(c:InputConnection):Boolean {
+    fun clear(c:InputConnection,paragraphOnly:Boolean=false):Boolean {
         if(tail.isEmpty()) return false
+        val start=if(paragraphOnly)ParagraphText.range(tail,tail.length,tail.length).start else 0
+        if(start==tail.length) return true
         remember("clear",false)
-        EditorDeletion.erase(c,tail.codePointCount(0,tail.length),{
+        EditorDeletion.erase(c,tail.codePointCount(start,tail.length),{
             tail=tail.dropLast(Character.charCount(tail.codePointBefore(tail.length)))
         },{})
         return true

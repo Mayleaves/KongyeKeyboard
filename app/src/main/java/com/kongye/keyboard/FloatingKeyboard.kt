@@ -5,6 +5,18 @@ import android.content.SharedPreferences
 
 /** Floating dimensions use their own settings and the short display edge in landscape. */
 object FloatingKeyboard {
+    private val remotePackages = setOf(
+        "com.netease.uuremote",
+        "com.oray.sunlogin", "com.oray.sunlogin.service",
+        "com.anydesk.anydeskandroid",
+        "com.teamviewer.teamviewer.market.mobile", "com.teamviewer.remote.market.mobile",
+        "com.carriez.flutter_hbb",
+        "com.microsoft.rdc.android", "com.microsoft.rdc.androidx",
+        "com.limelight", "com.parsec.client", "com.valvesoftware.steamlink",
+    )
+    fun automatic(ctx: Context, packageName: String?) =
+        V3Prefs.enabled(ctx, V3Prefs.REMOTE_FLOAT, true) && packageName in remotePackages
+
     const val HEIGHT="float_height_scale"
     const val SPLIT="float_split_layout"
     const val GAP="float_split_gap"

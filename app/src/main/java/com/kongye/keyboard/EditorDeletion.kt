@@ -65,6 +65,31 @@ object EditorDeletion {
         }
     }
 
+    fun clearParagraph(c: InputConnection): Boolean {
+        cancel()
+        val snapshot = c.getExtractedText(android.view.inputmethod.ExtractedTextRequest().apply {
+            hintMaxChars = 100000
+            hintMaxLines = 10000
+        }, 0)
+        val text = snapshot?.text
+        if (snapshot != null && text != null && snapshot.partialStartOffset < 0 &&
+            snapshot.selectionStart in 0..text.length && snapshot.selectionEnd in 0..text.length) {
+            val range = ParagraphText.range(text, snapshot.selectionStart, snapshot.selectionEnd)
+            // A partial document window must contain both paragraph boundaries.
+            if (snapshot.startOffset > 0 && (range.start == 0 || range.end == text.length)) return false
+            if (!c.setSelection(snapshot.startOffset + range.start, snapshot.startOffset + range.end)) return false
+            return c.commitText("", 1)
+        }
+        val limit = 100000
+        val before = c.getTextBeforeCursor(limit, 0)?.toString() ?: return false
+        val after = c.getTextAfterCursor(limit, 0)?.toString() ?: return false
+        val left = before.indexOfLast(ParagraphText::separator) + 1
+        val right = after.indexOfFirst(ParagraphText::separator).let { if (it < 0) after.length else it }
+        if (left == 0 && before.length == limit || right == after.length && after.length == limit) return false
+        if (!c.getSelectedText(0).isNullOrEmpty() && !c.commitText("", 1)) return false
+        return c.deleteSurroundingText(before.length - left, right)
+    }
+
     fun clear(c: InputConnection, packageName: String?): Boolean {
         cancel()
         if (remote(packageName)) {

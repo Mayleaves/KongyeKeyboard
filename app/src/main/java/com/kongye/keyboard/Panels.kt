@@ -782,7 +782,18 @@ fun optionList(context: Context, skin: Skin, opts: List<Opt>): ScrollView {
 /** 键盘最下面一条：左边切换输入法，右边剪贴板（照截图 1 的红框） */
 class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private val onClip: () -> Unit) : View(context) {
     var cursorEnabled=false
+        set(value) {field=value;if(!value)cancelCursorGesture()}
     var onCursor:(Int,Int)->Unit = {_,_->}
+    var onCursorModeChange:(Boolean)->Unit = {}
+    private var cursorDragging=false
+    private var cursorTouch=false
+    fun cancelCursorGesture() {
+        if(cursorDragging) {
+            cursorDragging=false
+            onCursorModeChange(false)
+        }
+        cursorTouch=false
+    }
     private var dragX=0f
     private var dragY=0f
     private var moved=false
@@ -814,18 +825,36 @@ class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private 
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if(e.actionMasked==MotionEvent.ACTION_DOWN) {dragX=e.x;dragY=e.y;moved=false}
-        if(e.actionMasked==MotionEvent.ACTION_MOVE && cursorEnabled && e.x>70*d && e.x<width-70*d) {
+        if(e.actionMasked==MotionEvent.ACTION_DOWN) {
+            cancelCursorGesture()
+            dragX=e.x;dragY=e.y;moved=false
+            cursorTouch=cursorEnabled && e.x>70*d && e.x<width-70*d
+        }
+        if(e.actionMasked==MotionEvent.ACTION_MOVE && cursorTouch) {
             val dx=e.x-dragX;val dy=e.y-dragY
             if(kotlin.math.abs(dx)>12*d || kotlin.math.abs(dy)>22*d) {
-                moved=true;onCursor(if(kotlin.math.abs(dx)>12*d)if(dx>0)1 else -1 else 0,if(kotlin.math.abs(dy)>22*d)if(dy>0)1 else -1 else 0)
+                if(!cursorDragging) {
+                    cursorDragging=true
+                    onCursorModeChange(true)
+                }
+                moved=true
+                onCursor(if(kotlin.math.abs(dx)>12*d)if(dx>0)1 else -1 else 0,
+                    if(kotlin.math.abs(dy)>22*d)if(dy>0)1 else -1 else 0)
                 dragX=e.x;dragY=e.y
             }
         }
-        if (e.actionMasked == MotionEvent.ACTION_UP && !moved) {
-            if (e.x < 70 * d) onKeyboard() else if (e.x > width - 70 * d) onClip()
+        if(e.actionMasked==MotionEvent.ACTION_UP || e.actionMasked==MotionEvent.ACTION_CANCEL) {
+            cancelCursorGesture()
+            if(e.actionMasked==MotionEvent.ACTION_UP && !moved) {
+                if(e.x<70*d)onKeyboard() else if(e.x>width-70*d)onClip()
+            }
         }
         return true
+    }
+
+    override fun onDetachedFromWindow() {
+        cancelCursorGesture()
+        super.onDetachedFromWindow()
     }
 }
 

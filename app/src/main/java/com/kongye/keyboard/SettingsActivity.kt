@@ -622,7 +622,8 @@ class SettingsActivity : ComponentActivity() {
         val before=remember(key) {current}
         val height = when (key) {
             V3Prefs.DELETE_DIRECT -> 190.dp
-            Prefs.FLOAT, FloatingKeyboard.SPLIT -> 154.dp
+            Prefs.FLOAT, FloatingKeyboard.SPLIT, V3Prefs.REMOTE_FLOAT -> 154.dp
+            V3Prefs.CLEAR_SCOPE -> 152.dp
             V3Prefs.PUNCT_CONFIRM, V3Prefs.READINGS, V3Prefs.GLOSS -> 148.dp
             V3Prefs.COMPOSE_RESTORE, V3Prefs.COMPOSE_HOLD_CLEAR -> 144.dp
             V3Prefs.GLIDE_ZH, V3Prefs.GLIDE_EN, V3Prefs.GLIDE_LIVE, V3Prefs.GLIDE_TRACE -> 140.dp
@@ -1535,7 +1536,7 @@ class SettingsActivity : ComponentActivity() {
                 }
             }
             SettingNotice(pal,key)
-            if(showExample)SettingComparison(pal,title,key,selected,if(options.size==2 || key in listOf(V3Prefs.LETTER_LONG,Prefs.SPACE_LONG,V3Prefs.READINGS,V3Prefs.GLOSS))options.map {it.first as Any to it.second} else emptyList()) {v->options.firstOrNull {it.first==v}?.second ?: v.toString()}
+            if(showExample)SettingComparison(pal,title,key,selected,if(options.size==2 || key in listOf(V3Prefs.LETTER_LONG,Prefs.SPACE_LONG,V3Prefs.READINGS,V3Prefs.GLOSS,V3Prefs.CLEAR_SCOPE))options.map {it.first as Any to it.second} else emptyList()) {v->options.firstOrNull {it.first==v}?.second ?: v.toString()}
         }
         if(showOptions&&!inlineDropdown)androidx.compose.ui.window.Dialog(onDismissRequest={showOptions=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
             Column(Modifier.widthIn(max=420.dp).fillMaxWidth(.9f).heightIn(max=520.dp).clip(RoundedCornerShape(14.dp)).background(pal.card).padding(20.dp)) {
@@ -1738,6 +1739,8 @@ class SettingsActivity : ComponentActivity() {
                 SettingsToggle(pal,"中文与数字之间自动加空格",V3Prefs.SPACE_DIGIT,false,tick)
             }
             Page.ASSOC -> {
+                StatsHeading(pal,"英文候选")
+                SettingsToggle(pal,"识别英文单词",V3Prefs.RECOGNIZE_ENGLISH,true,tick,"中文输入时识别 GitHub、Claude、Anthropic 等英文词")
                 StatsHeading(pal,"词语联想")
                 SettingsToggle(pal,"联想词",Prefs.ASSOC,true,tick)
                 SettingsChoice(pal,"联想方式",V3Prefs.ASSOC_CONTINUOUS,listOf(0 to "单次联想",1 to "连续联想"),1,tick)
@@ -1789,7 +1792,7 @@ class SettingsActivity : ComponentActivity() {
                     Line(pal)
                     SettingsChoice(pal,"右滑",V3Prefs.DEL_RIGHT,actions,"none",tick,showExample=false,inCard=false,inlineDropdown=true)
                 }
-                SettingsChoice(pal,"清空范围",V3Prefs.CLEAR_SCOPE,listOf(0 to "整个输入框",1 to "仅光标前"),0,tick)
+                SettingsChoice(pal,"清空范围",V3Prefs.CLEAR_SCOPE,listOf(0 to "整个输入框",1 to "仅光标前",2 to "仅当前段落"),0,tick)
                 StatsHeading(pal,"组字期间")
                 SettingsToggle(pal,"退格还原原始拼音",V3Prefs.COMPOSE_RESTORE,true,tick,"已选词未上屏时，开启后退格还原拼音；关闭后从末尾逐字母删除")
                 SettingsToggle(pal,"长按清空整段拼音",V3Prefs.COMPOSE_HOLD_CLEAR,true,tick,"长按删除键清空当前整段拼音；关闭时连续退格")
@@ -1918,6 +1921,7 @@ class SettingsActivity : ComponentActivity() {
         SettingsToggle(pal,"铺满键盘空白区域",V3Prefs.FILL_GAPS,true,tick,"填充分体中缝与键盘两侧，关闭后透出应用内容")
         StatsHeading(pal,"悬浮使用")
         SettingsToggle(pal,"悬浮键盘",Prefs.FLOAT,false,tick,"以独立窗口显示，大小在「键盘调整」中设置")
+        SettingsToggle(pal,"远程应用自动悬浮",V3Prefs.REMOTE_FLOAT,true,tick,"UU 远程等远程桌面应用默认使用悬浮键盘")
         SettingsToggle(pal,"悬浮分体键盘",FloatingKeyboard.SPLIT,false,tick,"仅用于悬浮键盘，支持 26 键和 14 键，宽屏下生效")
     }
 

@@ -295,6 +295,18 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var selecting = false
     private var anchor = -1
     private var floating = false
+    private var floatingOverride: Boolean? = null
+    private var floatingOwner: String? = null
+
+    private fun floatingForEditor(): Boolean =
+        if (FloatingKeyboard.automatic(this, currentInputEditorInfo?.packageName))
+            floatingOverride ?: true
+        else prefs.getBoolean(Prefs.FLOAT, false)
+
+    private fun saveFloating(on: Boolean, edit: SharedPreferences.Editor) {
+        if (FloatingKeyboard.automatic(this, currentInputEditorInfo?.packageName)) floatingOverride = on
+        else edit.putBoolean(Prefs.FLOAT, on)
+    }
 
     private var sink = Sink.NONE
     private val sinkBuf = StringBuilder()
@@ -321,6 +333,36 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var langPicking = false
     private var handCands: List<String> = emptyList()
     private var inkRevision = 0
+    private var handwritingDraft: VoiceDraft? = null
+    private var handwritingPreview = ""
+
+    private fun previewHandwriting(word: String) {
+        if (word.isEmpty()) {
+            cancelHandwritingPreview()
+            return
+        }
+        if (sink != Sink.NONE) {
+            handwritingPreview = word
+            sinkStrip.previewHandwriting(word)
+        } else if (!passwordField && !remoteEditor()) {
+            val draft = handwritingDraft ?: ic()?.let { VoiceDraft(it) } ?: return
+            handwritingDraft = draft
+            if (draft.preview(word, underline = true)) handwritingPreview = word
+        }
+    }
+
+    private fun cancelHandwritingPreview(keepSelection: Pair<Int, Int>? = null) {
+        inkRevision++
+        val draft = handwritingDraft
+        handwritingDraft = null
+        val hadPreview = handwritingPreview.isNotEmpty()
+        handwritingPreview = ""
+        if (keepSelection == null) draft?.cancel()
+        else draft?.cancelKeepingSelection(keepSelection.first, keepSelection.second)
+        if (hadPreview && sink != Sink.NONE && ::sinkStrip.isInitialized) {
+            sinkStrip.cancelHandwritingPreview()
+        }
+    }
     private var confirmAt = 0L
     private var confirmWhat = ""
 
@@ -395,6 +437,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         hideInline()
         candidateRevision++;candidateWorker.shutdownNow()
         cancelVoiceDraft()
+        cancelHandwritingPreview()
         offlineSpeech?.cancel(); offlineSpeech = null
         OfflineVoice.releaseCache()
         OpenHandwriting.release()
@@ -667,6 +710,17 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         super.onStartInputView(info, restarting)
         SmsCodeClipboard.expire(this)
+        if (floatingOwner != info.packageName) {
+            floatingOwner = info.packageName
+            floatingOverride = null
+        }
+        if (panel != Panel.ADJUST) {
+            val nextFloating = floatingForEditor()
+            if (floating != nextFloating) {
+                floating = nextFloating
+                applyFloat()
+            }
+        }
         if(V3Prefs.glide(this,zh)) candidateWorker.execute {GlideDecoder.warm(applicationContext,zh)}
         if (restarting && panel == Panel.ADJUST && adj != null) {
             applyFloat(); applySkin(rebuildPanel=false)
@@ -674,6 +728,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             return
         }
         val sameEditor=info.packageName==inputPackage && info.inputType==inputKind && info.fieldId==inputFieldId
+        if (!sameEditor || !restarting) bottomStrip.cancelCursorGesture()
+        if (sameEditor && restarting && !VaultFields.sensitive(info) &&
+            panel in listOf(Panel.HAND, Panel.HAND_CANDS)) {
+            ic()?.let { handwritingDraft?.rebind(it) }
+            renderBar()
+            return
+        }
+        cancelHandwritingPreview()
         if (sameEditor && restarting && !VaultFields.sensitive(info) && (panel == Panel.VOICE || voiceCollapsed)) {
             ic()?.let { voiceDraft?.rebind(it) }
             updateVoice()
@@ -753,6 +815,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        cancelHandwritingPreview()
+        if (::bottomStrip.isInitialized) bottomStrip.cancelCursorGesture()
         if(statsAllowed())TypingStats.of(this).endSession()
         EditorDeletion.cancel()
         if (finishingInput) deferInlineClear() else hideInline()
@@ -873,6 +937,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onWindowHidden() {
+        if (::bottomStrip.isInitialized) bottomStrip.cancelCursorGesture()
         hideInline()
         super.onWindowHidden()
     }
@@ -892,6 +957,17 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         if(passwordField && sink==Sink.NONE) vault.selection(newSelStart,newSelEnd)
+        handwritingDraft?.let { draft ->
+            if (newSelStart != oldSelStart || newSelEnd != oldSelEnd) {
+                val composingCaret = candidatesStart >= 0 && newSelStart == candidatesEnd && newSelStart == newSelEnd
+                if (!composingCaret && !draft.selectionAtPreviewEnd(newSelStart, newSelEnd)) {
+                    cancelHandwritingPreview(newSelStart to newSelEnd)
+                    handCands = emptyList()
+                    handView?.clear()
+                    renderBar()
+                }
+            }
+        }
         if (sink != Sink.NONE || (seq.isEmpty() && picks.isEmpty())) return
         // 拼音只显示在拼音条上，编辑框里没有组字文字；打拼音时光标被挪走了就放弃这次输入
         if(appComposing && candidatesStart>=0 && newSelStart==candidatesEnd && newSelStart==newSelEnd)return
@@ -914,6 +990,10 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             if(!zh && shift==2)shift=0
         }
         if(key==V3Prefs.STATS_ENABLED){TypingStats.of(this).endSession();return}
+        if (key == V3Prefs.RECOGNIZE_ENGLISH || key == V3Prefs.MIXED) {
+            if (seq.isNotEmpty()) refreshComposing()
+            return
+        }
         if(key==Prefs.GLIDE && prefs.getBoolean(Prefs.GLIDE,false)) candidateWorker.execute {GlideDecoder.warm(applicationContext,zh)}
         if(key==Prefs.VAULT || key==Prefs.VAULT_PACKAGE) {
             vault.reset()
@@ -936,7 +1016,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             return
         }
         if(key==V3Prefs.ONE_HAND) {applyFloat();applySkin();return}
-        if (key == Prefs.FLOAT || key == Prefs.FLOAT_WIDTH || key==FloatingKeyboard.LAND_WIDTH) { floating = prefs.getBoolean(Prefs.FLOAT, false); applyFloat();applySkin(rebuildPanel=false);return }
+        if (key in setOf(Prefs.FLOAT, V3Prefs.REMOTE_FLOAT, Prefs.FLOAT_WIDTH, FloatingKeyboard.LAND_WIDTH)) {
+            if (key == Prefs.FLOAT || key == V3Prefs.REMOTE_FLOAT) floatingOverride = null
+            floating = floatingForEditor()
+            applyFloat();applySkin(rebuildPanel=false);return
+        }
         // 调节键盘时改震动、按键音不用重建面板
         if (panel == Panel.ADJUST && key in setOf(Prefs.VIB_STRENGTH, Prefs.SOUND)) return
         applySkin()
@@ -988,8 +1072,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         keyboard.splitGap=a?.splitGap ?: prefs.getInt(if(floating)FloatingKeyboard.GAP else V3Prefs.SPLIT_GAP,72).toFloat()
         keyboard.splitSize=a?.splitSize ?: prefs.getFloat(if(floating)FloatingKeyboard.SIZE else V3Prefs.SPLIT_SIZE,1f)
         keyboard.fillGaps=V3Prefs.enabled(this,V3Prefs.FILL_GAPS)
-        bottomStrip.cursorEnabled=V3Prefs.enabled(this,V3Prefs.BOTTOM_CURSOR,false)
+        bottomStrip.cursorEnabled=panel==Panel.NONE && V3Prefs.enabled(this,V3Prefs.BOTTOM_CURSOR,false)
         bottomStrip.onCursor={dx,dy->onCursorMove(dx,dy)}
+        bottomStrip.onCursorModeChange=keyboard::setExternalCursorMode
         SpellingAssist.configure(this)
         CandidateGloss.prepare(this)
         keyboard.spaceLong = prefs.getInt(Prefs.SPACE_LONG, 0)
@@ -1083,7 +1168,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun setFloating(on: Boolean) {
         floating = on
-        prefs.edit().putBoolean(Prefs.FLOAT, on).apply()
+        val edit=prefs.edit()
+        saveFloating(on, edit)
+        edit.apply()
         if (panel != Panel.NONE) closePanel(render = false)
         applyFloat()
         applySkin()
@@ -1463,6 +1550,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun pendingText() = picks.joinToString("") { it.w }
 
     private fun resetComposing() {
+        cancelHandwritingPreview()
         candidateRevision++;candidateTask?.cancel(false);candidatesPending=false
         pendingPick=null;glidePending=false;liveGlideRaw=null;glideSpelling=false;glidePrefixRaw="";glidePrefixText="";glideBefore=emptyList();queuedGlides.clear();followingKeys.clear()
         if(appComposing) {ic()?.setComposingText("",1);ic()?.finishComposingText()}
@@ -1545,7 +1633,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     for(c in cands) if(updated.size<cands.size && updated.none {it.w==c.w}) updated.add(c)
                 }
                 if(mixed.isNotEmpty())updated.addAll(0,mixed)
-                cands=updated;resolvedKeys=keys
+                cands=if(zh) EnglishInput.recognize(applicationContext,keys.joinToString(""),updated) else updated
+                resolvedKeys=keys
                 if(complete) candidatesPending=false
                 renderBar()
                 if(panel==Panel.CANDS && complete) (panelHost.getChildAt(0) as? ExpandedCandidates)?.submit(cands.take(120).map {it.w},candItems().take(120).map {it.py})
@@ -1662,7 +1751,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         var guard = 0
         while (seq.isNotEmpty() && guard++ < 40) {
             if (letterCount() == 0) { seq.clear(); if (picks.isNotEmpty()) finishPicks(); return }
-            pick(if(zh) {val words=PinyinEngine.candidates(seq.toList(), flag(Prefs.ABBR));EnglishInput.mixed(this,seq.joinToString(""),words).firstOrNull() ?: words.first()}
+            pick(if(zh) {val words=PinyinEngine.candidates(seq.toList(), flag(Prefs.ABBR));EnglishInput.recognize(this,seq.joinToString(""),EnglishInput.mixed(this,seq.joinToString(""),words)+words).first()}
                 else EnglishInput.candidates(this,seq.joinToString("")).first())
         }
     }
@@ -1901,24 +1990,33 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
     }
     private fun clearInput() {
+        cancelHandwritingPreview()
         if(assoc.isNotEmpty() && !V3Prefs.enabled(this,V3Prefs.DELETE_DIRECT)) {assoc=emptyList();renderBar();return}
         vault.invalidateCapture()
         // 下滑清空
         if (seq.isNotEmpty() || picks.isNotEmpty()) { resetComposing(); composeOut(""); if (sink == Sink.NONE) ic()?.finishComposingText() }
         if (sink != Sink.NONE) {
-            sinkBuf.setLength(0); sinkStrip.value = ""; sinkStrip.refresh(); onSinkChanged()
+            sinkStrip.clearInput(prefs.getInt(V3Prefs.CLEAR_SCOPE,0))
+            sinkBuf.setLength(0);sinkBuf.append(sinkStrip.value)
+            onSinkChanged()
         } else {
             checkpoint(typing = false)
             val ic = ic() ?: return
             ic.beginBatchEdit()
-            val cleared = if(remoteEditor() && !passwordField) remoteHistory.clear(ic) else if(prefs.getInt(V3Prefs.CLEAR_SCOPE,0)==1) {
-                val before=ic.getTextBeforeCursor(100000,0)?.length ?: 0
-                ic.deleteSurroundingText(before,0)
-            } else EditorDeletion.clear(ic, currentInputEditorInfo?.packageName)
+            val scope=prefs.getInt(V3Prefs.CLEAR_SCOPE,0)
+            val cleared = if(remoteEditor() && !passwordField) remoteHistory.clear(ic,paragraphOnly=scope==2) else when(scope) {
+                1 -> {
+                    val before=ic.getTextBeforeCursor(100000,0)?.length ?: 0
+                    if(!ic.getSelectedText(0).isNullOrEmpty()) ic.commitText("",1)
+                    ic.deleteSurroundingText(before,0)
+                }
+                2 -> EditorDeletion.clearParagraph(ic)
+                else -> EditorDeletion.clear(ic, currentInputEditorInfo?.packageName)
+            }
             ic.endBatchEdit()
             if (!cleared) {
                 assoc = emptyList()
-                message("没有可清空的本次键盘输入，请在远端全选后删除")
+                message(if(remoteEditor()) "没有可清空的本次键盘输入，请在远端全选后删除" else "当前应用未提供完整段落，无法清空")
                 return
             }
         }
@@ -2153,7 +2251,16 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if(candidatesPending && seq.isNotEmpty() && resolvedKeys!=seq.toList()) {pendingPick=candidateRevision to index;return}
         if (seq.isEmpty() && (panel == Panel.HAND || panel == Panel.HAND_CANDS)) {
             val w = handCands.getOrNull(index) ?: return
-            commitOut(w)
+            val connection=if(sink==Sink.NONE)ic() else null
+            connection?.beginBatchEdit()
+            try {
+                // Restore the original selection before committing the chosen candidate once.
+                cancelHandwritingPreview()
+                commitOut(w)
+                connection?.finishComposingText()
+            } finally {
+                connection?.endBatchEdit()
+            }
             handCands = emptyList()
             handView?.clear()
             if (panel == Panel.HAND_CANDS) { panel = Panel.HAND; buildPanel() }
@@ -3105,6 +3212,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         else main.removeCallbacks(releaseTools)
         if (panel == Panel.ADJUST && p != Panel.ADJUST) closePanel(render=false)
         if (p != Panel.CANDS && seq.isNotEmpty()) finalizeComposing()
+        if (p !in listOf(Panel.HAND, Panel.HAND_CANDS)) cancelHandwritingPreview()
         if (p != Panel.CLIP && p != Panel.TOKENS) { clipExpanded = null; clipPicking = null }
         if (panel == Panel.VOICE && p != Panel.VOICE) { stopListening(); cancelVoiceDraft() }
         panel = p
@@ -3121,6 +3229,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             NativeMotion.swap(root,col) {closePanel(render,animate=false)};return
         }
         val hadPanel = panel != Panel.NONE
+        cancelHandwritingPreview()
         if (panel == Panel.VOICE && !voiceCollapsed) { stopListening(); cancelVoiceDraft() }
         val wasAdjust = panel == Panel.ADJUST
         adjustOverlay?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }; adjustOverlay = null
@@ -3129,7 +3238,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (wasAdjust) {
             adj = null
             adjustmentDrafts.clear()
-            floating=prefs.getBoolean(Prefs.FLOAT,false)
+            floating=floatingForEditor()
             applyFloat(); applySkin(rebuildPanel = false)
         }
         selecting = false
@@ -3258,7 +3367,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     },
                     onDone = {
                         adjustmentDrafts[a.floating]=a
-                        val edit=p.edit().putBoolean(Prefs.FLOAT,a.floating)
+                        val edit=p.edit()
+                        saveFloating(a.floating,edit)
                         adjustmentDrafts.values.forEach {FloatingKeyboard.save(this,it,edit)}
                         edit.apply()
                         closePanel()
@@ -3279,7 +3389,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     "enter" -> if (handCands.isNotEmpty()) onCandidate(0) else onKey(Key(Kind.ENTER))
                 }
             }, onChanged = {
-                inkRevision++
+                cancelHandwritingPreview()
                 handCands = emptyList()
                 assoc = emptyList()
                 renderBar()
@@ -3319,7 +3429,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 onOverflow = {},labels=candItems().take(120).map {it.py},onVisibleWords={requestVisibleGloss(it)})
             Panel.HAND_CANDS -> ExpandedCandidates(this, skin, handCands, candidateFilter,
                 onMode = { candidateFilter=it }, onPick = { onCandidate(it) },
-                onDelete = { handCands=emptyList(); panel=Panel.HAND; buildPanel(); renderBar() },
+                onDelete = { cancelHandwritingPreview();handCands=emptyList(); panel=Panel.HAND; buildPanel(); renderBar() },
                 onBack = { openPanel(Panel.HAND) }, labels=handCands.map {if(V3Prefs.enabled(this,V3Prefs.HAND_TONE))HandwritingPinyin.label(it) else null})
         }
         if (panel == Panel.ADJUST) {
@@ -3354,6 +3464,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         fun deliver(list: List<String>, ocr: Boolean) {
             if (panel != Panel.HAND || handView !== view || inkRevision != revision) return
             handCands = HandwritingCandidates.expand(list, Lexicon::assoc, similar = ocr)
+            previewHandwriting(handCands.firstOrNull().orEmpty())
             if (list.isEmpty()) message("没认出来，写大一点再试") else renderBar()
         }
         val pre = runCatching { ic()?.getTextBeforeCursor(20, 0)?.toString() }.getOrNull().orEmpty()

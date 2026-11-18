@@ -130,6 +130,17 @@ class KeyboardView(context: Context) : View(context) {
     var splitLayout = false
     var cursorMode = false
         private set
+    private var externalCursorMode = false
+
+    fun setExternalCursorMode(active: Boolean) {
+        if (externalCursorMode == active) return
+        externalCursorMode = active
+        cursorMode = active || presses.values.any {
+            it.key.kind == Kind.SPACE && it.dragging && it.long
+        }
+        listener?.onCursorModeChange(cursorMode)
+        invalidate()
+    }
 
     private val d get() = resources.displayMetrics.density * heightScale
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
@@ -654,7 +665,7 @@ class KeyboardView(context: Context) : View(context) {
         repeatTask = retainRepeat
         presses.clear()
         syncPopupOverlay()
-        if (cursorMode) {
+        if (cursorMode && !externalCursorMode) {
             cursorMode = false
             listener?.onCursorModeChange(false)
         }

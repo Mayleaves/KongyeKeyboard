@@ -640,6 +640,33 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         try {value=editor.text.toString();composing=""} finally {changingEditor=false}
         onEdited(value);requestLayout()
     }
+    private var handwritingDraft: VoiceDraft? = null
+
+    fun previewHandwriting(text: String) {
+        if (!localEditing) {
+            composing=text
+            refresh()
+            return
+        }
+        changingEditor=true
+        try {
+            val draft=handwritingDraft ?: VoiceDraft(localConnection)
+            handwritingDraft=draft
+            if (draft.preview(text,underline=true)) composing=text
+        } finally { changingEditor=false }
+        refresh()
+    }
+
+    fun cancelHandwritingPreview() {
+        changingEditor=true
+        try {
+            handwritingDraft?.cancel()
+            handwritingDraft=null
+            composing=""
+        } finally { changingEditor=false }
+        refresh()
+    }
+
     fun insertAtCursor(text:String) {
         changingEditor=true
         try {localConnection.commitText(text,1);localConnection.finishComposingText()} finally {changingEditor=false}
@@ -655,6 +682,31 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         } finally {changingEditor=false}
         publishEdit()
     }
+    fun clearInput(scope: Int) {
+        if (!localEditing) {
+            value = ""
+            onEdited(value)
+            refresh()
+            return
+        }
+        localConnection.finishComposingText()
+        val text = editor.text
+        val from = min(editor.selectionStart, editor.selectionEnd).coerceAtLeast(0)
+        val to = max(editor.selectionStart, editor.selectionEnd).coerceAtLeast(0)
+        val range = when (scope) {
+            1 -> ParagraphText.Range(0, to)
+            2 -> ParagraphText.range(text, from, to)
+            else -> ParagraphText.Range(0, text.length)
+        }
+        changingEditor=true
+        try {
+            text.delete(range.start, range.end)
+            editor.setSelection(range.start)
+        } finally { changingEditor=false }
+        publishEdit()
+        refresh()
+    }
+
     fun editAction(id:String, selecting:Boolean=false) {
         val menu=when(id) {
             "all" -> android.R.id.selectAll; "copy" -> android.R.id.copy

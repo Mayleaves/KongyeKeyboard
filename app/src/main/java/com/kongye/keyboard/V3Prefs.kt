@@ -17,6 +17,8 @@ object V3Prefs {
     const val CORRECT_EXTRA="v3_correct_extra"
     const val CORRECT_MISSING="v3_correct_missing"
     const val MIXED="v3_mixed"
+    const val RECOGNIZE_ENGLISH="v3_recognize_english"
+    const val REMOTE_FLOAT="v3_remote_float"
     const val PUNCT_CONFIRM="v3_punct_confirm"
     const val PAIRS="v3_pairs"
     const val EN_SPACE="v3_en_space"

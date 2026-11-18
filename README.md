@@ -2,9 +2,11 @@
 
 Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，以及 26 键、14 键和九键布局。
 
-当前版本：**[3.0.1](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.1)**。Android 8.0 及以上；提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
+当前版本：**[3.0.2](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.2)**。Android 8.0 及以上；提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
 
-**3.0.1**：空格两侧的逗号和句号可自定义上下滑动作，新增 v/u 模糊音。详见 [3.0.1 更新说明](app/src/main/assets/release-current.md)。
+**3.0.2**：手写首选字可在输入框内带下划线预览，新增仅清空当前段落、远程应用自动悬浮和英文单词识别，统一底部滑动与空格长按的光标模式。详见 [3.0.2 更新说明](app/src/main/assets/release-current.md)。
+
+**3.0.1**：空格两侧的逗号和句号可自定义上下滑动作，新增 v/u 模糊音。详见 [3.0.1 更新说明](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.1)。
 
 **3.0.0**：设置重新分组，支持全文功能搜索、固定关闭／开启对比和完整／分体／悬浮实时预览；加入打字统计、本地与 WebDAV 备份。大型离线模型改为应用内按需下载，基础中文与英文输入仍可在首次安装后使用。详见 [3.0.0 更新说明](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.0) 与 [轻量资源说明](docs/轻量资源与设置预览.md)。
 

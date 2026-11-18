@@ -179,7 +179,7 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
     }
     private fun previewGraphics(c:Canvas,x:Float,w:Float,value:Any,current:Boolean):Boolean {
         val on=value==true
-        if(key==Prefs.FLOAT||key==FloatingKeyboard.SPLIT) {floatingGraphic(c,x,w,value);return true}
+        if(key==Prefs.FLOAT||key==FloatingKeyboard.SPLIT||key==V3Prefs.REMOTE_FLOAT) {floatingGraphic(c,x,w,value);return true}
         if(key in listOf(Prefs.LAYOUT,V3Prefs.LAYOUT_LANDSCAPE,V3Prefs.ONE_HAND,Prefs.SPLIT_LAYOUT,V3Prefs.FILL_GAPS,Prefs.HEIGHT_SCALE,V3Prefs.SPLIT_SIZE,V3Prefs.SPLIT_GAP)) {layoutGraphic(c,x,w,value);return true}
         nativeTab.bubbleColor=if(current)null else 0xffd9dbe0.toInt()
         nativeTab.errorUnderlineColor = accent
@@ -443,16 +443,28 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
             return true
         }
         if(key==V3Prefs.CLEAR_SCOPE) {
-            field("你好世界",y,14f)
-            var cursor=x+13*d+paint.measureText("你好")
-            paint.color=accent;paint.strokeWidth=1.5f*d
-            c.drawLine(cursor,y+4*d,cursor,y+23*d,paint)
-            val top=y+35*d
-            field(if((value as Number).toInt()==1)"世界" else "",top,14f)
-            cursor=x+13*d;paint.color=accent;paint.strokeWidth=1.5f*d
-            c.drawLine(cursor,top+4*d,cursor,top+23*d,paint)
-            graphicIcons.draw(c,R.drawable.ic_chevron_down,x+w/2,y+31*d,9f,muted)
-            text(c,if(value==1)"清空光标前，保留后文" else "清空整个输入框",x+9*d,105*d,w-18*d,9f,muted)
+            val mode=(value as Number).toInt()
+            val left=x+7*d
+            val right=x+w-7*d
+            fun document(top:Float,cleared:Boolean) {
+                rounded(c,RectF(left,top,right,top+45*d),white,5f)
+                val lines=if(!cleared)listOf("上一段","你好世界","下一段") else when(mode) {
+                    1->listOf("世界","下一段")
+                    2->listOf("上一段","","下一段")
+                    else->emptyList()
+                }
+                lines.forEachIndexed {index,line->text(c,line,left+5*d,top+(12+13*index)*d,right-left-10*d,9f,black)}
+                val line=if(cleared&&mode!=2)0 else 1
+                val prefix=if(cleared)"" else "你好"
+                paint.textSize=9*d
+                val cursor=left+5*d+paint.measureText(prefix)
+                paint.color=accent;paint.strokeWidth=1.3f*d
+                c.drawLine(cursor,top+(3+13*line)*d,cursor,top+(13+13*line)*d,paint)
+            }
+            document(y,false)
+            graphicIcons.draw(c,R.drawable.ic_chevron_down,x+w/2,y+51*d,9f,muted)
+            document(y+57*d,true)
+            text(c,when(mode){1->"保留光标后的文字";2->"保留前后段落";else->"清空全部文字"},x+9*d,145*d,w-18*d,8f,muted)
             return true
         }
         fun horizontalArrow(mid:Float,cy:Float,span:Float) {
@@ -555,6 +567,8 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
             V3Prefs.CORRECT_MISSING->listOf("niho",if(on)"你好 · 漏输纠正" else "niho")
             Prefs.ABBR->listOf("zg",if(on)"中国" else "zg")
             V3Prefs.MIXED->listOf("输入 nihaohello",if(on)"你好hello" else "只提供中文候选")
+            V3Prefs.RECOGNIZE_ENGLISH->listOf("输入 github / claude",if(on)"GitHub / Claude" else "保留中文候选排序")
+            V3Prefs.REMOTE_FLOAT->listOf("打开 UU 远程等远程桌面",if(on)"默认使用悬浮键盘" else "沿用键盘布局设置")
             V3Prefs.EN_CORRECT->listOf("hellp",if(on)"hello" else "hellp")
             V3Prefs.CAPS_LOCK->listOf("点击英文大写键后输入 abc",if(on)"ABC，保持大写直到手动解除" else "Abc，第一个字母后回到小写")
             V3Prefs.CAPS->listOf("新句子输入 hello",if(on)"Hello" else "hello")
@@ -584,7 +598,7 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
             V3Prefs.VOICE_POLISH->listOf("我今天去那个地方买菜",if(on)"今天我去那里买菜。" else "保留识别原文")
             V3Prefs.MEDIA->listOf("开始听写时",when(n){1->"暂停正在播放的音乐";2->"压低音乐音量";else->"保持播放音量"})
             V3Prefs.DRIVE->listOf("收起听写并发送",if(on)"返回输入框后接着听" else "手动再次开始听写")
-            V3Prefs.CLEAR_SCOPE->listOf("你好世界，光标位于你好之后",if(n==1)"清空前文后，光标位于世界之前" else "清空整个输入框，光标回到起点")
+            V3Prefs.CLEAR_SCOPE->listOf("上一段、你好世界、下一段，光标位于你好之后",when(n){1->"清空光标前文字";2->"仅清空你好世界，保留前后段落";else->"清空整个输入框"})
             V3Prefs.COMPOSE_RESTORE->listOf("已选「你好」并继续输入 shi 后退格", if (on) "还原为 ni'hao'shi" else "删去末尾 i，剩下你好sh")
             V3Prefs.COMPOSE_HOLD_CLEAR->listOf("输入 ni'hao 后长按删除键", if (on) "一次清空拼音" else "逐字母删除，例如剩下 ni'h")
             V3Prefs.DELETE_DIRECT->listOf("正文 + 联想词",if(on)"退格 → 直接删正文" else "第一次只收起联想")
