@@ -48,7 +48,7 @@ object InstallDefaults {
         Prefs.VAULT,Prefs.VAULT_INLINE,Prefs.SPACE_LONG,Prefs.VOICE_OFFLINE,
         V3Prefs.STATS_ENABLED,V3Prefs.VIBRATION_LEVEL,V3Prefs.VIBRATION_RESUME_MODE,V3Prefs.VIBRATION,
         V3Prefs.SOUND_VOLUME,V3Prefs.CORRECTION_ENABLED,V3Prefs.FUZZY_ENABLED,V3Prefs.CORRECT_NEAR,
-        V3Prefs.CORRECT_SWAP,V3Prefs.CORRECT_EXTRA,V3Prefs.CORRECT_MISSING,V3Prefs.MIXED,V3Prefs.RECOGNIZE_ENGLISH,V3Prefs.REMOTE_FLOAT,
+        V3Prefs.CORRECT_SWAP,V3Prefs.CORRECT_EXTRA,V3Prefs.CORRECT_MISSING,V3Prefs.MIXED,V3Prefs.RECOGNIZE_ENGLISH,
         V3Prefs.PUNCT_CONFIRM,V3Prefs.PAIRS,V3Prefs.EN_SPACE,V3Prefs.PUNCT_SPACE,
         V3Prefs.EMAIL,V3Prefs.CAPS,V3Prefs.CAPS_LOCK,V3Prefs.EN_CORRECT,
         V3Prefs.SPACE_LATIN,V3Prefs.SPACE_DIGIT,V3Prefs.ASSOC_CONTINUOUS,V3Prefs.ASSOC_SPACE,
@@ -58,7 +58,7 @@ object InstallDefaults {
         V3Prefs.DELETE_DIRECT,V3Prefs.COMPOSE_RESTORE,V3Prefs.COMPOSE_HOLD_CLEAR,V3Prefs.CLEAR_SCOPE,
         V3Prefs.DEL_UP,V3Prefs.DEL_DOWN,V3Prefs.DEL_LEFT,V3Prefs.DEL_RIGHT,
         V3Prefs.PINYIN_POSITION,V3Prefs.READINGS,V3Prefs.GLOSS,V3Prefs.FEEDBACK,
-        V3Prefs.ORIENTATION_LAYOUT,V3Prefs.LAYOUT_LANDSCAPE,V3Prefs.ONE_HAND,V3Prefs.FILL_GAPS,
+        V3Prefs.ORIENTATION_LAYOUT,V3Prefs.LAYOUT_LANDSCAPE,V3Prefs.LANDSCAPE_FLOAT,V3Prefs.LANDSCAPE_SPLIT,V3Prefs.ONE_HAND,V3Prefs.FILL_GAPS,
         V3Prefs.SPLIT_GAP,V3Prefs.SPLIT_SIZE,V3Prefs.CLIP_LIMIT,V3Prefs.CLIP_DAYS,
         V3Prefs.MEDIA,V3Prefs.DRIVE,V3Prefs.VOICE_PUNCT,V3Prefs.VOICE_NUMBERS,
         V3Prefs.VOICE_POLISH,V3Prefs.VOICE_CLEAN,V3Prefs.HAND_TONE,VoicePolish.MODE,
@@ -69,9 +69,10 @@ object InstallDefaults {
     @Synchronized fun reset(ctx:Context,p:SharedPreferences=ctx.getSharedPreferences("kongye",Context.MODE_PRIVATE)) {
         val data=profile(ctx)
         val edit=p.edit()
-        p.all.keys.filter {it in functionalKeys||it in FloatingKeyboard.keys||KeyGestures.isPreferenceKey(it)}.forEach {edit.remove(it)}
+        p.all.keys.filter {it in functionalKeys||it.startsWith("backup_")||it in FloatingKeyboard.keys||KeyGestures.isPreferenceKey(it)}.forEach {edit.remove(it)}
         writeProfile(data,edit)
         check(edit.putInt(MARKER,1).commit())
+        AutoWebDavBackup.disable(ctx)
         WebDavBackup.clear(ctx)
         PolishSecret.save(ctx,"")
     }
@@ -81,5 +82,6 @@ class KongyeApplication:Application() {
     override fun onCreate() {
         super.onCreate()
         InstallDefaults.seed(this)
+        runCatching {AutoWebDavBackup.sync(this)}
     }
 }

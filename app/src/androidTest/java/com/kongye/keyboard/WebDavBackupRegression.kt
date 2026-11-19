@@ -36,8 +36,9 @@ object WebDavBackupRegression {
                     headers["authorization"]!="Basic "+android.util.Base64.encodeToString("sample:private-password".toByteArray(),android.util.Base64.NO_WRAP)->status=401
                     path=="/redirect/"->{status=302;extras="Location: http://127.0.0.1:${server.localPort}/dav/\r\n"}
                     path=="/huge/"->{status=207;extras="X-Test: huge\r\n"}
-                    method=="PROPFIND"->{status=207;output=("<d:multistatus xmlns:d=\"DAV:\">"+files.keys.joinToString(""){"<d:response><d:href>$it</d:href><d:propstat><d:prop><d:getcontentlength>${files[it]!!.size}</d:getcontentlength></d:prop></d:propstat></d:response>"}+"<d:response><d:href>https://untrusted.invalid/dav/kongye-bad.zip</d:href></d:response><d:response><d:href>/outside/kongye-bad.zip</d:href></d:response></d:multistatus>").toByteArray()}
+                    method=="PROPFIND"->{status=207;output=("<d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>$path</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"+files.keys.joinToString(""){"<d:response><d:href>$it</d:href><d:propstat><d:prop><d:getcontentlength>${files[it]!!.size}</d:getcontentlength></d:prop></d:propstat></d:response>"}+"<d:response><d:href>https://untrusted.invalid/dav/kongye-bad.zip</d:href></d:response><d:response><d:href>/outside/kongye-bad.zip</d:href></d:response></d:multistatus>").toByteArray()}
                     method=="PUT"->{check(headers["if-none-match"]=="*");files[path]=body;status=201}
+                    method=="DELETE"->{status=if(files.remove(path)!=null)204 else 404}
                     method=="GET"->{output=files[path] ?: ByteArray(0);if(!files.containsKey(path))status=404}
                     else->status=405
                 }
@@ -69,6 +70,16 @@ object WebDavBackupRegression {
             check(fails {WebDavBackup.download(ctx,config,WebDavBackup.Entry("kongye-bad.zip","https://example.com/kongye-bad.zip",1))})
             files["/dav/$name"]="corrupt".toByteArray();check(fails {WebDavBackup.download(ctx,config,entries[0]).close()})
             check(p.getInt(V3Prefs.SOUND_VOLUME,0)==47)
+            val beforeDelete = requests.size
+            check(fails {WebDavBackup.delete(config, entries[0].copy(url=entries[0].url.replace("/dav/","/outside/")))})
+            check(fails {WebDavBackup.delete(config, entries[0].copy(url=config.address+"/"))})
+            check(requests.size==beforeDelete)
+            check(fails {WebDavBackup.delete(config.copy(password="bad"),entries[0])})
+            check(files.size==2)
+            WebDavBackup.delete(config,entries[0])
+            check(WebDavBackup.list(config).single().name==second)
+            check(fails {WebDavBackup.delete(config,entries[0])})
+            report("DELETE removes only the selected backup and rejects paths outside the configured folder")
             check(ctx.cacheDir.listFiles().orEmpty().none {it.name.startsWith("webdav-")})
             WebDavBackup.clear(ctx);check(WebDavBackup.read(ctx)==WebDavBackup.Config())
             report("Bad credentials, redirects, external entries, oversized lists and corrupt backups rejected; temporary transfer files cleaned")

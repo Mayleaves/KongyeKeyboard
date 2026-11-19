@@ -192,9 +192,6 @@ class KeyboardView(context: Context) : View(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         layoutKeys()
-        if(android.os.Build.VERSION.SDK_INT>=29 && !preview) {
-            systemGestureExclusionRects=listOf(android.graphics.Rect(0,0,w,h))
-        }
     }
 
     private fun layoutKeys() {

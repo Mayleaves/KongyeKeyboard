@@ -5,18 +5,6 @@ import android.content.SharedPreferences
 
 /** Floating dimensions use their own settings and the short display edge in landscape. */
 object FloatingKeyboard {
-    private val remotePackages = setOf(
-        "com.netease.uuremote",
-        "com.oray.sunlogin", "com.oray.sunlogin.service",
-        "com.anydesk.anydeskandroid",
-        "com.teamviewer.teamviewer.market.mobile", "com.teamviewer.remote.market.mobile",
-        "com.carriez.flutter_hbb",
-        "com.microsoft.rdc.android", "com.microsoft.rdc.androidx",
-        "com.limelight", "com.parsec.client", "com.valvesoftware.steamlink",
-    )
-    fun automatic(ctx: Context, packageName: String?) =
-        V3Prefs.enabled(ctx, V3Prefs.REMOTE_FLOAT, true) && packageName in remotePackages
-
     const val HEIGHT="float_height_scale"
     const val SPLIT="float_split_layout"
     const val GAP="float_split_gap"
@@ -45,7 +33,7 @@ object FloatingKeyboard {
         val w=width(ctx)
         return Adjust(if(floating)height(ctx) else Prefs.heightScale(ctx),Prefs.opacity(ctx),
             p.getInt(Prefs.PAD_L,0),p.getInt(Prefs.PAD_R,0),p.getInt(Prefs.PAD_B,0),
-            p.getBoolean(if(floating)SPLIT else Prefs.SPLIT_LAYOUT,false),floating,w,
+            if (floating) p.getBoolean(SPLIT, false) else V3Prefs.dockedSplit(ctx),floating,w,
             p.getFloat(xKey(ctx),d.widthPixels*(1-w)*if(landscape(ctx)).82f else .5f),
             p.getFloat(yKey(ctx),d.heightPixels*if(landscape(ctx)).18f else .45f),
             p.getInt(if(floating)GAP else V3Prefs.SPLIT_GAP,72).toFloat(),p.getFloat(if(floating)SIZE else V3Prefs.SPLIT_SIZE,1f))
@@ -55,7 +43,8 @@ object FloatingKeyboard {
             e.putFloat(HEIGHT,a.scale).putBoolean(SPLIT,a.split).putInt(GAP,a.splitGap.toInt()).putFloat(SIZE,a.splitSize)
                 .putFloat(widthKey(ctx),a.floatWidth).putFloat(xKey(ctx),a.floatX).putFloat(yKey(ctx),a.floatY)
         } else {
-            e.putFloat(Prefs.HEIGHT_SCALE,a.scale).putBoolean(Prefs.SPLIT_LAYOUT,a.split)
+            V3Prefs.saveDockedSplit(ctx, a.split, e)
+            e.putFloat(Prefs.HEIGHT_SCALE,a.scale)
                 .putInt(Prefs.PAD_L,a.padL).putInt(Prefs.PAD_R,a.padR).putInt(Prefs.PAD_B,a.padB)
                 .putInt(V3Prefs.SPLIT_GAP,a.splitGap.toInt()).putFloat(V3Prefs.SPLIT_SIZE,a.splitSize)
         }

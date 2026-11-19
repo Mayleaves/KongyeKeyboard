@@ -84,7 +84,7 @@ object FloatingModeRegression {
         try {
             shell("settings put system accelerometer_rotation 0");shell("settings put system user_rotation 0")
             SystemClock.sleep(700)
-            ui {p.edit().putBoolean(Prefs.FLOAT,false).putBoolean(Prefs.LEARN,false).putBoolean(V3Prefs.STATS_ENABLED,false).putString(Prefs.THEME,"kongye").putInt(Prefs.MODE,1).putFloat(Prefs.HEIGHT_SCALE,1f).remove(FloatingKeyboard.HEIGHT).putString(Prefs.TOOLS,Prefs.DEFAULT_TOOLS.joinToString(",")).putString(Prefs.MENU,Prefs.DEFAULT_MENU.joinToString(",")).commit()}
+            ui {p.edit().putBoolean(V3Prefs.ORIENTATION_LAYOUT,false).putBoolean(Prefs.FLOAT,false).putBoolean(Prefs.LEARN,false).putBoolean(V3Prefs.STATS_ENABLED,false).putString(Prefs.THEME,"kongye").putInt(Prefs.MODE,1).putFloat(Prefs.HEIGHT_SCALE,1f).remove(FloatingKeyboard.HEIGHT).putString(Prefs.TOOLS,Prefs.DEFAULT_TOOLS.joinToString(",")).putString(Prefs.MENU,Prefs.DEFAULT_MENU.joinToString(",")).commit()}
             showEditor();iconOrange(false)
             tool("adjust");waitFor("normal adjustment"){ui {overlay()!=null&&!draft().floating}}
             ui {draft().apply {scale=1.12f;padL=12;padR=18;padB=8;splitGap=90f;splitSize=.9f}}

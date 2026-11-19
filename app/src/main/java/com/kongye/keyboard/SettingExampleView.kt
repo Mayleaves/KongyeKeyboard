@@ -12,6 +12,7 @@ import android.view.View
 class SettingExampleView(private val ctx:Context):View(ctx) {
     var exampleActive=true
     var choiceOnly=false
+    var layoutLandscape:Boolean?=null
     var comparisonOptions:List<Pair<Any,String>> = emptyList()
     private val inactivePaint=Paint(3).apply {colorFilter=android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix().apply {setSaturation(0f)})}
     private val paint=Paint(3)
@@ -70,18 +71,58 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
     }
     private fun layoutGraphic(c:Canvas,x:Float,w:Float,value:Any) {
         val p=Prefs.of(ctx)
-        val layout=if(key==Prefs.LAYOUT||key==V3Prefs.LAYOUT_LANDSCAPE)value.toString() else Prefs.layout(ctx)
-        val split=if(key==Prefs.SPLIT_LAYOUT)value==true else p.getBoolean(Prefs.SPLIT_LAYOUT,false)
+        val landscape = layoutLandscape ?: (key == V3Prefs.LAYOUT_LANDSCAPE)
+        val selectedLandscape = landscape && p.getBoolean(V3Prefs.ORIENTATION_LAYOUT,false)
+        val layout=if(key==Prefs.LAYOUT||key==V3Prefs.LAYOUT_LANDSCAPE)value.toString() else if(layoutLandscape!=null)V3Prefs.layout(p,selectedLandscape) else Prefs.layout(ctx)
+        val split=when(key) {
+            Prefs.LAYOUT,V3Prefs.LAYOUT_LANDSCAPE->V3Prefs.keyboardForm(p,key==V3Prefs.LAYOUT_LANDSCAPE)==KeyboardForm.SPLIT
+            Prefs.SPLIT_LAYOUT->value==true
+            else->if(layoutLandscape!=null)V3Prefs.keyboardForm(p,selectedLandscape)==KeyboardForm.SPLIT else V3Prefs.dockedSplit(ctx)
+        }
         val hand=if(key==V3Prefs.ONE_HAND)(value as Number).toInt() else 0
         val filled=key!=V3Prefs.FILL_GAPS || value==true
         val scale=if(key==Prefs.HEIGHT_SCALE)(value as Number).toFloat() else Prefs.heightScale(ctx)
-        silhouette.draw(c,RectF(x+5*d,if(choiceOnly)5*d else 27*d,x+w-5*d,height-6*d),layout,0xffe6e8ed.toInt(),0xffffffff.toInt(),0xffcdd0d8.toInt(),split,hand,key==V3Prefs.LAYOUT_LANDSCAPE,filled,scale)
+        silhouette.draw(c,RectF(x+5*d,if(choiceOnly)5*d else 27*d,x+w-5*d,height-6*d),layout,0xffe6e8ed.toInt(),0xffffffff.toInt(),0xffcdd0d8.toInt(),split,hand,landscape,filled,scale,sourceWidthOverride=if(layoutLandscape!=null)(if(landscape)maxOf(resources.displayMetrics.widthPixels,resources.displayMetrics.heightPixels)else minOf(resources.displayMetrics.widthPixels,resources.displayMetrics.heightPixels)).toFloat() else null)
     }
+    private fun keyboardFormGraphic(c: Canvas, x: Float, w: Float, form: KeyboardForm) {
+        val metrics = ctx.resources.displayMetrics
+        val landscape = key == V3Prefs.LANDSCAPE_FLOAT ||
+            (!Prefs.of(ctx).getBoolean(V3Prefs.ORIENTATION_LAYOUT, false) && FloatingKeyboard.landscape(ctx))
+        val layout = V3Prefs.layout(Prefs.of(ctx), key == V3Prefs.LANDSCAPE_FLOAT)
+        val width = if (landscape) maxOf(metrics.widthPixels, metrics.heightPixels) else minOf(metrics.widthPixels, metrics.heightPixels)
+        val sourceDp = width / metrics.density
+        val background = 0xffe6e8ed.toInt()
+        val keyColor = 0xffffffff.toInt()
+        val modifierColor = 0xffcdd0d8.toInt()
+        val scene = RectF(x + 6*d, 10*d, x + w - 6*d, height - 10*d)
+        rounded(c, scene, 0xfffafbfc.toInt(), 7f)
+        rounded(c, RectF(scene.left + 6*d, scene.top + 8*d, scene.right - 10*d, scene.top + 11*d), 0xffe0e3e9.toInt(), 1.5f)
+        val floating = form == KeyboardForm.FLOATING
+        val split = if (floating) Prefs.flag(ctx, FloatingKeyboard.SPLIT, false) else form == KeyboardForm.SPLIT
+        val drawSplit = split && KeyboardForm.supportsSplit(layout, sourceDp, floating)
+        val board = if (floating) {
+            val window = RectF(scene.left + scene.width()*.19f, scene.top + 17*d, scene.right - 4*d, scene.bottom - 7*d)
+            rounded(c, RectF(window).apply { offset(0f, 2*d) }, 0xffd2d5dd.toInt(), 5f)
+            rounded(c, window, background, 5f)
+            rounded(c, RectF(window.centerX() - 7*d, window.top + 3*d, window.centerX() + 7*d, window.top + 5*d), 0xffa2a7b1.toInt(), 1f)
+            RectF(window.left + 2*d, window.top + 8*d, window.right - 2*d, window.bottom - 2*d)
+        } else {
+            RectF(scene.left + 2*d, scene.top + 22*d, scene.right - 2*d, scene.bottom - 2*d)
+        }
+        val p = Prefs.of(ctx)
+        silhouette.draw(c, board, layout, background, keyColor, modifierColor, split = drawSplit, landscape = landscape,
+            scale = if (floating) FloatingKeyboard.height(ctx) else Prefs.heightScale(ctx),
+            gapOverride = p.getInt(if (floating) FloatingKeyboard.GAP else V3Prefs.SPLIT_GAP, 72).toFloat(),
+            sizeOverride = p.getFloat(if (floating) FloatingKeyboard.SIZE else V3Prefs.SPLIT_SIZE, 1f),
+            sourceWidthOverride = if (floating) width*.74f else width.toFloat())
+    }
+
     private fun floatingGraphic(c:Canvas,x:Float,w:Float,value:Any) {
         val on=value==true
         val splitExample=key==FloatingKeyboard.SPLIT
         val floating=splitExample||on
         val p=Prefs.of(ctx)
+        val layout=if(layoutLandscape!=null)V3Prefs.layout(p,layoutLandscape==true&&p.getBoolean(V3Prefs.ORIENTATION_LAYOUT,false)) else Prefs.layout(ctx)
         val background=0xffe6e8ed.toInt();val keyColor=0xffffffff.toInt();val modifier=0xffcdd0d8.toInt()
         val scene=RectF(x+8*d,28*d,x+w-8*d,height-25*d)
         rounded(c,scene,0xfffafbfc.toInt(),7f)
@@ -100,11 +141,11 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
             rounded(c,window,background,5f)
             rounded(c,RectF(window.centerX()-10*d,window.top+4*d,window.centerX()+10*d,window.top+6*d),0xffa2a7b1.toInt(),1f)
             graphicIcons.draw(c,R.drawable.ic_close,window.right-6*d,window.top+6*d,6f,muted)
-            silhouette.draw(c,RectF(window.left+2*d,window.top+10*d,window.right-2*d,window.bottom-3*d),Prefs.layout(ctx),background,keyColor,modifier,
+            silhouette.draw(c,RectF(window.left+2*d,window.top+10*d,window.right-2*d,window.bottom-3*d),layout,background,keyColor,modifier,
                 split=split,landscape=splitExample,scale=scale,gapOverride=p.getInt(FloatingKeyboard.GAP,72).toFloat(),sizeOverride=p.getFloat(FloatingKeyboard.SIZE,1f))
         } else {
             val dock=RectF(scene.left+2*d,scene.top+24*d,scene.right-2*d,scene.bottom-2*d)
-            silhouette.draw(c,dock,Prefs.layout(ctx),background,keyColor,modifier,split=split,scale=scale)
+            silhouette.draw(c,dock,layout,background,keyColor,modifier,split=split,scale=scale)
         }
         val caption=if(splitExample) {if(on)"中间留出间距" else "完整悬浮键盘"} else {if(on)"独立窗口，可移动" else "键盘贴底显示"}
         text(c,caption,x+9*d,height-9*d,w-18*d,10f,muted)
@@ -179,7 +220,8 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
     }
     private fun previewGraphics(c:Canvas,x:Float,w:Float,value:Any,current:Boolean):Boolean {
         val on=value==true
-        if(key==Prefs.FLOAT||key==FloatingKeyboard.SPLIT||key==V3Prefs.REMOTE_FLOAT) {floatingGraphic(c,x,w,value);return true}
+        if (value is KeyboardForm) { keyboardFormGraphic(c, x, w, value); return true }
+        if (key == FloatingKeyboard.SPLIT) { floatingGraphic(c, x, w, value); return true }
         if(key in listOf(Prefs.LAYOUT,V3Prefs.LAYOUT_LANDSCAPE,V3Prefs.ONE_HAND,Prefs.SPLIT_LAYOUT,V3Prefs.FILL_GAPS,Prefs.HEIGHT_SCALE,V3Prefs.SPLIT_SIZE,V3Prefs.SPLIT_GAP)) {layoutGraphic(c,x,w,value);return true}
         nativeTab.bubbleColor=if(current)null else 0xffd9dbe0.toInt()
         nativeTab.errorUnderlineColor = accent
@@ -568,7 +610,6 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
             Prefs.ABBR->listOf("zg",if(on)"中国" else "zg")
             V3Prefs.MIXED->listOf("输入 nihaohello",if(on)"你好hello" else "只提供中文候选")
             V3Prefs.RECOGNIZE_ENGLISH->listOf("输入 github / claude",if(on)"GitHub / Claude" else "保留中文候选排序")
-            V3Prefs.REMOTE_FLOAT->listOf("打开 UU 远程等远程桌面",if(on)"默认使用悬浮键盘" else "沿用键盘布局设置")
             V3Prefs.EN_CORRECT->listOf("hellp",if(on)"hello" else "hellp")
             V3Prefs.CAPS_LOCK->listOf("点击英文大写键后输入 abc",if(on)"ABC，保持大写直到手动解除" else "Abc，第一个字母后回到小写")
             V3Prefs.CAPS->listOf("新句子输入 hello",if(on)"Hello" else "hello")

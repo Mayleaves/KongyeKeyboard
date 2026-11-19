@@ -31,7 +31,7 @@ class KeyboardAdjustmentPreview(context:Context):View(context) {
         val keyWidth=if(floating)(sourceWidth*floatWidth).toInt().coerceAtLeast((90*d).toInt())
             else (sourceWidth-leftPixels-(right*d).toInt()).coerceAtLeast((90*d).toInt())
         board.heightScale=height;board.splitLayout=split&&layout!="9";board.splitGap=gap;board.splitSize=size
-        board.setup(skin,when(layout){"14"->Layouts.fourteen(context);"9"->Layouts.nine();else->Layouts.letters(true,context)},if(layout=="9")Layouts.NINE_SIDE else null)
+        board.setup(skin,when(layout){"14"->if(board.splitLayout)Layouts.splitFourteen(context)else Layouts.fourteen(context);"9"->Layouts.nine();else->Layouts.letters(true,context)},if(layout=="9")Layouts.NINE_SIDE else null)
         toolbar.skin=skin;toolbar.uiScale=height;toolbar.showTools(listOf("more")+Prefs.tools(context))
         bottomStrip.skin=skin;bottomStrip.uiScale=height;bottomStrip.extra=if(floating)0 else (bottom*d).toInt()
         fun measure(view:View,width:Int) {

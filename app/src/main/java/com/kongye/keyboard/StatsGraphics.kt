@@ -90,7 +90,7 @@ object StatsReport {
         fun line(left:String,right:String){label(left);p.textAlign=Paint.Align.RIGHT;c.drawText(right,1000f,y,p);p.textAlign=Paint.Align.LEFT;y+=68}
         fun bars(data:LongArray,h:Float){val peak=(data.maxOrNull() ?: 0).coerceAtLeast(1);val step=930f/data.size;for(i in data.indices){p.color=if(data[i]==0L)Color.LTGRAY else ink;val bh=max(3f,data[i]*h/peak);c.drawRoundRect(RectF(75+i*step,y+h-bh,75+(i+1)*step-step*.2f,y+h),3f,3f,p)};y+=h+58}
         label("打字统计",size=54f,bold=true);y+=52;label("空叶键盘 · ${statsDate(s.asOf)}",size=27f,color=muted);y+=32
-        section("今天");card(400f){y+=40;label("${statsNumber(s.today)} 字",size=84f,bold=true);y+=75;label("✏ ${s.level.first}",size=35f);y+=55
+        section("今天");card(400f){y+=40;label("${statsNumber(s.today)} 字",size=84f,bold=true);y+=75;label(s.level.first,size=35f);y+=55
             label(s.level.second?.let {"距「${it.first}」还差 ${statsNumber(it.second)} 字"} ?: "已解锁最高称号",size=29f,color=muted);y+=70
             line("速度 ${s.speed?.toString() ?: "—"} 字/分", "最快 ${s.peakSpeed.takeIf {it>0}?.toString() ?: "—"} 字/分")
             line("连续 ${s.streak} 天","累计 ${statsNumber(s.total)} 字")}

@@ -99,8 +99,12 @@ object SmsCodeClipboard {
         }
         return runCatching {
             prefs(ctx).edit().putString("id",id).putLong("expires",expires).commit()
-            ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
-            schedule(ctx,expires);true
+            val clipboard=ctx.getSystemService(ClipboardManager::class.java)
+            clipboard.setPrimaryClip(clip)
+            // Some vendors silently reject background writes without throwing.
+            val copied=clipboard.primaryClipDescription?.extras?.getString(MARKER)==id
+            if(copied)schedule(ctx,expires) else prefs(ctx).edit().clear().apply()
+            copied
         }.getOrDefault(false)
     }
     fun schedule(ctx:Context,expires:Long=prefs(ctx).getLong("expires",0)) {

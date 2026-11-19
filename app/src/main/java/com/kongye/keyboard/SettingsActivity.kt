@@ -11,9 +11,14 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.DocumentsContract
+import android.provider.DocumentsContract.Document
+import android.provider.OpenableColumns
 import android.provider.Settings
+import android.text.format.Formatter
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -54,6 +59,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -83,6 +89,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -95,6 +102,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
@@ -128,6 +138,7 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.liveRegion
 import kotlin.math.roundToInt
 
 private val LocalPlainMenu=androidx.compose.runtime.staticCompositionLocalOf {false}
@@ -151,6 +162,7 @@ internal enum class Page(val title: String) {
 }
 
 private val LocalNoticePage = staticCompositionLocalOf<Page?> { null }
+private val LocalLayoutPreviewLandscape = staticCompositionLocalOf<Boolean?> { null }
 
 /** 主页上的一行：可以被搜索 */
 private class Item(val section: String, val icon: Int, val tint: Color, val title: String, val sub: String, val value: String?, val valueColor: Color?, val onClick: () -> Unit)
@@ -161,49 +173,116 @@ class SettingsActivity : ComponentActivity() {
     private val backupOptions=mutableStateOf(KeyboardBackup.Options())
     private val backupBusy=mutableStateOf(false)
     private val backupMessage=mutableStateOf("")
+    private data class BackupFeedback(
+        val title: String,
+        val detail: String,
+        val ok: Boolean?,
+    )
+    private val backupFeedback=mutableStateOf<Map<Boolean,BackupFeedback>>(emptyMap())
+    private var pendingRestoreCloud=false
+    private val pendingBackupRestore=mutableStateOf<KeyboardBackup.Prepared?>(null)
+    private fun clearBackupFeedback(cloud:Boolean=false) { backupFeedback.value=backupFeedback.value-cloud }
+    private fun reportBackup(operation:String,result:Result<String>,cloud:Boolean=false) {
+        backupMessage.value=""
+        backupFeedback.value=backupFeedback.value+(cloud to BackupFeedback(operation+if(result.isSuccess)"成功"else "失败",
+            result.getOrElse {it.message ?: "操作失败，请重试。"},result.isSuccess))
+    }
+    private fun updateBackupOptions(options:KeyboardBackup.Options) {
+        backupOptions.value=options;AutoWebDavBackup.setOptions(this,options)
+    }
     private val backupExport=registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) {uri->
         if(uri!=null) {
             val options=backupOptions.value
-            backupBusy.value=true;backupMessage.value="正在导出备份…"
+            clearBackupFeedback();backupBusy.value=true;backupMessage.value="正在导出备份…"
             Thread {
                 val result=runCatching {contentResolver.openOutputStream(uri,"w")?.use {KeyboardBackup.write(applicationContext,it,options)} ?: error("无法写入所选文件")}
                 if(result.isSuccess)Prefs.of(applicationContext).edit().putLong("backup_last_export",System.currentTimeMillis()).apply()
-                runOnUiThread {backupBusy.value=false;backupMessage.value=result.fold({"备份已导出"},{it.message ?: "备份失败，请重试"})}
+                runOnUiThread {backupBusy.value=false;reportBackup("导出备份",result.map {"文件已保存到所选位置。"})}
             }.start()
         }
     }
-    private val backupImport=registerForActivityResult(ActivityResultContracts.OpenDocument()) {uri->
-        if(uri!=null) {
-            backupBusy.value=true;backupMessage.value="正在检查备份…"
-            Thread {
-                val result=runCatching {contentResolver.openInputStream(uri)?.use {KeyboardBackup.read(applicationContext,it)} ?: error("无法读取所选文件")}
-                runOnUiThread {
-                    backupBusy.value=false
-                    result.onSuccess {prepared->
-                        if(isDestroyed||isFinishing){prepared.close();return@onSuccess}
-                        confirmBackupRestore(prepared)
-                    }.onFailure {backupMessage.value=it.message ?: "不是有效的空叶键盘备份"}
-                }
-            }.start()
+    private data class ManagedBackup(
+        val name: String,
+        val bytes: Long,
+        val read: () -> KeyboardBackup.Prepared,
+        val delete: (() -> Unit)?,
+    )
+
+    private data class BackupListing(val source: String, val files: List<ManagedBackup>, val cloud:Boolean)
+    private val backupListing = mutableStateOf<BackupListing?>(null)
+    private val pendingBackupDelete = mutableStateOf<ManagedBackup?>(null)
+
+    private val localBackupPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            runBackupWork("正在读取本地备份…", {
+                require(uris.size <= 256) { "请一次选择不超过 256 份备份。" }
+                uris.distinct().map(::localBackup)
+            }) { openBackupListing("本地备份", it) }
         }
     }
-    private fun confirmBackupRestore(prepared:KeyboardBackup.Prepared) {
+
+    private fun localBackup(uri: Uri): ManagedBackup {
+        val resolver = contentResolver
+        val isDocument = DocumentsContract.isDocumentUri(this, uri)
+        val projection = if (isDocument) arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE, Document.COLUMN_FLAGS)
+            else arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
+        val (name, bytes, flags) = resolver.query(uri, projection, null, null, null)?.use { cursor ->
+            check(cursor.moveToFirst()) { "无法读取所选文件的信息。" }
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+            val flagsIndex = cursor.getColumnIndex(Document.COLUMN_FLAGS)
+            Triple(
+                if (nameIndex >= 0) cursor.getString(nameIndex).orEmpty() else "",
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) cursor.getLong(sizeIndex) else -1L,
+                if (flagsIndex >= 0) cursor.getInt(flagsIndex) else 0,
+            )
+        } ?: error("无法读取所选文件的信息。")
+        val read = {
+            resolver.openInputStream(uri)?.use { KeyboardBackup.read(applicationContext, it) }
+                ?: error("无法读取所选文件。")
+        }
+        val canDelete = isDocument && (flags and Document.FLAG_SUPPORTS_DELETE) != 0 &&
+            checkCallingOrSelfUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION) == PackageManager.PERMISSION_GRANTED
+        return ManagedBackup(name.ifBlank { "所选文件" }, bytes, read, if (canDelete) {
+            {
+                // A renamed backup is still eligible, after confirming it is an app backup.
+                if (!localBackupName.matches(name)) read().use {}
+                check(DocumentsContract.deleteDocument(resolver, uri)) { "系统未能删除所选文件。" }
+            }
+        } else null)
+    }
+
+    private val localBackupName = Regex("(?:空叶键盘-备份-\\d{8}-\\d{4}|kongye-\\d{8}-\\d{6}-[0-9a-f]{8})(?: \\(\\d+\\))?\\.zip")
+
+    private fun openBackupListing(source: String, result: Result<List<ManagedBackup>>, cloud:Boolean=false) {
+        result.onSuccess { files ->
+            if (files.isEmpty()) reportBackup("读取备份", Result.success("这里还没有空叶键盘备份。"),cloud)
+            else backupListing.value = BackupListing(source, files, cloud)
+        }.onFailure { reportBackup("读取备份", Result.failure(it),cloud) }
+    }
+
+    private fun <T> runBackupWork(message: String, work: () -> T, cloud:Boolean=false, complete: (Result<T>) -> Unit) {
+        if (backupBusy.value) return
+        backupFeedback.value = backupFeedback.value + (cloud to BackupFeedback("正在处理",message,null))
+        backupMessage.value = message
+        backupBusy.value = true
+        Thread {
+            val result = runCatching(work)
+            runOnUiThread {
+                backupBusy.value = false
+                backupMessage.value = ""
+                complete(result)
+            }
+        }.start()
+    }
+
+    private fun confirmBackupRestore(prepared:KeyboardBackup.Prepared,cloud:Boolean) {
         if(isDestroyed||isFinishing){prepared.close();return}
-                        backupMessage.value="备份已校验，请确认恢复内容"
-                        val applying=java.util.concurrent.atomic.AtomicBoolean(false)
-                        val options=prepared.options
-                        val contents=listOfNotNull("设置与自定义按键",if(options.learning)"自造词、选词记录"else null,if(options.statistics)"打字统计"else null,if(options.clipboard)"剪贴板文字、图片与分类"else null).joinToString("\n")
-                        val time=java.text.SimpleDateFormat("yyyy-MM-dd HH:mm",java.util.Locale.getDefault()).format(java.util.Date(prepared.created))
-                        val dialog=android.app.AlertDialog.Builder(this@SettingsActivity).setTitle("恢复此备份？")
-                            .setMessage("备份时间："+time+"\n版本："+prepared.version+"\n\n"+contents+"\n\n将覆盖以上项目，其他数据保留。")
-                            .setNegativeButton("取消",null).setPositiveButton("恢复") {_,_->
-                                applying.set(true);backupBusy.value=true;backupMessage.value="正在恢复备份…"
-                                Thread {
-                                    val restored=runCatching {KeyboardBackup.restore(applicationContext,prepared)}
-                                    runOnUiThread {backupBusy.value=false;backupMessage.value=restored.fold({"恢复完成，已载入备份设置"},{it.message ?: "恢复失败，原数据已保留"});tick.intValue++}
-                                }.start()
-                            }.create()
-                        dialog.setOnDismissListener {if(!applying.get())prepared.close()};dialog.show()
+        pendingBackupRestore.value?.close()
+        pendingBackupRestore.value=prepared
+        pendingRestoreCloud=cloud
+        backupMessage.value=""
+        backupFeedback.value=backupFeedback.value+(cloud to BackupFeedback("备份已校验","请确认要恢复的内容。",null))
     }
     private data class NoticeFocus(val page: Page, val key: String, val serial: Long)
     private val noticeFocus=mutableStateOf<NoticeFocus?>(null)
@@ -340,6 +419,7 @@ class SettingsActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if(android.os.Build.VERSION.SDK_INT>=31)splashScreen.setOnExitAnimationListener {it.remove()}
         V3Prefs.migrate(this)
+        backupOptions.value=AutoWebDavBackup.options(this)
         restoredActivity = savedInstanceState != null
         updateDialogVisible.value=savedInstanceState?.getBoolean("update_dialog_visible",false)==true
         Thread({
@@ -363,6 +443,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        pendingBackupRestore.value?.close();pendingBackupRestore.value=null
         keyboardOverlay?.dismiss();keyboardOverlay=null
         updateDownloadCancelled=true
         Prefs.of(this).unregisterOnSharedPreferenceChangeListener(prefListener)
@@ -485,6 +566,8 @@ class SettingsActivity : ComponentActivity() {
                     if(shownPage==Page.HISTORY) Box(Modifier.weight(1f).padding(horizontal=16.dp)) {
                         HistoryPage(pal) {selectedRelease.value=it;navigateTo(Page.RELEASE)}
                     } else if(shownPage==Page.HEIGHT) HeightPage(pal,tick)
+                    else if(shownPage==Page.BACKUP) BackupPage(pal)
+                    else if(shownPage==Page.LAYOUT) CompositionLocalProvider(LocalNoticePage provides Page.LAYOUT) { LayoutPage(pal,tick) }
                     else Column(
                         Modifier.fillMaxSize().verticalScroll(subScroll).padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -529,6 +612,8 @@ class SettingsActivity : ComponentActivity() {
                 }
             }
             if(updateDialogVisible.value)UpdateDialog(pal,tick) {updateDialogVisible.value=false;navigateTo(Page.HISTORY);loadHistory()}
+            ManageBackupDialog(pal)
+            BackupRestoreDialog(pal)
             if(backupBusy.value)androidx.compose.ui.window.Dialog(onDismissRequest={},properties=androidx.compose.ui.window.DialogProperties(dismissOnBackPress=false,dismissOnClickOutside=false)) {
                 Column(Modifier.clip(RoundedCornerShape(20.dp)).background(pal.card).padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally) {
                     AndroidView(factory={android.widget.ProgressBar(it)},modifier=Modifier.size(32.dp))
@@ -620,9 +705,10 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun SettingComparison(pal:Pal,title:String,key:String,current:Any,compareChoices:List<Pair<Any,String>> = emptyList(),label:(Any)->String) {
         val before=remember(key) {current}
+        val previewLandscape = LocalLayoutPreviewLandscape.current
         val height = when (key) {
             V3Prefs.DELETE_DIRECT -> 190.dp
-            Prefs.FLOAT, FloatingKeyboard.SPLIT, V3Prefs.REMOTE_FLOAT -> 154.dp
+            FloatingKeyboard.SPLIT -> 154.dp
             V3Prefs.CLEAR_SCOPE -> 152.dp
             V3Prefs.PUNCT_CONFIRM, V3Prefs.READINGS, V3Prefs.GLOSS -> 148.dp
             V3Prefs.COMPOSE_RESTORE, V3Prefs.COMPOSE_HOLD_CLEAR -> 144.dp
@@ -633,6 +719,7 @@ class SettingsActivity : ComponentActivity() {
         }
         AndroidView(factory={ctx->SettingExampleView(ctx)},update={
             it.ink=pal.ink.toArgb();it.muted=pal.text2.toArgb();it.tile=pal.tile.toArgb();it.accent=pal.accent.toArgb()
+            it.layoutLandscape = previewLandscape
             it.comparisonOptions=compareChoices;it.submit(key,title,before,current,label(before),label(current))
         },modifier=Modifier.fillMaxWidth().semantics {contentDescription="$title：修改前 ${label(before)}，当前 ${label(current)}"}.padding(top=2.dp,bottom=10.dp).height(height))
     }
@@ -710,44 +797,68 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun BackupPage(pal:Pal) {
         val options=backupOptions.value
-        var method by rememberSaveable {mutableIntStateOf(0)}
+        val pager=rememberPagerState(pageCount={2})
+        val scope=rememberCoroutineScope()
+        val focus=LocalFocusManager.current
+        val keyboardController=LocalSoftwareKeyboardController.current
         var contents by rememberSaveable {mutableStateOf(false)}
         var resetConfirm by rememberSaveable {mutableStateOf(false)}
-        Segment(pal,listOf("本地备份","WebDAV 备份"),method){method=it}
-        if(method==0) {
-            Card(pal) {
-                ActionRow(pal,"保存备份文件","导出为文件，保存到你选择的位置","导出") {
-                    backupExport.launch("空叶键盘-备份-"+java.text.SimpleDateFormat("yyyyMMdd-HHmm",java.util.Locale.getDefault()).format(java.util.Date())+".zip")
-                }
-                Line(pal)
-                ActionRow(pal,"从文件恢复","选择备份，校验后确认恢复","选择文件") {backupImport.launch(arrayOf("*/*"))}
-            }
-        } else WebDavBackupCard(pal)
-        if(backupMessage.value.isNotBlank())BasicText(backupMessage.value,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
-        Card(pal) {
-            Row(Modifier.fillMaxWidth().clickable {contents=!contents}.padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    BasicText("备份内容",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
-                    BasicText(listOfNotNull("设置",if(options.learning)"自造词与选词记录" else null,if(options.statistics)"打字统计" else null,if(options.clipboard)"剪贴板" else null).joinToString("、"),style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
-                }
-                ExpandArrow(pal, contents)
-            }
-            if(contents) {
-                Line(pal)
-                BasicText("设置、自定义按键和布局始终备份；以下选择同时适用于本地和 WebDAV。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=12.dp,bottom=4.dp))
-                ToggleRow(pal,"自造词与选词记录",null,options.learning) {backupOptions.value=options.copy(learning=it)}
-                ToggleRow(pal,"打字统计",null,options.statistics) {backupOptions.value=options.copy(statistics=it)}
-                ToggleRow(pal,"剪贴板","包含文本、图片和自定义分类",options.clipboard) {backupOptions.value=options.copy(clipboard=it)}
-            }
+        LaunchedEffect(pager.settledPage) {
+            focus.clearFocus()
+            keyboardController?.hide()
         }
-        BasicText("离线模型、系统权限和密钥不备份。文件可能包含个人词汇与剪贴板，请妥善保管。",style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=19.sp),modifier=Modifier.padding(horizontal=4.dp,vertical=4.dp))
-        Card(pal) {
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {resetConfirm=true}.padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    BasicText("恢复默认设置",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
-                    BasicText("重置全部功能配置，保留个人数据",style=TextStyle(color=pal.text2,fontSize=12.5.sp,lineHeight=19.sp),modifier=Modifier.padding(top=4.dp))
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp)) {
+                Card(pal) {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {resetConfirm=true}.padding(vertical=10.dp),
+                        verticalAlignment=Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            BasicText("恢复默认设置",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
+                            BasicText("重置全部功能配置，保留个人数据",style=TextStyle(color=pal.text2,fontSize=12.5.sp),modifier=Modifier.padding(top=4.dp))
+                        }
+                        HeaderAction(pal,R.drawable.ic_refresh,"重置全部设置") {resetConfirm=true}
+                    }
                 }
-                HeaderAction(pal,R.drawable.ic_refresh,"重置全部设置") {resetConfirm=true}
+            }
+            Box(Modifier.fillMaxWidth().padding(horizontal=16.dp).padding(bottom=12.dp)) {
+                Segment(pal,listOf("本地备份","WebDAV 备份"),pager.currentPage) {method->
+                    scope.launch {pager.animateScrollToPage(method)}
+                }
+            }
+            HorizontalPager(state=pager,modifier=Modifier.weight(1f).fillMaxWidth()) {method->
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    BackupFeedbackBar(pal,cloud=method==1)
+                    Column(Modifier.fillMaxWidth().padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                        if(method==0) {
+                            BackupActions(pal,cloud=false,onCreate={
+                                val timestamp=java.text.SimpleDateFormat("yyyyMMdd-HHmm",java.util.Locale.ROOT).format(java.util.Date())
+                                backupExport.launch("空叶键盘-备份-$timestamp.zip")
+                            },onManage={localBackupPicker.launch(arrayOf("*/*"))})
+                        } else WebDavBackupCard(pal,active=pager.settledPage==method)
+                        Card(pal) {
+                            Row(Modifier.fillMaxWidth().clickable {contents=!contents}.padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    BasicText("备份内容",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
+                                    BasicText(listOfNotNull("设置",if(options.learning)"自造词与选词记录" else null,
+                                        if(options.statistics)"打字统计" else null,if(options.clipboard)"剪贴板" else null).joinToString("、"),
+                                        style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
+                                }
+                                ExpandArrow(pal,contents)
+                            }
+                            if(contents) {
+                                Line(pal)
+                                BasicText("设置、自定义按键和布局始终备份。以下选择适用于本地和 WebDAV。",
+                                    style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=19.sp),modifier=Modifier.padding(top=12.dp,bottom=4.dp))
+                                ToggleRow(pal,"自造词与选词记录",null,options.learning) {updateBackupOptions(options.copy(learning=it))}
+                                ToggleRow(pal,"打字统计",null,options.statistics) {updateBackupOptions(options.copy(statistics=it))}
+                                ToggleRow(pal,"剪贴板","包含文本、图片和自定义分类",options.clipboard) {updateBackupOptions(options.copy(clipboard=it))}
+                            }
+                        }
+                        BasicText("离线模型、系统权限和密钥不备份。文件可能包含个人词汇与剪贴板，请妥善保管。",
+                            style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=19.sp),modifier=Modifier.padding(horizontal=4.dp,vertical=4.dp))
+                        Spacer(Modifier.height(106.dp))
+                    }
+                }
             }
         }
         if(resetConfirm) androidx.compose.ui.window.Dialog(onDismissRequest={resetConfirm=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
@@ -763,7 +874,7 @@ class SettingsActivity : ComponentActivity() {
                             backupOptions.value=KeyboardBackup.Options()
                             android.widget.Toast.makeText(this@SettingsActivity,"已恢复默认设置",android.widget.Toast.LENGTH_SHORT).show()
                             recreate()
-                        }.onFailure {backupMessage.value=it.message ?: "恢复默认设置失败，请重试"}
+                        }.onFailure {reportBackup("恢复默认设置",Result.failure(it),pager.currentPage==1)}
                     }
                 }
             }
@@ -771,79 +882,296 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun WebDavBackupCard(pal:Pal) {
+    private fun BackupFeedbackBar(pal:Pal,cloud:Boolean) {
+        // Each destination owns its feedback, including while the other page is visible.
+        androidx.compose.runtime.key(cloud) {
+            AnimatedContent(targetState=backupFeedback.value[cloud],
+                transitionSpec={
+                    (fadeIn(tween(180,delayMillis=50)) togetherWith fadeOut(tween(120)))
+                        .using(androidx.compose.animation.SizeTransform {_,_->tween(220)})
+                },label="backupFeedback") {result->
+                if(result!=null) {
+                    val color=when(result.ok) {true->pal.ok;false->pal.bad;null->pal.text2}
+                    Row(Modifier.fillMaxWidth().padding(horizontal=16.dp).padding(bottom=12.dp)
+                        .clip(RoundedCornerShape(16.dp)).background(color.copy(alpha=.06f))
+                        .padding(start=14.dp,end=6.dp,top=10.dp,bottom=10.dp)
+                        .semantics {liveRegion=androidx.compose.ui.semantics.LiveRegionMode.Polite},
+                        verticalAlignment=Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            BasicText(result.title,style=TextStyle(color=color,fontSize=14.sp,fontWeight=FontWeight.Bold))
+                            BasicText(result.detail,style=TextStyle(color=pal.ink,fontSize=12.5.sp,lineHeight=19.sp),
+                                modifier=Modifier.padding(top=3.dp))
+                        }
+                        HeaderAction(pal,R.drawable.ic_close,"关闭操作提示") {clearBackupFeedback(cloud)}
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun BackupActions(pal: Pal, cloud: Boolean, onCreate: () -> Unit, onManage: () -> Unit) {
+        Card(pal) {
+            val destination = if (cloud) "上传到 WebDAV" else "保存到所选位置"
+            ActionRow(pal, "新建备份", destination, if (cloud) "上传" else "导出", onCreate)
+            Line(pal)
+            val description = if (cloud) "查看、恢复或删除云端备份" else "选择文件后可恢复或删除"
+            ActionRow(pal, "管理备份", description, if (cloud) "查看" else "选择文件", onManage)
+        }
+    }
+
+    @Composable
+    private fun ManageBackupDialog(pal: Pal) {
+        val listing = backupListing.value ?: return
+        val target = pendingBackupDelete.value
+        if (target != null) {
+            val delete = target.delete ?: return
+            val cancel = { pendingBackupDelete.value = null }
+            androidx.compose.ui.window.Dialog(onDismissRequest = cancel,
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+                Column(Modifier.widthIn(max = 440.dp).fillMaxWidth(.91f).clip(RoundedCornerShape(24.dp)).background(pal.card).padding(24.dp)) {
+                    BasicText("删除${listing.source}？", style = TextStyle(color = pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold))
+                    BasicText(target.name, style = TextStyle(color = pal.ink, fontSize = 14.sp, lineHeight = 21.sp),
+                        modifier = Modifier.padding(top = 14.dp), maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    BasicText("将永久删除这份备份文件。", style = TextStyle(color = pal.text2, fontSize = 13.sp, lineHeight = 20.sp),
+                        modifier = Modifier.padding(top = 10.dp, bottom = 22.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        ResourceAction(pal, "取消", onClick = cancel)
+                        Pill(pal, "确认删除", true) {
+                            if (!backupBusy.value && pendingBackupDelete.value === target) {
+                                pendingBackupDelete.value = null
+                                backupListing.value = null
+                                runBackupWork("正在删除备份…", delete, cloud=listing.cloud) { result ->
+                                    reportBackup("删除备份", result.map { "已删除「${target.name}」。" },listing.cloud)
+                                    if (result.isSuccess) {
+                                        val remaining = listing.files.filterNot { it === target }
+                                        if (remaining.isNotEmpty()) backupListing.value = listing.copy(files = remaining)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return
+        }
+
+        val close = { backupListing.value = null }
+        androidx.compose.ui.window.Dialog(onDismissRequest = close,
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.widthIn(max = 440.dp).fillMaxWidth(.91f).heightIn(max = 580.dp)
+                .clip(RoundedCornerShape(24.dp)).background(pal.card).padding(22.dp)) {
+                BasicText(listing.source, style = TextStyle(color = pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold))
+                BasicText("共 ${listing.files.size} 份备份", style = TextStyle(color = pal.text2, fontSize = 12.sp, lineHeight = 19.sp),
+                    modifier = Modifier.padding(top = 5.dp, bottom = 14.dp))
+                LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(listing.files.size) { index ->
+                        val file = listing.files[index]
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(pal.tile).padding(horizontal = 14.dp, vertical = 10.dp)) {
+                            BasicText(file.name, style = TextStyle(color = pal.ink, fontSize = 14.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium),
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (file.bytes >= 0) {
+                                BasicText(Formatter.formatShortFileSize(this@SettingsActivity, file.bytes),
+                                    style = TextStyle(color = pal.text2, fontSize = 12.sp), modifier = Modifier.padding(top = 3.dp))
+                            }
+                            Row(Modifier.fillMaxWidth().padding(top = 3.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                                if (file.delete != null) {
+                                    ResourceAction(pal, "删除", pal.bad) { pendingBackupDelete.value = file }
+                                } else {
+                                    BasicText("系统不允许删除", style = TextStyle(color = pal.text2, fontSize = 12.sp), modifier = Modifier.padding(end = 8.dp))
+                                }
+                                ResourceAction(pal, "恢复", pal.ink) {
+                                    backupListing.value = null
+                                    runBackupWork("正在校验备份…", file.read, cloud=listing.cloud) { result ->
+                                        result.onSuccess {confirmBackupRestore(it,listing.cloud)}.onFailure { reportBackup("读取备份", Result.failure(it),listing.cloud) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Box(Modifier.align(Alignment.End).padding(top = 10.dp)) {
+                    ResourceAction(pal, "关闭", onClick = close)
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun BackupRestoreDialog(pal:Pal) {
+        val prepared=pendingBackupRestore.value ?: return
+        val cloud=pendingRestoreCloud
+        fun dismiss() {pendingBackupRestore.value=null;prepared.close();clearBackupFeedback(cloud)}
+        val options=prepared.options
+        val contents=listOfNotNull("设置与自定义按键",if(options.learning)"自造词与选词记录"else null,
+            if(options.statistics)"打字统计"else null,if(options.clipboard)"剪贴板文字、图片与分类"else null)
+        val locale=androidx.compose.ui.platform.LocalConfiguration.current.locales.get(0) ?: java.util.Locale.ROOT
+        val time=java.text.SimpleDateFormat("yyyy-MM-dd HH:mm",locale).format(java.util.Date(prepared.created))
+        androidx.compose.ui.window.Dialog(onDismissRequest={dismiss()},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
+            Column(Modifier.widthIn(max=440.dp).fillMaxWidth(.91f).heightIn(max=640.dp)
+                .clip(RoundedCornerShape(24.dp)).background(pal.card).verticalScroll(rememberScrollState()).padding(24.dp)) {
+                Row(verticalAlignment=Alignment.CenterVertically) {
+                    Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(pal.accent.copy(alpha=.1f)),contentAlignment=Alignment.Center) {
+                        Image(painterResource(R.drawable.ic_backup),null,Modifier.size(23.dp),colorFilter=ColorFilter.tint(pal.accent))
+                    }
+                    Column(Modifier.padding(start=12.dp)) {
+                        BasicText("恢复备份",style=TextStyle(color=pal.ink,fontSize=21.sp,fontWeight=FontWeight.Bold))
+                        BasicText("备份文件已校验",style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=3.dp))
+                    }
+                }
+                Column(Modifier.fillMaxWidth().padding(top=20.dp).clip(RoundedCornerShape(14.dp)).background(pal.tile).padding(14.dp)) {
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                        BasicText("备份时间",style=TextStyle(color=pal.text2,fontSize=12.sp))
+                        BasicText(time,style=TextStyle(color=pal.ink,fontSize=13.sp,fontWeight=FontWeight.Medium))
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top=10.dp),horizontalArrangement=Arrangement.SpaceBetween) {
+                        BasicText("应用版本",style=TextStyle(color=pal.text2,fontSize=12.sp))
+                        BasicText(prepared.version,style=TextStyle(color=pal.ink,fontSize=13.sp,fontWeight=FontWeight.Medium))
+                    }
+                }
+                BasicText("将恢复以下内容",style=TextStyle(color=pal.ink,fontSize=14.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=20.dp,bottom=8.dp))
+                contents.forEach {item->
+                    Row(Modifier.fillMaxWidth().padding(vertical=6.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Box(Modifier.size(6.dp).clip(CircleShape).background(pal.text2))
+                        BasicText(item,style=TextStyle(color=pal.ink,fontSize=14.sp,lineHeight=21.sp),modifier=Modifier.padding(start=10.dp))
+                    }
+                }
+                BasicText("以上内容将被覆盖，其他数据保留。",style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=19.sp),modifier=Modifier.padding(top=12.dp,bottom=22.dp))
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.weight(1f).height(46.dp).clip(RoundedCornerShape(14.dp)).background(pal.tile).clickable {dismiss()},contentAlignment=Alignment.Center) {
+                        BasicText("取消",style=TextStyle(color=pal.ink,fontSize=15.sp,fontWeight=FontWeight.Medium))
+                    }
+                    Box(Modifier.weight(1f).height(46.dp).clip(RoundedCornerShape(14.dp)).background(pal.accent).clickable {
+                        pendingBackupRestore.value=null
+                        clearBackupFeedback(cloud);backupBusy.value=true;backupMessage.value="正在恢复备份…"
+                        Thread {
+                            val result=runCatching {prepared.use {KeyboardBackup.restore(applicationContext,it)}}
+                            runOnUiThread {
+                                backupBusy.value=false
+                                reportBackup("恢复备份",result.map {"已载入备份设置和所选数据"},cloud)
+                                if(result.isSuccess) {backupOptions.value=AutoWebDavBackup.options(this@SettingsActivity);runCatching {AutoWebDavBackup.sync(this@SettingsActivity)}}
+                                tick.intValue++
+                            }
+                        }.start()
+                    },contentAlignment=Alignment.Center) {
+                        BasicText("确认恢复",style=TextStyle(color=pal.onAccent,fontSize=15.sp,fontWeight=FontWeight.Medium))
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun WebDavBackupCard(pal:Pal,active:Boolean=true) {
         val initial=remember {runCatching {WebDavBackup.read(this)}.getOrDefault(WebDavBackup.Config())}
         var address by remember {mutableStateOf(initial.address)}
         var user by remember {mutableStateOf(initial.user)}
         var password by remember {mutableStateOf("")}
         var storedPassword by remember {mutableStateOf(initial.password)}
         var configOpen by remember {mutableStateOf(false)}
-        var entries by remember {mutableStateOf<List<WebDavBackup.Entry>?>(null)}
         val focus=LocalFocusManager.current
         val keyboardController=LocalSoftwareKeyboardController.current
+        LaunchedEffect(active) { if (!active) configOpen = false }
         fun config()=WebDavBackup.Config(address.trim(),user,if(password.isEmpty())storedPassword else password)
         fun save():WebDavBackup.Config {
-            val value=config();WebDavBackup.save(this@SettingsActivity,value);storedPassword=value.password;password=""
+            val value=WebDavBackup.userConfig(config());WebDavBackup.save(this@SettingsActivity,value);address=value.address;storedPassword=value.password;password=""
             focus.clearFocus();keyboardController?.hide();return value
         }
-        fun remote(message:String,work:(WebDavBackup.Config)->String) {
-            val value=runCatching {save()}.getOrElse {backupMessage.value=it.message ?: "请检查服务器配置";return}
-            backupBusy.value=true;backupMessage.value=message
-            Thread {
-                val result=runCatching {work(value)}
-                runOnUiThread {backupBusy.value=false;backupMessage.value=result.getOrElse {it.message ?: "WebDAV 操作失败，请检查连接后重试"}}
-            }.start()
+        fun remote(
+            message: String,
+            operation: String,
+            work: (WebDavBackup.Config) -> String,
+        ) {
+            if (backupBusy.value) return
+            val value = runCatching { save() }.getOrElse {
+                reportBackup(operation, Result.failure(it),true)
+                return
+            }
+            runBackupWork(message, { work(value) },cloud=true) { result ->
+                reportBackup(operation, result,true)
+            }
         }
         Card(pal) {
-            Row(Modifier.fillMaxWidth().clickable {configOpen=!configOpen}.padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().clickable { configOpen = !configOpen }.padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     BasicText("服务器配置",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
-                    BasicText(if(initial.address.isBlank()&&address.isBlank())"未配置" else "手动上传与恢复",style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=4.dp))
+                    BasicText(if(address.isBlank())"未配置" else "已保存 WebDAV 连接",style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=4.dp))
                 }
-                ExpandArrow(pal, configOpen)
+                ExpandArrow(pal,configOpen)
             }
             if(configOpen) {
-            BasicText("填写已有的 WebDAV 文件夹地址。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
-            BasicText("文件夹地址（HTTPS）",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=8.dp))
-            Field(pal,address){address=it}
-            BasicText("账号",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=6.dp))
-            Field(pal,user){user=it}
-            BasicText(if(storedPassword.isEmpty())"密码 / 应用专用密码" else "密码已保存，留空沿用",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=6.dp))
-            BasicTextField(value=password,onValueChange={password=it},singleLine=true,visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                textStyle=TextStyle(color=pal.ink,fontSize=17.sp),cursorBrush=SolidColor(pal.accent),modifier=Modifier.fillMaxWidth().semantics {contentDescription="WebDAV 密码"}.padding(vertical=6.dp).clip(RoundedCornerShape(12.dp)).background(pal.tile).padding(horizontal=12.dp,vertical=10.dp))
-            Row(Modifier.fillMaxWidth().padding(vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                Pill(pal,"保存配置",false) {runCatching {save()}.onSuccess {backupMessage.value="WebDAV 配置已保存";configOpen=false}.onFailure {backupMessage.value=it.message ?: "保存失败"}}
-                Pill(pal,"测试连接",false) {remote("正在测试 WebDAV 连接…") {"连接成功，找到 ${WebDavBackup.list(it).size} 份键盘备份"}}
-            }
-            }
-            Line(pal,top=6.dp)
-            ActionRow(pal,"上传备份","按上方选定内容创建新文件，保留已有备份","上传") {val options=backupOptions.value;remote("正在上传 WebDAV 备份…") {WebDavBackup.upload(applicationContext,it,options);"WebDAV 备份已上传"}}
-            Line(pal)
-            ActionRow(pal,"从 WebDAV 恢复","选择云端备份，校验后确认恢复","选择备份") {
-                val value=runCatching {save()}.getOrElse {backupMessage.value=it.message ?: "请检查配置";return@ActionRow}
-                backupBusy.value=true;backupMessage.value="正在读取 WebDAV 备份列表…"
-                Thread {val result=runCatching {WebDavBackup.list(value)};runOnUiThread {backupBusy.value=false;result.onSuccess {entries=it;backupMessage.value=if(it.isEmpty())"此文件夹还没有空叶键盘备份" else "请选择要恢复的备份"}.onFailure {backupMessage.value=it.message ?: "无法读取备份列表"}}}.start()
-            }
-            BasicText("清除服务器配置",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.clip(RoundedCornerShape(8.dp)).clickable {WebDavBackup.clear(this@SettingsActivity);address="";user="";password="";storedPassword="";backupMessage.value="已清除本机配置，云端备份保留"}.padding(vertical=12.dp))
-        }
-        entries?.let {files->
-            androidx.compose.ui.window.Dialog(onDismissRequest={entries=null},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
-                Column(Modifier.widthIn(max=440.dp).fillMaxWidth(.9f).heightIn(max=520.dp).clip(RoundedCornerShape(14.dp)).background(pal.card).padding(20.dp)) {
-                    BasicText("选择 WebDAV 备份",style=TextStyle(color=pal.ink,fontSize=19.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(bottom=12.dp))
-                    if(files.isEmpty())BasicText("还没有备份，请先上传。",style=TextStyle(color=pal.text2,fontSize=14.sp),modifier=Modifier.padding(vertical=16.dp))
-                    Column(Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState())) {
-                        files.forEach {file->
-                            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
-                                entries=null;backupBusy.value=true;backupMessage.value="正在下载并校验备份…";val value=config()
-                                Thread {val result=runCatching {WebDavBackup.download(applicationContext,value,file)};runOnUiThread {backupBusy.value=false;result.onSuccess {confirmBackupRestore(it)}.onFailure {backupMessage.value=it.message ?: "下载失败，原数据保留"}}}.start()
-                            }.padding(vertical=12.dp,horizontal=4.dp)) {
-                                BasicText(file.name,style=TextStyle(color=pal.ink,fontSize=14.sp,lineHeight=21.sp))
-                                BasicText(String.format("%.1f MB",file.bytes/1000000.0),style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=4.dp))
-                            }
-                        }
+                BasicText("坚果云填写服务器地址即可，上传时自动准备备份目录。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
+                BasicText("服务器地址（HTTPS）",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=8.dp))
+                Field(pal,address){address=it;clearBackupFeedback(true)}
+                BasicText("账号",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=6.dp))
+                Field(pal,user){user=it;clearBackupFeedback(true)}
+                BasicText(if(storedPassword.isEmpty())"密码 / 应用专用密码" else "密码已保存，留空沿用",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=6.dp))
+                BasicTextField(value=password,onValueChange={password=it;clearBackupFeedback(true)},singleLine=true,
+                    visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation(mask='\u2022'),
+                    keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Password,autoCorrectEnabled=false),
+                    decorationBox={inner->Box {if(password.isEmpty()&&storedPassword.isNotEmpty())BasicText("••••••••",style=TextStyle(color=pal.text2,fontSize=17.sp));inner()}},
+                    textStyle=TextStyle(color=pal.ink,fontSize=17.sp),cursorBrush=SolidColor(pal.accent),
+                    modifier=Modifier.fillMaxWidth().semantics {contentDescription="WebDAV 密码"}.padding(vertical=6.dp).clip(RoundedCornerShape(12.dp)).background(pal.tile).padding(horizontal=12.dp,vertical=10.dp))
+                Row(Modifier.fillMaxWidth().padding(vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                    Pill(pal,"保存配置",false) {
+                        val result=runCatching {save();AutoWebDavBackup.sync(this@SettingsActivity);"WebDAV 配置已保存"}
+                        if (result.isSuccess) configOpen = false
+                        reportBackup("保存配置",result,true)
                     }
-                    BasicText("取消",style=TextStyle(color=pal.text2,fontSize=14.sp),modifier=Modifier.align(Alignment.End).clickable {entries=null}.padding(top=16.dp,bottom=8.dp))
+                    Pill(pal,"测试连接",false) {remote("正在测试 WebDAV 连接…", "连接测试") {
+                        val count=WebDavBackup.list(it).size
+                        if(count==0)"目录可以读取，暂无备份。上传权限将在上传时确认。"
+                        else "目录可以读取，找到 "+count+" 份备份。上传权限将在上传时确认。"
+                    }}
                 }
+                Line(pal,top=8.dp)
+                BasicText("清除服务器配置",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.clip(RoundedCornerShape(8.dp)).clickable {
+                    AutoWebDavBackup.disable(this@SettingsActivity)
+                    WebDavBackup.clear(this@SettingsActivity);address="";user="";password="";storedPassword=""
+                    reportBackup("清除配置",Result.success("本机连接及自动备份已关闭，云端备份保留。"),true);tick.intValue++
+                }.padding(vertical=14.dp))
+            }
+        }
+        BackupActions(pal, cloud = true, onCreate = {
+            val options = backupOptions.value
+            remote("正在上传 WebDAV 备份…", "上传备份") {
+                WebDavBackup.upload(applicationContext, it, options)
+                "备份已保存到 WebDAV。"
+            }
+        }, onManage = manage@{
+            if (backupBusy.value) return@manage
+            val value = runCatching { save() }.getOrElse {
+                reportBackup("读取备份", Result.failure(it),true)
+                return@manage
+            }
+            runBackupWork("正在读取 WebDAV 备份…", {
+                WebDavBackup.list(value).map { file ->
+                    ManagedBackup(file.name, file.bytes,
+                        read = { WebDavBackup.download(applicationContext, value, file) },
+                        delete = { WebDavBackup.delete(value, file) })
+                }
+            },cloud=true) { openBackupListing("云端备份", it,cloud=true) }
+        })
+        Card(pal) {
+            val days=AutoWebDavBackup.frequency(this)
+            SettingsChoice(pal,"备份频率",AutoWebDavBackup.FREQUENCY,listOf(0 to "仅手动",1 to "每天",7 to "每周",30 to "每30天"),0,tick.intValue,showExample=false,inCard=false,inlineDropdown=true) {
+                val result=runCatching {
+                    if(AutoWebDavBackup.frequency(this@SettingsActivity)>0)save()
+                    AutoWebDavBackup.sync(this@SettingsActivity)
+                    if(AutoWebDavBackup.frequency(this@SettingsActivity)==0)"已关闭自动备份，可随时手动上传。" else "将按所选频率自动上传，沿用所选备份内容。"
+                }
+                if(result.isFailure) {
+                    Prefs.of(this@SettingsActivity).edit().putInt(AutoWebDavBackup.FREQUENCY,days).commit()
+                    runCatching {AutoWebDavBackup.sync(this@SettingsActivity)}
+                }
+                reportBackup("备份频率",result,true);tick.intValue++
+            }
+            if(days>0) {
+                BasicText("联网且手机空闲时自动上传，省电设置可能延后执行。",style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=19.sp),modifier=Modifier.padding(start=6.dp,end=6.dp,bottom=10.dp))
+                Line(pal)
+                val last=AutoWebDavBackup.lastResult(this)
+                BasicText(last.first,style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=19.sp),modifier=Modifier.padding(top=10.dp,bottom=if(last.second==null)10.dp else 3.dp))
+                last.second?.let {BasicText(it,style=TextStyle(color=pal.bad,fontSize=12.sp,lineHeight=19.sp),modifier=Modifier.padding(bottom=10.dp))}
             }
         }
     }
@@ -1146,7 +1474,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun StatusActionRow(pal:Pal,title:String,sub:String,icon:Int,complete:Boolean,tag:String?=null,onClick:()->Unit) {
+    private fun StatusActionRow(pal:Pal,title:String,sub:String,icon:Int,complete:Boolean?,tag:String?=null,onClick:()->Unit) {
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(vertical=15.dp),verticalAlignment=Alignment.CenterVertically) {
             if(!LocalPlainMenu.current)Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(pal.tile),contentAlignment=Alignment.Center) {
                 Image(painterResource(icon),null,Modifier.size(23.dp),colorFilter=ColorFilter.tint(pal.text2))
@@ -1161,7 +1489,12 @@ class SettingsActivity : ComponentActivity() {
                 }
                 BasicText(sub,style=TextStyle(color=pal.text2,fontSize=12.5.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
             }
-            BasicText(if(complete)"已设置" else "未设置",style=TextStyle(color=if(complete)pal.ok else pal.bad,fontSize=13.sp,fontWeight=FontWeight.Medium))
+            val (label, color) = when (complete) {
+                true -> "已设置" to pal.ok
+                false -> "未设置" to pal.bad
+                null -> "去设置" to pal.text2
+            }
+            BasicText(label,style=TextStyle(color=color,fontSize=13.sp,fontWeight=FontWeight.Medium))
             if(LocalPlainMenu.current)Image(painterResource(R.drawable.ic_chevron_right),null,Modifier.padding(start=10.dp).size(19.dp),colorFilter=ColorFilter.tint(pal.text2))
         }
     }
@@ -1183,8 +1516,13 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun <T:Any> VisualChoice(pal:Pal,title:String,key:String,options:List<Pair<T,String>>,default:T,tick:Int) {
-        val p=Prefs.of(this);val selected=remember(tick,key) {p.all[key] ?: default}
+    private fun <T:Any> VisualChoice(
+        pal: Pal, title: String, key: String, options: List<Pair<T,String>>, default: T, tick: Int,
+        accessibilityTitle: String = title, onSelect: ((T) -> Unit)? = null,
+    ) {
+        val p = Prefs.of(this)
+        val selected = if (onSelect != null) default else remember(tick, key, default) { p.all[key] ?: default }
+        val previewLandscape = LocalLayoutPreviewLandscape.current
         val availability=SettingAvailability.forKey(this,key)
         Card(pal, Modifier.noticeAttention(pal, key)) {
             BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=12.dp,bottom=12.dp))
@@ -1194,10 +1532,19 @@ class SettingsActivity : ComponentActivity() {
                     Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
                         .border(if(active)2.dp else 1.dp,if(active)pal.accent else pal.line,RoundedCornerShape(14.dp))
                         .clickable(enabled=availability.enabled) {
-                            val e=p.edit();when(val value=option.first){is Int->e.putInt(key,value);is String->e.putString(key,value)};e.apply()
-                        }.semantics {contentDescription="$title：${option.second}"},horizontalAlignment=Alignment.CenterHorizontally) {
+                            if (onSelect != null) onSelect(option.first)
+                            else {
+                                val editor = p.edit()
+                                when (val value = option.first) {
+                                    is Int -> editor.putInt(key,value)
+                                    is String -> editor.putString(key,value)
+                                }
+                                editor.apply()
+                            }
+                        }.semantics {contentDescription="$accessibilityTitle：${option.second}"},horizontalAlignment=Alignment.CenterHorizontally) {
                         AndroidView(factory={SettingExampleView(it)},update={
                             it.ink=pal.ink.toArgb();it.muted=pal.text2.toArgb();it.tile=pal.tile.toArgb();it.accent=pal.accent.toArgb();it.choiceOnly=true;it.exampleActive=active
+                            it.layoutLandscape = previewLandscape
                             it.submit(key,title,option.first,option.first,"","")
                         },modifier=Modifier.fillMaxWidth().padding(5.dp).height(90.dp))
                         BasicText("${if(active)"●" else "○"} ${option.second}",style=TextStyle(color=if(active)pal.accent else pal.text2,fontSize=12.sp,fontWeight=if(active)FontWeight.Bold else FontWeight.Normal),modifier=Modifier.padding(bottom=10.dp))
@@ -1268,7 +1615,7 @@ class SettingsActivity : ComponentActivity() {
                     BasicText(statsNumber(stats.today),style=TextStyle(color=pal.ink,fontSize=if(stats.today>99999)34.sp else 44.sp,fontWeight=FontWeight.Bold))
                     BasicText(" 字",style=TextStyle(color=pal.ink,fontSize=17.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(bottom=8.dp))
                 }
-                BasicText("✏ ${stats.level.first}",style=TextStyle(color=pal.ink,fontSize=13.sp),modifier=Modifier.background(pal.tile,RoundedCornerShape(20.dp)).padding(horizontal=12.dp,vertical=8.dp))
+                BasicText(stats.level.first,style=TextStyle(color=pal.ink,fontSize=13.sp),modifier=Modifier.background(pal.tile,RoundedCornerShape(20.dp)).padding(horizontal=12.dp,vertical=8.dp))
             }
             BasicText(stats.level.second?.let {"距「${it.first}」还差 ${statsNumber(it.second)} 字"} ?: "已解锁最高称号，继续记录每次输入",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(bottom=14.dp))
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)) {
@@ -1855,9 +2202,16 @@ class SettingsActivity : ComponentActivity() {
               StatsHeading(pal,"权限与设置")
               Card(pal) {
                 val allowed=checkSelfPermission(Manifest.permission.RECEIVE_SMS)==PackageManager.PERMISSION_GRANTED
+                fun openAppDetails() {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName")))
+                }
                 StatusActionRow(pal,"短信权限","用于提取新短信中的验证码",R.drawable.ic_copy,allowed) {
-                    if(allowed)startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName")))
+                    if(allowed)openAppDetails()
                     else smsRequest.launch(Manifest.permission.RECEIVE_SMS)
+                }
+                Line(pal)
+                StatusActionRow(pal,"后台复制权限","在「权限管理」中打开「写入剪贴板」，选择「始终允许」（若系统提供此项）",R.drawable.ic_clip,complete=null) {
+                    openAppDetails()
                 }
               }
               StatsHeading(pal,"仍无法复制时")
@@ -1894,35 +2248,79 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun LayoutPage(pal: Pal, tick: Int) {
-        val p = Prefs.of(this)
-        val skin = remember(tick) { Prefs.skin(this) }
-        val cur = remember(tick) { Prefs.layout(this) }
-        val separate=remember(tick){p.getBoolean(V3Prefs.ORIENTATION_LAYOUT,false)}
-        if(!separate) {
-            StatsHeading(pal,"基础布局")
-            Card(pal, Modifier.noticeAttention(pal, Prefs.LAYOUT)) {
-                AndroidView(
-                    factory = { ctx -> LayoutPicker(ctx, skin, cur) { V3Prefs.saveLayout(this,it) } },
-                    update = { it.current = cur },
-                    modifier = Modifier.fillMaxWidth().height(200.dp),
-                )
+        val prefs = Prefs.of(this)
+        val separate = remember(tick) { prefs.getBoolean(V3Prefs.ORIENTATION_LAYOUT, false) }
+        val pager = rememberPagerState(initialPage = if (separate && FloatingKeyboard.landscape(this)) 1 else 0,
+            pageCount = { if (separate) 2 else 1 })
+        val scope = rememberCoroutineScope()
+        val keyOptions = listOf("26" to "26 键", "14" to "14 键", "9" to "九键")
+        val formOptions = KeyboardForm.entries.map { it to it.label }
+        val request = noticeFocus.value
+        LaunchedEffect(request?.serial, separate) {
+            if (request?.page == Page.LAYOUT && separate) {
+                val target = if (request.key in setOf(V3Prefs.LAYOUT_LANDSCAPE, V3Prefs.LANDSCAPE_FLOAT, V3Prefs.LANDSCAPE_SPLIT)) 1 else 0
+                pager.scrollToPage(target)
             }
         }
-        StatsHeading(pal,"横竖屏布局")
-        SettingsToggle(pal,"横竖屏分别记住布局",V3Prefs.ORIENTATION_LAYOUT,false,tick,"开启后分别设置竖屏和横屏；关闭时共用基础布局",showExample=false)
-        if(separate) {
-            VisualChoice(pal,"竖屏布局",Prefs.LAYOUT,listOf("26" to "26 键","14" to "14 键","9" to "九键"),"26",tick)
-            VisualChoice(pal,"横屏布局",V3Prefs.LAYOUT_LANDSCAPE,listOf("26" to "26 键","14" to "14 键","9" to "九键"),"26",tick)
+        Column(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Card(pal, Modifier.noticeAttention(pal, V3Prefs.ORIENTATION_LAYOUT)) {
+                    ToggleRow(pal, "横竖屏分别记住布局", "分别设置中文键位与键盘形态", separate) {
+                        V3Prefs.setSeparateLayouts(this@SettingsActivity, it)
+                    }
+                }
+                if (separate) Segment(pal, listOf("竖屏", "横屏"), pager.currentPage) { index ->
+                    scope.launch { pager.animateScrollToPage(index) }
+                }
+            }
+            HorizontalPager(state = pager, modifier = Modifier.weight(1f).fillMaxWidth()) { index ->
+                val landscape = separate && index == 1
+                val title = if (!separate) "共用" else if (landscape) "横屏" else "竖屏"
+                val layoutKey = if (landscape) V3Prefs.LAYOUT_LANDSCAPE else Prefs.LAYOUT
+                val formKey = if (landscape) V3Prefs.LANDSCAPE_FLOAT else Prefs.FLOAT
+                val layout = V3Prefs.layout(prefs, landscape)
+                val form = V3Prefs.keyboardForm(prefs, landscape)
+                CompositionLocalProvider(LocalLayoutPreviewLandscape provides (if (separate) landscape else FloatingKeyboard.landscape(this@SettingsActivity))) {
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (!separate) StatsHeading(pal, "共用布局")
+                        VisualChoice(pal, "中文键位", layoutKey, keyOptions, layout, tick,
+                            accessibilityTitle = title + "中文键位") {
+                            V3Prefs.saveLayout(this@SettingsActivity, landscape, it)
+                        }
+                        VisualChoice(pal, "键盘形态", formKey, formOptions, form, tick,
+                            accessibilityTitle = title + "键盘形态") {
+                            V3Prefs.saveKeyboardForm(this@SettingsActivity, landscape, it)
+                        }
+                        when (form) {
+                            KeyboardForm.NORMAL -> {
+                                StatsHeading(pal, "单手使用")
+                                VisualChoice(pal, "单手模式", V3Prefs.ONE_HAND,
+                                    listOf(0 to "关闭", 1 to "靠左", 2 to "靠右"), 0, tick)
+                            }
+                            KeyboardForm.SPLIT -> {
+                                StatsHeading(pal, "分体选项")
+                                if (layout == "9") BasicText("九键暂不支持分体，当前按正常键盘显示。",
+                                    style = TextStyle(color = pal.text2, fontSize = 12.sp, lineHeight = 19.sp))
+                                else {
+                                    SettingsToggle(pal, "铺满键盘空白区域", V3Prefs.FILL_GAPS, true, tick,
+                                        "填充分体中缝与键盘两侧，关闭后透出应用内容")
+                                    BasicText("屏幕过窄时会显示完整键盘。",
+                                        style = TextStyle(color = pal.text2, fontSize = 12.sp, lineHeight = 19.sp))
+                                }
+                            }
+                            KeyboardForm.FLOATING -> if (layout != "9") {
+                                StatsHeading(pal, "悬浮选项")
+                                SettingsToggle(pal, "悬浮分体键盘", FloatingKeyboard.SPLIT, false, tick,
+                                    "支持 26 键和 14 键，宽屏下生效")
+                            }
+                        }
+                        Spacer(Modifier.height(106.dp))
+                    }
+                }
+            }
         }
-        StatsHeading(pal,"单手使用")
-        VisualChoice(pal,"单手模式",V3Prefs.ONE_HAND,listOf(0 to "关闭",1 to "靠左",2 to "靠右"),0,tick)
-        StatsHeading(pal,"大屏分体")
-        SettingsToggle(pal,"分体键盘",Prefs.SPLIT_LAYOUT,false,tick,"支持 26 键和 14 键，屏幕宽度不足时自动使用完整键盘")
-        SettingsToggle(pal,"铺满键盘空白区域",V3Prefs.FILL_GAPS,true,tick,"填充分体中缝与键盘两侧，关闭后透出应用内容")
-        StatsHeading(pal,"悬浮使用")
-        SettingsToggle(pal,"悬浮键盘",Prefs.FLOAT,false,tick,"以独立窗口显示，大小在「键盘调整」中设置")
-        SettingsToggle(pal,"远程应用自动悬浮",V3Prefs.REMOTE_FLOAT,true,tick,"UU 远程等远程桌面应用默认使用悬浮键盘")
-        SettingsToggle(pal,"悬浮分体键盘",FloatingKeyboard.SPLIT,false,tick,"仅用于悬浮键盘，支持 26 键和 14 键，宽屏下生效")
     }
 
     @Composable
@@ -1998,7 +2396,7 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun HeightPage(pal:Pal,tick:Int) {
         val p=Prefs.of(this)
-        var previewMode by rememberSaveable {mutableIntStateOf(if(p.getBoolean(Prefs.FLOAT,false))2 else if(p.getBoolean(Prefs.SPLIT_LAYOUT,false))1 else 0)}
+        var previewMode by rememberSaveable { mutableIntStateOf(V3Prefs.keyboardForm(this).ordinal) }
         val floatingPreview=previewMode==2
         val metrics=resources.displayMetrics
         val widthRange=FloatingKeyboard.widthRange(metrics.widthPixels.toFloat(),metrics.heightPixels.toFloat())

@@ -171,3 +171,12 @@
     private void applyFloat();
     private void applySkin(boolean,boolean);
 }
+
+# Exercise isolated automatic backup fixtures against the shipped scheduler.
+-keep class com.kongye.keyboard.AutoWebDavBackup { *; }
+
+-keep class com.kongye.keyboard.KeyboardForm** { *; }
+
+# Destination-specific backup result UI regression.
+-keepclassmembers class com.kongye.keyboard.SettingsActivity { private *** backupFeedback; }
+-keep class com.kongye.keyboard.SettingsActivity$BackupFeedback { *; }

@@ -295,18 +295,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var selecting = false
     private var anchor = -1
     private var floating = false
-    private var floatingOverride: Boolean? = null
-    private var floatingOwner: String? = null
-
-    private fun floatingForEditor(): Boolean =
-        if (FloatingKeyboard.automatic(this, currentInputEditorInfo?.packageName))
-            floatingOverride ?: true
-        else prefs.getBoolean(Prefs.FLOAT, false)
-
-    private fun saveFloating(on: Boolean, edit: SharedPreferences.Editor) {
-        if (FloatingKeyboard.automatic(this, currentInputEditorInfo?.packageName)) floatingOverride = on
-        else edit.putBoolean(Prefs.FLOAT, on)
-    }
+    private var lastOrientation = Configuration.ORIENTATION_UNDEFINED
 
     private var sink = Sink.NONE
     private val sinkBuf = StringBuilder()
@@ -417,7 +406,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             prefs.edit().putString(Prefs.TRANS_TO,"auto").apply()
         prefs.registerOnSharedPreferenceChangeListener(this)
         zh = prefs.getBoolean(Prefs.ZH, true)
-        floating = prefs.getBoolean(Prefs.FLOAT, false)
+        lastOrientation = resources.configuration.orientation
+        floating = V3Prefs.keyboardForm(this) == KeyboardForm.FLOATING
         Lexicon.fuzzyRules = Prefs.fuzzy(this)
         ClipStore.load(this)
         Thread {
@@ -464,6 +454,28 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
      * 只有键盘和拼音条那块能点，其余地方的触摸交给后面的应用（见 onComputeInsets）。
      */
     private inner class Root(ctx: Context) : FrameLayout(ctx) {
+        // InputMethodService adds exclusions to the decor after computing its insets.
+        // Clear that default before the frame is drawn so Android owns edge Back.
+        private val edgeBack = android.view.ViewTreeObserver.OnPreDrawListener {
+            if (Build.VERSION.SDK_INT >= 29) {
+                val decor = rootView
+                if (decor.systemGestureExclusionRects.isNotEmpty()) {
+                    decor.systemGestureExclusionRects = emptyList()
+                }
+            }
+            true
+        }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            viewTreeObserver.addOnPreDrawListener(edgeBack)
+        }
+
+        override fun onDetachedFromWindow() {
+            if (viewTreeObserver.isAlive) viewTreeObserver.removeOnPreDrawListener(edgeBack)
+            super.onDetachedFromWindow()
+        }
+
         init {setWillNotDraw(false)}
         override fun onDraw(canvas:Canvas) {
             super.onDraw(canvas)
@@ -526,6 +538,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onCreateInputView(): View {
+        floating = V3Prefs.keyboardForm(this) == KeyboardForm.FLOATING
         val r = Root(this)
         val voicePanelWasOpen = panel == Panel.VOICE
         continuousStrip = null
@@ -710,12 +723,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         super.onStartInputView(info, restarting)
         SmsCodeClipboard.expire(this)
-        if (floatingOwner != info.packageName) {
-            floatingOwner = info.packageName
-            floatingOverride = null
-        }
         if (panel != Panel.ADJUST) {
-            val nextFloating = floatingForEditor()
+            val nextFloating = V3Prefs.keyboardForm(this) == KeyboardForm.FLOATING
             if (floating != nextFloating) {
                 floating = nextFloating
                 applyFloat()
@@ -975,8 +984,12 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
+        val orientationChanged = lastOrientation != newConfig.orientation
+        lastOrientation = newConfig.orientation
         super.onConfigurationChanged(newConfig)
-        if (root != null) {applyFloat();applySkin()}
+        if (orientationChanged && panel == Panel.ADJUST) closePanel(render = false, animate = false)
+        if (panel != Panel.ADJUST) floating = V3Prefs.keyboardForm(this) == KeyboardForm.FLOATING
+        if (root != null) { applyFloat(); applySkin() }
     }
 
     override fun onSharedPreferenceChanged(p: SharedPreferences?, key: String?) {
@@ -1016,10 +1029,12 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             return
         }
         if(key==V3Prefs.ONE_HAND) {applyFloat();applySkin();return}
-        if (key in setOf(Prefs.FLOAT, V3Prefs.REMOTE_FLOAT, Prefs.FLOAT_WIDTH, FloatingKeyboard.LAND_WIDTH)) {
-            if (key == Prefs.FLOAT || key == V3Prefs.REMOTE_FLOAT) floatingOverride = null
-            floating = floatingForEditor()
-            applyFloat();applySkin(rebuildPanel=false);return
+        if (key in setOf(Prefs.FLOAT, Prefs.SPLIT_LAYOUT, V3Prefs.ORIENTATION_LAYOUT, V3Prefs.LANDSCAPE_FLOAT,
+                V3Prefs.LANDSCAPE_SPLIT, Prefs.FLOAT_WIDTH, FloatingKeyboard.LAND_WIDTH)) {
+            if (panel != Panel.ADJUST) floating = V3Prefs.keyboardForm(this) == KeyboardForm.FLOATING
+            applyFloat()
+            applySkin(rebuildPanel = panel == Panel.MORE)
+            return
         }
         // 调节键盘时改震动、按键音不用重建面板
         if (panel == Panel.ADJUST && key in setOf(Prefs.VIB_STRENGTH, Prefs.SOUND)) return
@@ -1141,7 +1156,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             placeFloat(a?.floatX ?: stored.floatX, a?.floatY ?: stored.floatY)
             if (a != null) { a.floatX=col.translationX; a.floatY=col.translationY }
         } else {
-            val hand=prefs.getInt(V3Prefs.ONE_HAND,0)
+            val hand=activeOneHand()
             lpCol.width = if(hand==0) MATCH_PARENT else (dm.widthPixels*.8f).toInt()
             lpCol.gravity = Gravity.BOTTOM or if(hand==1)Gravity.START else if(hand==2)Gravity.END else Gravity.CENTER_HORIZONTAL
             floatBar.visibility = View.GONE
@@ -1169,16 +1184,29 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private fun setFloating(on: Boolean) {
         floating = on
         val edit=prefs.edit()
-        saveFloating(on, edit)
+        V3Prefs.saveFloating(this, on, edit)
         edit.apply()
         if (panel != Panel.NONE) closePanel(render = false)
         applyFloat()
         applySkin()
     }
 
-    private fun useSplit():Boolean = layer==Layer.LETTERS && Prefs.layout(this)!="9" &&
-        (adj?.split ?: prefs.getBoolean(if(floating)FloatingKeyboard.SPLIT else Prefs.SPLIT_LAYOUT,false)) &&
-        resources.displayMetrics.widthPixels/resources.displayMetrics.density>=600
+    private fun activeOneHand(): Int {
+        val split = adj.takeIf { panel == Panel.ADJUST }?.split ?: V3Prefs.dockedSplit(this)
+        return if (floating || split) 0 else prefs.getInt(V3Prefs.ONE_HAND, 0)
+    }
+
+    private fun useSplit(): Boolean {
+        val metrics = resources.displayMetrics
+        val draft = adj.takeIf { panel == Panel.ADJUST }
+        var widthDp = metrics.widthPixels / metrics.density
+        if (!floating) {
+            if (activeOneHand() != 0) widthDp *= .8f
+            widthDp -= (draft?.padL ?: prefs.getInt(Prefs.PAD_L, 0)) + (draft?.padR ?: prefs.getInt(Prefs.PAD_R, 0))
+        }
+        if (layer != Layer.LETTERS || !KeyboardForm.supportsSplit(Prefs.layout(this), widthDp, floating)) return false
+        return draft?.split ?: if (floating) prefs.getBoolean(FloatingKeyboard.SPLIT, false) else V3Prefs.dockedSplit(this)
+    }
 
     private fun rowsForLayer(): List<Row> = when {
         layer == Layer.NUM -> Layouts.numpad(Prefs.numKeys(this))
@@ -3238,7 +3266,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (wasAdjust) {
             adj = null
             adjustmentDrafts.clear()
-            floating=floatingForEditor()
+            floating = V3Prefs.keyboardForm(this) == KeyboardForm.FLOATING
             applyFloat(); applySkin(rebuildPanel = false)
         }
         selecting = false
@@ -3368,7 +3396,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     onDone = {
                         adjustmentDrafts[a.floating]=a
                         val edit=p.edit()
-                        saveFloating(a.floating,edit)
+                        V3Prefs.saveFloating(this, a.floating, edit)
                         adjustmentDrafts.values.forEach {FloatingKeyboard.save(this,it,edit)}
                         edit.apply()
                         closePanel()

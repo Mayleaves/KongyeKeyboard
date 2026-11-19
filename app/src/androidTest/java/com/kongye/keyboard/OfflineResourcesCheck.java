@@ -53,6 +53,8 @@ public final class OfflineResourcesCheck extends Instrumentation {
             if ("punctuation-flicks".equals(mode)) {PunctuationFlickRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("settings-restored-controls".equals(mode)) {SettingsOrganizationRegression.INSTANCE.run(this,true);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("settings-organization".equals(mode)) {SettingsOrganizationRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("layout-backup-ui".equals(mode)) {SettingsLayoutBackupRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("orientation-keyboard".equals(mode)) {OrientationKeyboardRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("floating-mode".equals(mode)) {FloatingModeRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("factory-reset".equals(mode)) {FactoryResetRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("factory-defaults".equals(mode)) {FactoryDefaultsRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
@@ -61,6 +63,7 @@ public final class OfflineResourcesCheck extends Instrumentation {
             if ("nov17-pictures".equals(mode)) {SettingsNov17Pictures.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("setting-dependencies".equals(mode)) {SettingsDependencyRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("adjustment-readability".equals(mode)) {AdjustmentReadabilityRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("backup-frequency".equals(mode)) {BackupFrequencyRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("webdav-backup".equals(mode)) {WebDavBackupRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("settings-numeric-order".equals(mode)) {SettingsNoticeRegression.INSTANCE.run(this,true);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("settings-notices".equals(mode)) {SettingsNoticeRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
@@ -371,19 +374,19 @@ public final class OfflineResourcesCheck extends Instrumentation {
                 android.view.inputmethod.InputConnection input = editor.onCreateInputConnection(new android.view.inputmethod.EditorInfo());
                 require(input != null, "Missing editable input connection");
                 VoiceDraft cancelled = new VoiceDraft(input);
-                require(cancelled.preview("你") && cancelled.preview("你好"), "Preview rejected");
+                require(cancelled.preview("你", false) && cancelled.preview("你好", false), "Preview rejected");
                 require(editor.getText().toString().equals("ab你好cd"), "Preview duplicated or replaced surrounding text");
                 cancelled.cancel();
                 require(editor.getText().toString().equals("abXYZcd"), "Cancel did not restore selected text");
                 require(editor.getSelectionStart() == 2 && editor.getSelectionEnd() == 5, "Cancel did not restore selection");
                 editor.setText("前后"); editor.setSelection(1);
                 VoiceDraft confirmed = new VoiceDraft(input);
-                confirmed.preview("测试"); confirmed.preview("测试通过"); confirmed.confirm(); confirmed.cancel();
+                confirmed.preview("测试", false); confirmed.preview("测试通过", false); confirmed.confirm(); confirmed.cancel();
                 require(editor.getText().toString().equals("前测试通过后"), "Confirm duplicated or removed preview");
                 require(android.view.inputmethod.BaseInputConnection.getComposingSpanStart(editor.getText()) == -1, "Confirm left composing span");
                 editor.setText("前后"); editor.setSelection(1);
                 VoiceDraft moved = new VoiceDraft(input);
-                moved.preview("语音"); editor.setSelection(0); moved.preview("语音预览"); moved.cancel();
+                moved.preview("语音", false); editor.setSelection(0); moved.preview("语音预览", false); moved.cancel();
                 require(editor.getText().toString().equals("前后"), "Cursor movement broke cancellation");
             } catch (Throwable error) { failure.set(error); }
         });

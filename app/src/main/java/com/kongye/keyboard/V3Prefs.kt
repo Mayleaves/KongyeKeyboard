@@ -1,6 +1,7 @@
 package com.kongye.keyboard
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.res.Configuration
 
 /** Versioned settings keys. Existing preference values remain the migration fallback. */
@@ -18,7 +19,6 @@ object V3Prefs {
     const val CORRECT_MISSING="v3_correct_missing"
     const val MIXED="v3_mixed"
     const val RECOGNIZE_ENGLISH="v3_recognize_english"
-    const val REMOTE_FLOAT="v3_remote_float"
     const val PUNCT_CONFIRM="v3_punct_confirm"
     const val PAIRS="v3_pairs"
     const val EN_SPACE="v3_en_space"
@@ -57,6 +57,8 @@ object V3Prefs {
     const val FEEDBACK="v3_feedback"
     const val ORIENTATION_LAYOUT="v3_orientation_layout"
     const val LAYOUT_LANDSCAPE="v3_layout_landscape"
+    const val LANDSCAPE_FLOAT="v3_landscape_float"
+    const val LANDSCAPE_SPLIT="v3_landscape_split"
     const val ONE_HAND="v3_one_hand"
     const val FILL_GAPS="v3_fill_gaps"
     const val SPLIT_GAP="v3_split_gap"
@@ -73,6 +75,11 @@ object V3Prefs {
 
     fun migrate(ctx:Context) {
         val p=Prefs.of(ctx)
+        if (p.contains("v3_remote_float")) p.edit().remove("v3_remote_float").apply()
+        if (p.getBoolean(ORIENTATION_LAYOUT, false) &&
+            (!p.contains(LANDSCAPE_FLOAT) || !p.contains(LANDSCAPE_SPLIT) || !p.contains(LAYOUT_LANDSCAPE))) {
+            setSeparateLayouts(ctx, true)
+        }
         if(!p.contains(VIBRATION) && p.getInt(Prefs.VIB_STRENGTH,2)==0) {
             p.edit().putInt(VIBRATION,2).putInt(Prefs.VIB_STRENGTH,2).apply()
         }
@@ -83,13 +90,94 @@ object V3Prefs {
         val p=Prefs.of(ctx)
         return p.getBoolean(if(zh) GLIDE_ZH else GLIDE_EN,p.getBoolean(Prefs.GLIDE,false))
     }
-    fun layout(ctx:Context):String {
-        val p=Prefs.of(ctx)
-        return if(p.getBoolean(ORIENTATION_LAYOUT,false) && ctx.resources.configuration.orientation==Configuration.ORIENTATION_LANDSCAPE)
-            p.getString(LAYOUT_LANDSCAPE,p.getString(Prefs.LAYOUT,"26")) ?: "26" else p.getString(Prefs.LAYOUT,"26") ?: "26"
+    fun usesLandscapeLayout(ctx: Context): Boolean =
+        enabled(ctx, ORIENTATION_LAYOUT, false) && ctx.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    fun layout(ctx: Context): String = layout(Prefs.of(ctx), usesLandscapeLayout(ctx))
+
+    fun layout(prefs: SharedPreferences, landscape: Boolean): String {
+        val portrait = prefs.getString(Prefs.LAYOUT, "26") ?: "26"
+        return if (landscape) prefs.getString(LAYOUT_LANDSCAPE, portrait) ?: portrait else portrait
     }
-    fun saveLayout(ctx:Context,value:String) {
-        val landscape=enabled(ctx,ORIENTATION_LAYOUT,false) && ctx.resources.configuration.orientation==Configuration.ORIENTATION_LANDSCAPE
-        Prefs.of(ctx).edit().putString(if(landscape) LAYOUT_LANDSCAPE else Prefs.LAYOUT,value).apply()
+
+    fun saveLayout(ctx: Context, value: String) = saveLayout(ctx, usesLandscapeLayout(ctx), value)
+
+    fun saveLayout(ctx: Context, landscape: Boolean, value: String) {
+        val prefs = Prefs.of(ctx)
+        val editor = prefs.edit()
+        if (!landscape && prefs.getBoolean(ORIENTATION_LAYOUT, false) && !prefs.contains(LAYOUT_LANDSCAPE)) {
+            editor.putString(LAYOUT_LANDSCAPE, prefs.getString(Prefs.LAYOUT, "26"))
+        }
+        editor.putString(if (landscape) LAYOUT_LANDSCAPE else Prefs.LAYOUT, value).apply()
+    }
+
+    private fun floatingKey(landscape: Boolean) = if (landscape) LANDSCAPE_FLOAT else Prefs.FLOAT
+    private fun splitKey(landscape: Boolean) = if (landscape) LANDSCAPE_SPLIT else Prefs.SPLIT_LAYOUT
+
+    fun dockedSplit(ctx: Context): Boolean = dockedSplit(Prefs.of(ctx), usesLandscapeLayout(ctx))
+
+    private fun dockedSplit(prefs: SharedPreferences, landscape: Boolean): Boolean =
+        prefs.getBoolean(splitKey(landscape), prefs.getBoolean(Prefs.SPLIT_LAYOUT, false))
+
+    fun keyboardForm(ctx: Context): KeyboardForm = keyboardForm(Prefs.of(ctx), usesLandscapeLayout(ctx))
+
+    fun keyboardForm(prefs: SharedPreferences, landscape: Boolean): KeyboardForm = when {
+        prefs.getBoolean(floatingKey(landscape), prefs.getBoolean(Prefs.FLOAT, false)) -> KeyboardForm.FLOATING
+        dockedSplit(prefs, landscape) -> KeyboardForm.SPLIT
+        else -> KeyboardForm.NORMAL
+    }
+
+    private fun rememberLandscapeForm(prefs: SharedPreferences, editor: SharedPreferences.Editor) {
+        if (!prefs.contains(LANDSCAPE_FLOAT)) editor.putBoolean(LANDSCAPE_FLOAT, prefs.getBoolean(Prefs.FLOAT, false))
+        if (!prefs.contains(LANDSCAPE_SPLIT)) editor.putBoolean(LANDSCAPE_SPLIT, prefs.getBoolean(Prefs.SPLIT_LAYOUT, false))
+    }
+
+    fun setSeparateLayouts(ctx: Context, separate: Boolean) {
+        val prefs = Prefs.of(ctx)
+        val editor = prefs.edit().putBoolean(ORIENTATION_LAYOUT, separate)
+        if (separate) {
+            rememberLandscapeForm(prefs, editor)
+            if (!prefs.contains(LAYOUT_LANDSCAPE)) editor.putString(LAYOUT_LANDSCAPE, prefs.getString(Prefs.LAYOUT, "26"))
+        }
+        editor.apply()
+    }
+
+    fun saveKeyboardForm(ctx: Context, landscape: Boolean, form: KeyboardForm) {
+        val prefs = Prefs.of(ctx)
+        val editor = prefs.edit()
+        writeFormSetting(prefs, editor, landscape, Prefs.FLOAT, LANDSCAPE_FLOAT, form == KeyboardForm.FLOATING)
+        if (form != KeyboardForm.FLOATING) {
+            writeFormSetting(prefs, editor, landscape, Prefs.SPLIT_LAYOUT, LANDSCAPE_SPLIT, form == KeyboardForm.SPLIT)
+        }
+        editor.apply()
+    }
+
+    fun saveFloating(ctx: Context, floating: Boolean, editor: SharedPreferences.Editor) {
+        writeFormSetting(Prefs.of(ctx), editor, usesLandscapeLayout(ctx), Prefs.FLOAT, LANDSCAPE_FLOAT, floating)
+    }
+
+    fun saveDockedSplit(ctx: Context, split: Boolean, editor: SharedPreferences.Editor) {
+        writeFormSetting(Prefs.of(ctx), editor, usesLandscapeLayout(ctx), Prefs.SPLIT_LAYOUT, LANDSCAPE_SPLIT, split)
+    }
+
+    private fun writeFormSetting(
+        prefs: SharedPreferences, editor: SharedPreferences.Editor, landscape: Boolean,
+        portraitKey: String, landscapeKey: String, value: Boolean,
+    ) {
+        if (!landscape && prefs.getBoolean(ORIENTATION_LAYOUT, false) && !prefs.contains(landscapeKey)) {
+            editor.putBoolean(landscapeKey, prefs.getBoolean(portraitKey, false))
+        }
+        editor.putBoolean(if (landscape) landscapeKey else portraitKey, value)
+    }
+}
+
+enum class KeyboardForm(val label: String) {
+    NORMAL("正常键盘"), SPLIT("分体键盘"), FLOATING("悬浮键盘");
+
+    companion object {
+        fun supportsSplit(layout: String, widthDp: Float, floating: Boolean): Boolean {
+            val minWidth = if (floating) 600f else 320f
+            return layout != "9" && widthDp >= minWidth
+        }
     }
 }

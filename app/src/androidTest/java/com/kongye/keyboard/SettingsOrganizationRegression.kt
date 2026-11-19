@@ -88,19 +88,16 @@ object SettingsOrganizationRegression {
                 report("Clear/reset icons align to the right of the language selector; clear needs two taps and both actions affect only the selected language")
                 walk("23-appearance-background-below-preview",listOf("主题与外观"),listOf("当前效果","背景效果","明暗模式","配色方案"),"配色方案")
                 report("Background effects appear directly below the current preview, followed by appearance mode and color schemes")
-                ui {p.edit().putBoolean(Prefs.FLOAT,false).putBoolean(FloatingKeyboard.SPLIT,false).commit()}
-                open("键盘布局");locate("单手模式");locate("分体键盘");locate("悬浮使用")
-                click("悬浮键盘");check(p.getBoolean(Prefs.FLOAT,false))
+                ui {p.edit().putBoolean(V3Prefs.ORIENTATION_LAYOUT,false).putBoolean(Prefs.FLOAT,false).putBoolean(FloatingKeyboard.SPLIT,false).commit()}
+                open("键盘布局");locate("共用布局")
+                click("共用键盘形态：悬浮键盘");check(p.getBoolean(Prefs.FLOAT,false))
                 click("悬浮分体键盘");check(p.getBoolean(FloatingKeyboard.SPLIT,false))
-                val floatingExamples=ui {WindowInspector.getGlobalWindowViews().flatMap {descendants(it)}.filterIsInstance<SettingExampleView>().filter {it.key in setOf(Prefs.FLOAT,FloatingKeyboard.SPLIT)}}
-                check(floatingExamples.map {it.key}.toSet()==setOf(Prefs.FLOAT,FloatingKeyboard.SPLIT))
-                check(floatingExamples.all {it.before is Boolean&&it.after==true})
-                scroll();shot("28-layout-floating-switches")
-                click("悬浮分体键盘");click("悬浮键盘")
-                check(!p.getBoolean(Prefs.FLOAT,true)&&!p.getBoolean(FloatingKeyboard.SPLIT,true))
-                check(ui {floatingExamples.all {it.after==false}})
+                shot("28-layout-floating-switches")
+                click("悬浮分体键盘")
+                open("键盘布局");click("共用键盘形态：正常键盘")
+                check(!p.getBoolean(Prefs.FLOAT,true)&&!p.getBoolean(Prefs.SPLIT_LAYOUT,true))
                 shot("31-floating-layout-examples-disabled")
-                report("Layout owns single-hand, split and floating switches; both floating comparisons track on/off states and use unlabeled native keyboard silhouettes")
+                report("Keyboard form choices drive the shared normal/split/floating layout and preserve floating split controls")
 
                 ui {p.edit().putBoolean(Prefs.FLOAT,false).putFloat(Prefs.HEIGHT_SCALE,.95f).putInt(Prefs.PAD_L,17)
                     .putFloat(FloatingKeyboard.HEIGHT,1.15f).putBoolean(FloatingKeyboard.SPLIT,false)
