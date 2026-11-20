@@ -19,6 +19,7 @@
 | 神经网络手写运行时 | [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | MIT，官方 Android 1.28.0；为避免与语音运行库冲突，仅等长修改 ELF SONAME/DT_NEEDED 为 libkongye_ort_.so，未改变计算代码 |
 | 开源笔画识别 | [gugray/hanzi_lookup](https://github.com/gugray/hanzi_lookup) | LGPL-3.0，`01f90c3ab99a8fadf0696c28e5eb097223c500db`；原始 JS/WASM 未修改 |
 | 手写笔画数据 | HanziLookup 内嵌 Make Me a Hanzi / Arphic 衍生数据 | Arphic Public License，9,507 字 |
+| 汉字部件结构 | [BabelStone IDS](https://www.babelstone.co.uk/CJK/IDS.TXT) | 2025-06-27 数据，原作者允许个人和商业使用，许可原文见 [随包声明](app/src/main/assets/licenses/BabelStone-IDS-notice.txt)，筛选与转换见 [生成脚本](tools/build_handwriting_components.py) |
 | 带调字音和多音字数据 | [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) | MIT，`fe29ad32bdf352b31a02b9936e537f575432e9a6` |
 | 流式语音与原有离线模型运行时 | [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Apache-2.0，2.0.1 |
 | 普通话流式模型 | [官方转换模型](https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01)、[原始 checkpoint](https://huggingface.co/csukuangfj/icefall-streaming-zipformer-small-ctc-zh-2025-04-01) | Apache-2.0，转换模型提交 `a5f60fe00dcfbaf68fcc1c6b5cf53061e144d6da` |

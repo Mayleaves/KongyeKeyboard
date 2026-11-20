@@ -35,6 +35,28 @@ object ResourcePacks {
         }
     }
     fun pack(ctx:Context,id:String)=catalog(ctx).first {it.id==id}
+    fun bundled(ctx:Context,id:String)=id=="handwriting" &&
+        ctx.assets.list("handwriting-neural")?.contains("ochwpro.onnx")==true
+
+    /** File-backed ONNX input, extracted from the APK without a network request. */
+    fun handwritingModel(ctx:Context):File {
+        if(ready(ctx,"handwriting"))return file(ctx,"handwriting")
+        check(bundled(ctx,"handwriting")) {"笔迹识别模型未安装"}
+        val part=pack(ctx,"handwriting").files.first()
+        val target=File(ctx.cacheDir,"handwriting/"+part.sha256+".onnx")
+        if(target.length()==part.bytes)return target
+        target.parentFile?.mkdirs()
+        val atomic=android.util.AtomicFile(target)
+        var out:java.io.FileOutputStream?=null
+        try {
+            out=atomic.startWrite()
+            val digest=MessageDigest.getInstance("SHA-256")
+            java.security.DigestInputStream(ctx.assets.open("handwriting-neural/ochwpro.onnx"),digest).use {it.copyTo(out)}
+            check(digest.digest().joinToString(""){"%02x".format(it.toInt() and 255)}==part.sha256) {"内置笔迹模型校验失败"}
+            atomic.finishWrite(out)
+        } catch(t:Throwable) {atomic.failWrite(out);throw t}
+        return target
+    }
     fun file(ctx:Context,part:Part):File {
         val (kind,relative)=part.path.split(':',limit=2)
         val root=when(kind) {"files"->ctx.filesDir;"private"->ctx.noBackupFilesDir;"voice"->checkNotNull(ctx.getExternalFilesDir("offline-voice"));else->error("Unknown resource location")}

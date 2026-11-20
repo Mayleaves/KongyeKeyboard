@@ -19,6 +19,13 @@
 -keep class com.kongye.keyboard.PinyinEngine** { *; }
 -keep class com.kongye.keyboard.OpenHandwriting** { *; }
 -keep class com.kongye.keyboard.HandwritingPinyin { *; }
+-keep class com.kongye.keyboard.LanguageResources** { *; }
+-keep class com.kongye.keyboard.HandwritingCandidates { *; }
+-keepclassmembers class com.kongye.keyboard.KongyeIME {
+    private *** handCands;
+    private *** resolvedKeys;
+    private boolean candidatesPending;
+}
 
 # 1.3.0：手写的数字墨水库带进了 WorkManager 和 Room。数据库实现类（WorkDatabase_Impl）、
 # androidx.startup 的 Initializer、Worker 都是反射创建的，R8 full mode 删掉构造后进程一启动就崩
@@ -58,6 +65,7 @@
 # Official Fcitx JNI constructors and callbacks retain their ABI.
 -keep class org.fcitx.fcitx5.android.** { *; }
 -keep class com.kongye.keyboard.FcitxEngine** { *; }
+-keep class com.kongye.keyboard.RimeChoice { *; }
 
 # Release-device coverage of candidate spans, gesture persistence and one-time SMS clipboard.
 -keep class com.kongye.keyboard.Glide** { *; }
@@ -156,6 +164,10 @@
 
 # The instrumented clipboard test restores the original clip without recapturing it.
 -keepclassmembers class com.kongye.keyboard.KongyeIME { private long ignoreClipUntil; }
+-keepclassmembers class com.kongye.keyboard.KongyeIME {
+    private void openClipboard();
+    private void pasteExternal(java.lang.String);
+}
 
 # Validate the same first-install path from the release companion tests.
 -keep class com.kongye.keyboard.InstallDefaults { *; }

@@ -488,12 +488,14 @@ class SettingsActivity : ComponentActivity() {
         var showSplash by rememberSaveable { mutableStateOf(!restoredActivity && intent?.getBooleanExtra("grant_mic", false) != true) }
         if (restoredActivity && showSplash) showSplash = false
         var page by rememberSaveable { mutableStateOf(Page.MAIN) }
+        var mainQuery by rememberSaveable {mutableStateOf("")}
         val backStack=rememberSaveable(saver=androidx.compose.runtime.saveable.listSaver<MutableList<Page>,String>(
             save={pages->pages.map {it.name}},restore={names->names.map {Page.valueOf(it)}.toMutableList()})) {mutableListOf<Page>()}
         var mainExpanded by rememberSaveable {mutableStateOf<Page?>(null)}
         var backward by remember {mutableStateOf(false)}
         // 主页独立保存滚动状态：从子页面返回时回到原先浏览的位置，不会跳回最顶部
         val mainScroll = rememberScrollState()
+        val scope=rememberCoroutineScope()
         val pageStateHolder=rememberSaveableStateHolder()
 
         fun navigateTo(target: Page) {
@@ -516,6 +518,13 @@ class SettingsActivity : ComponentActivity() {
 
         SideEffect {noticeNavigation={target->focusManager.clearFocus(force=true);keyboardController?.hide();navigateTo(target)}}
         BackHandler(enabled = page != Page.MAIN) { navigateBack() }
+        HomeSearchBackHandler(page==Page.MAIN && mainQuery.isNotEmpty() && !showSplash &&
+            !overlayShown.value && !updateDialogVisible.value) {
+            focusManager.clearFocus(force=true)
+            keyboardController?.hide()
+            mainQuery=""
+            scope.launch {mainScroll.scrollTo(0)}
+        }
 
         Box(Modifier.fillMaxSize().background(pal.bg)) {
             AnimatedContent(
@@ -535,7 +544,7 @@ class SettingsActivity : ComponentActivity() {
                         .verticalScroll(mainScroll).padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    MainPage(pal,tick,mainExpanded,{focusManager.clearFocus(force=true);keyboardController?.hide();mainExpanded=it}) {navigateTo(it)}
+                    MainPage(pal,tick,mainExpanded,{focusManager.clearFocus(force=true);keyboardController?.hide();mainExpanded=it},mainQuery,{mainQuery=it}) {navigateTo(it)}
                     Spacer(Modifier.height(92.dp))
                 }
             } else {
@@ -727,22 +736,33 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun ResourcesPage(pal:Pal) {
         var pendingRemoval by remember {mutableStateOf<ResourcePacks.Pack?>(null)}
+        var pendingLanguageRemoval by remember {mutableStateOf<LanguageResources.Pack?>(null)}
         var refresh by remember {mutableIntStateOf(0)}
         LaunchedEffect(Unit) {while(true){delay(450);refresh++}}
+        LaunchedEffect(Unit) {while(true){LanguageResources.refresh {refresh++};delay(1800)}}
         @Suppress("UNUSED_VARIABLE")val revision=refresh
-        val packs=remember {ResourcePacks.catalog(this)}
+        StatsHeading(pal,"内置资源")
+        Card(pal) {
+            BasicText("基础输入",style=TextStyle(color=pal.ink,fontSize=17.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(top=12.dp))
+            BasicText("基础拼音、常用词库和单字手写随软件提供，安装后即可使用。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=19.sp),modifier=Modifier.padding(top=6.dp))
+            BasicText("手写模型约 7 MB · 已内置",style=TextStyle(color=pal.ok,fontSize=12.sp),modifier=Modifier.padding(top=8.dp,bottom=12.dp))
+        }
+        StatsHeading(pal,"可选增强资源")
+        val packs=remember {ResourcePacks.catalog(this).filterNot {ResourcePacks.bundled(this,it.id)}}
         packs.forEach {pack->
             val state=ResourcePacks.state(pack.id)
+            val bundled=ResourcePacks.bundled(this,pack.id)
             val ready=ResourcePacks.ready(this,pack.id)
             Card(pal) {
                 BasicText(pack.title,style=TextStyle(color=pal.ink,fontSize=17.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(top=12.dp))
                 BasicText(pack.summary,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=19.sp),modifier=Modifier.padding(top=6.dp))
                 val occupied=ResourcePacks.installedBytes(this@SettingsActivity,pack.id)
                 Row(Modifier.fillMaxWidth().padding(top=6.dp,bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
-                    BasicText("约 ${"%.1f".format(pack.bytes/1000000.0)} MB · ${if(ready)"已安装" else "未安装"}",
-                        style=TextStyle(color=if(ready)pal.ok else pal.text2,fontSize=12.sp,lineHeight=18.sp),modifier=Modifier.weight(1f).padding(end=8.dp))
+                    BasicText("约 ${"%.1f".format(pack.bytes/1000000.0)} MB · ${if(bundled)"已内置，离线可用" else if(ready)"已安装" else "未安装"}",
+                        style=TextStyle(color=if(ready || bundled)pal.ok else pal.text2,fontSize=12.sp,lineHeight=18.sp),modifier=Modifier.weight(1f).padding(end=8.dp))
                     Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
                         when {
+                            bundled->Unit
                             state.removing->BasicText("正在删除…",style=TextStyle(color=pal.text2,fontSize=12.sp))
                             state.busy->ResourceAction(pal,"取消") {ResourcePacks.cancel(pack.id)}
                             else->{
@@ -760,6 +780,34 @@ class SettingsActivity : ComponentActivity() {
                     BasicText("${(fraction*100).toInt()}% · ${"%.1f".format(state.downloaded/1000000.0)} MB",
                         style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=6.dp,bottom=8.dp))
                 } else if(state.message.isNotBlank())BasicText(state.message,style=TextStyle(color=if(ready)pal.ok else pal.text2,fontSize=12.sp),modifier=Modifier.padding(bottom=8.dp))
+            }
+        }
+        StatsHeading(pal,"翻译与备用识别")
+        LanguageResources.packs().forEach {pack->
+            val state=LanguageResources.state(pack)
+            Card(pal) {
+                BasicText(pack.title,style=TextStyle(color=pal.ink,fontSize=17.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(top=12.dp))
+                BasicText(pack.summary,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=19.sp),modifier=Modifier.padding(top=6.dp))
+                Row(Modifier.fillMaxWidth().padding(top=6.dp,bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
+                    BasicText("约 ${pack.approximateMb} MB · ${if(state.installed)"已安装" else "未安装"}",
+                        style=TextStyle(color=if(state.installed)pal.ok else pal.text2,fontSize=12.sp),modifier=Modifier.weight(1f))
+                    if(state.busy)BasicText(state.message,style=TextStyle(color=pal.text2,fontSize=12.sp))
+                    else if(state.installed)ResourceAction(pal,"删除",if(pal==DARK)Color(0xFFE1A29A) else Color(0xFFAD5149)) {pendingLanguageRemoval=pack}
+                    else ResourceAction(pal,if(state.message.startsWith("下载失败"))"继续" else "下载",if(pal==DARK)Color(0xFF9ABFEA) else Color(0xFF356A9C)) {LanguageResources.download(pack)}
+                }
+                if(!state.busy && state.message.isNotBlank())BasicText(state.message,style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(bottom=8.dp))
+            }
+        }
+        pendingLanguageRemoval?.let {pack->
+            androidx.compose.ui.window.Dialog(onDismissRequest={pendingLanguageRemoval=null},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
+                Column(Modifier.widthIn(max=420.dp).fillMaxWidth(.9f).clip(RoundedCornerShape(14.dp)).background(pal.card).padding(24.dp)) {
+                    BasicText("删除"+pack.title+"？",style=TextStyle(color=pal.ink,fontSize=19.sp,fontWeight=FontWeight.Bold))
+                    BasicText("删除后该项增强功能需重新下载资源。基础打字和内置手写保留。",style=TextStyle(color=pal.text2,fontSize=15.sp,lineHeight=23.sp),modifier=Modifier.padding(top=20.dp,bottom=24.dp))
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                        BasicText("取消",style=TextStyle(color=pal.text2,fontSize=14.sp),modifier=Modifier.clickable {pendingLanguageRemoval=null}.padding(10.dp))
+                        Pill(pal,"删除",true) {pendingLanguageRemoval=null;LanguageResources.remove(pack)}
+                    }
+                }
             }
         }
         pendingRemoval?.let {pack->
@@ -1313,8 +1361,35 @@ class SettingsActivity : ComponentActivity() {
         }
     }
 
+    /** Leaving search restores the menu even when the IME is still showing. */
     @Composable
-    private fun MainPage(pal:Pal,tick:Int,expandedGroup:Page?,onExpand:(Page?)->Unit,go:(Page)->Unit) {
+    private fun HomeSearchBackHandler(enabled:Boolean,onBack:()->Unit) {
+        val currentOnBack by rememberUpdatedState(onBack)
+        BackHandler(enabled=enabled) {currentOnBack()}
+        if(android.os.Build.VERSION.SDK_INT>=33) DisposableEffect(enabled) {
+            val dispatcher=window.onBackInvokedDispatcher
+            val callback=android.window.OnBackInvokedCallback {currentOnBack()}
+            var registered=false
+            fun update() {
+                val active=enabled && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+                if(active && !registered) {
+                    dispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_OVERLAY,callback)
+                    registered=true
+                } else if(!active && registered) {
+                    dispatcher.unregisterOnBackInvokedCallback(callback);registered=false
+                }
+            }
+            val observer=androidx.lifecycle.LifecycleEventObserver {_,_->update()}
+            lifecycle.addObserver(observer);update()
+            onDispose {
+                lifecycle.removeObserver(observer)
+                if(registered)dispatcher.unregisterOnBackInvokedCallback(callback)
+            }
+        }
+    }
+
+    @Composable
+    private fun MainPage(pal:Pal,tick:Int,expandedGroup:Page?,onExpand:(Page?)->Unit,query:String,onQueryChange:(String)->Unit,go:(Page)->Unit) {
         val version=remember {UpdateChecker.currentVersion(this)}
         Row(Modifier.fillMaxWidth().padding(vertical=18.dp),verticalAlignment=Alignment.CenterVertically) {
             Image(painterResource(R.drawable.ic_launcher_fg),null,Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFF141416)))
@@ -1327,7 +1402,6 @@ class SettingsActivity : ComponentActivity() {
                 BasicText("今日输入",style=TextStyle(color=pal.text2,fontSize=12.sp))
             }
         }
-        var query by rememberSaveable {mutableStateOf("")}
         val searchTextStyle=TextStyle(color=pal.ink,fontSize=16.sp,lineHeight=24.sp,
             platformStyle=androidx.compose.ui.text.PlatformTextStyle(includeFontPadding=false),
             lineHeightStyle=androidx.compose.ui.text.style.LineHeightStyle(
@@ -1337,7 +1411,7 @@ class SettingsActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(pal.card).padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
             Image(painterResource(R.drawable.ic_search),null,Modifier.size(20.dp),colorFilter=ColorFilter.tint(pal.text2))
             Spacer(Modifier.width(10.dp))
-            BasicTextField(value=query,onValueChange={query=it},singleLine=true,
+            BasicTextField(value=query,onValueChange=onQueryChange,singleLine=true,
                 textStyle=searchTextStyle,cursorBrush=SolidColor(pal.accent),modifier=Modifier.weight(1f).height(searchLineHeight),
                 decorationBox={inner->Box(Modifier.fillMaxSize(),contentAlignment=Alignment.CenterStart) {
                     if(query.isEmpty())BasicText("搜索设置与功能",style=searchTextStyle.copy(color=pal.text2),maxLines=1)
@@ -1346,7 +1420,7 @@ class SettingsActivity : ComponentActivity() {
             Box(Modifier.padding(start = 8.dp).width(32.dp).height(24.dp), contentAlignment = Alignment.Center) {
                 if (query.isNotEmpty()) {
                     Box(Modifier.fillMaxSize().clip(CircleShape)
-                        .clickable(role = androidx.compose.ui.semantics.Role.Button) { query = "" }
+                        .clickable(role = androidx.compose.ui.semantics.Role.Button) { onQueryChange("") }
                         .semantics { contentDescription = "清空搜索" }, contentAlignment = Alignment.Center) {
                         Image(painterResource(R.drawable.ic_close), null, Modifier.size(18.dp), colorFilter = ColorFilter.tint(pal.text2))
                     }
@@ -2179,8 +2253,8 @@ class SettingsActivity : ComponentActivity() {
                 } else PolishConnection(pal)
             }
             Page.HAND -> {
-                SettingsToggle(pal,"显示带声调读音",V3Prefs.HAND_TONE,true,tick,"单字显示多种读音，词语按词注音")
-                Card(pal) {ActionRow(pal,"笔迹识别模型",if(ResourcePacks.ready(this@SettingsActivity,"handwriting")) "已下载，离线可用" else "下载后使用神经网络识别；未下载时使用基础备用识别","管理") {go(Page.RESOURCES)}}
+                SettingsToggle(pal,"显示带声调读音",V3Prefs.HAND_TONE,true,tick,"显示单字读音，多音字显示多种读音")
+                Card(pal) {ActionRow(pal,"笔迹识别模型",if(ResourcePacks.bundled(this@SettingsActivity,"handwriting")) "已内置，离线可用，无需另外下载" else if(ResourcePacks.ready(this@SettingsActivity,"handwriting")) "已下载，离线可用" else "下载后使用神经网络识别；未下载时使用基础备用识别","管理") {go(Page.RESOURCES)}}
             }
             Page.DISPLAY -> {
                 StatsHeading(pal,"输入中的拼音")
@@ -2189,6 +2263,7 @@ class SettingsActivity : ComponentActivity() {
                 StatsHeading(pal,"候选词辅助信息")
                 SettingsChoice(pal,"候选读音",V3Prefs.READINGS,listOf(0 to "自动",1 to "显示",2 to "隐藏"),if(p.getBoolean(Prefs.SHOW_PINYIN,false)) 1 else 2,tick)
                 SettingsChoice(pal,"候选翻译",V3Prefs.GLOSS,listOf(0 to "自动",1 to "显示",2 to "隐藏"),2,tick) {CandidateGloss.prepare(this)}
+                if(p.getInt(V3Prefs.GLOSS,2)!=2)Card(pal) {ActionRow(pal,"翻译语言包","候选翻译需要中文翻译语言包，可在离线资源中下载或删除。","管理") {go(Page.RESOURCES)}}
             }
             Page.SMS -> {
               StatsHeading(pal,"自动复制")

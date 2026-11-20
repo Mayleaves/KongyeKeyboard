@@ -33,14 +33,17 @@ object CandidateModeRegression {
                     expanded.submit(listOf("好的","好"))
                 },{}, {})
                 val root=FrameLayout(activity)
-                root.setBackgroundColor(Skins.KONGYE.modBg)
+                root.setBackgroundColor(Skins.KONGYE.kbBg)
                 root.addView(expanded,FrameLayout.LayoutParams(-1,(280*ctx.resources.displayMetrics.density).toInt(),Gravity.BOTTOM))
                 activity.setContentView(root)
             }
             i.waitForIdleSync()
-            val scroll=expanded.getChildAt(0) as ScrollView
+            val content=expanded.getChildAt(0) as LinearLayout
+            val scroll=content.getChildAt(1) as ScrollView
             val grid=scroll.getChildAt(0) as CandFlowView
-            val button=(expanded.getChildAt(1) as LinearLayout).getChildAt(1) as TextView
+            val tools=expanded.getChildAt(1) as LinearLayout
+            val button=tools.getChildAt(4) as TextView
+            check((1..3).map {tools.getChildAt(it).contentDescription.toString()}==listOf("删除","向上翻页","向下翻页"))
             val indices=ExpandedCandidates::class.java.getDeclaredField("indexes").apply {isAccessible=true}
             fun checkLabel(selected:Int) {
                 check(button.text.toString()=="词/字")
@@ -84,6 +87,44 @@ object CandidateModeRegression {
             i.runOnMainSync {expanded.submit(listOf("你好","你","好"),listOf("ni hao","ni","hao"));button.performClick()}
             i.waitForIdleSync();checkLabel(2)
             check((indices.get(expanded) as List<*>)==listOf(1,2))
+            i.runOnMainSync {
+                button.performClick()
+                expanded.submit(listOf("从","冲","重","重新")+(0..70).map {"候选$it"},
+                    spellings=listOf("cong","chong","chong","chong xin")+(0..70).map {"chong"})
+            }
+            i.waitForIdleSync()
+            val picker=(content.getChildAt(0) as android.widget.HorizontalScrollView).getChildAt(0) as LinearLayout
+            val chong=(0 until picker.childCount).map {picker.getChildAt(it)}.first {it.contentDescription=="选择拼音 chong"}
+            i.runOnMainSync {chong.performClick()};i.waitForIdleSync()
+            check(0 !in (indices.get(expanded) as List<*>)) {"Pinyin picker retained a different pronunciation"}
+            val cell=(boxesField.get(grid) as List<*>).first() as RectF
+            check((boxesField.get(grid) as List<*>).take(4).map {(it as RectF).width()}.distinct().size==1) {"Candidate cells are not four equal columns"}
+            check(tools.orientation==LinearLayout.VERTICAL && tools.getChildAt(0).contentDescription=="收起候选")
+            check(kotlin.math.abs(tools.getChildAt(1).height-cell.height())<=1f)
+            check(kotlin.math.abs(tools.getChildAt(1).top-scroll.top-cell.top)<=1f) {"Delete not aligned with first candidate row"}
+            check(tools.getChildAt(4).bottom<=expanded.height)
+            i.runOnMainSync {tools.getChildAt(3).performClick()};i.waitForIdleSync();check(scroll.scrollY>0)
+            i.runOnMainSync {tools.getChildAt(2).performClick()};i.waitForIdleSync();check(scroll.scrollY==0)
+            i.runOnMainSync {
+                expanded.submit(listOf("艺","一","1️⃣","以","易","宜","已","逸","衣","义","燚","翼","依","亦","医","咦"),
+                    spellings=listOf("yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi"))
+            }
+            i.waitForIdleSync()
+            check((indices.get(expanded) as List<*>)==(0..15).toList()) {"Expanded grid changed the original candidate order"}
+            val strip=content.getChildAt(0) as android.widget.HorizontalScrollView
+            val spellingRow=strip.getChildAt(0) as LinearLayout
+            check((0 until spellingRow.childCount).map {(spellingRow.getChildAt(it) as TextView).text.toString()}==listOf("yi")) {"Unexpected All filter"}
+            screenshot("candidate-pinyin-filter-and-pages.png")
+            i.runOnMainSync {
+                val sounds=listOf("yi","ti","yo","yu","ge","le","shi","zhong","chong","chang")
+                expanded.submit(sounds.map {"字$it"},spellings=sounds)
+            }
+            i.waitForIdleSync()
+            check(strip.getChildAt(0).width>strip.width) {"Pronunciations compressed into viewport: ${strip.width}/${strip.getChildAt(0).width}"}
+            i.runOnMainSync {strip.isSmoothScrollingEnabled=false;strip.fullScroll(android.view.View.FOCUS_RIGHT)}
+            i.waitForIdleSync();check(strip.scrollX>0) {"Pronunciation row cannot scroll horizontally: ${strip.width}/${strip.getChildAt(0).width}"}
+            i.runOnMainSync {strip.fullScroll(android.view.View.FOCUS_LEFT)}
+            i.waitForIdleSync();check(strip.scrollX==0)
             i.sendStatus(0,Bundle().apply {putString("stream","Combined label, selected typography, two-state cycling, stable grid, original-index pick and automatic word reset PASSED\n")})
         } finally {i.runOnMainSync {activity.finish()}}
     }

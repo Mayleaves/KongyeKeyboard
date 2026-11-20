@@ -2,6 +2,10 @@ package com.kongye.keyboard
 
 /** OCR 没有备选接口，补充的形近字和联想词排在原始识别结果后面。 */
 object HandwritingCandidates {
+    /** A handwriting choice represents one character, never a guessed phrase. */
+    fun singleCharacters(recognized:List<String>)=recognized.filter {
+        it.codePointCount(0,it.length)==1 && !it.isBlank()
+    }.distinct()
     private val similar = listOf(
         "大太犬天夫夭", "人入八", "十土士干千于", "日目白田由甲申电", "口囗回吕",
         "未末木本术禾", "王玉主生", "己已巳巴", "山出凶", "水永冰泉", "火灭灰炎",

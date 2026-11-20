@@ -90,6 +90,7 @@ object ClipStore {
     @Synchronized fun add(text: String) {
         if (text.isBlank()) return
         val old = items.firstOrNull { it.image == null && it.text == text }
+        if(old!=null && items.firstOrNull()===old) return
         if (old != null) items.remove(old)
         items.add(0, Clip(text, old?.pinned ?: false, System.currentTimeMillis(), cat = old?.cat))
         trim()
@@ -144,6 +145,16 @@ object ClipStore {
         trim(); save()
     }
     @Synchronized fun clearUnpinned() { items.filter { !isSaved(it) }.forEach { removeFile(it) }; items.removeAll { !isSaved(it) }; save() }
+
+    /** The panel's trash action deletes the entire category, including saved items. */
+    @Synchronized fun clearCategory(tab:String):Int {
+        if(tab !in tabs())return 0
+        val selected=list(tab,"").toSet()
+        selected.forEach(::removeFile)
+        items.removeAll(selected)
+        save()
+        return selected.size
+    }
 
     // —————— 自定义分类 ——————
 

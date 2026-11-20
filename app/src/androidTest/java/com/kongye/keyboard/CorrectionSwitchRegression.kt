@@ -23,6 +23,7 @@ object CorrectionSwitchRegression {
                     val words=PinyinEngine.candidatesLive(case.raw.map {it.toString()},true,{true},{})
                     val repaired=words.firstOrNull {it.w==case.word&&it.n==case.raw.length}
                     check((repaired!=null)==(mask and case.bit!=0)) {"mask=$mask ${case.raw}: "+words.joinToString {it.w+":"+it.n}}
+                    if(case.raw=="nuhao")check(words.first().w=="怒号") {"Correction displaced an exact phrase"}
                     check(SpellingAssist.allows(case.raw,case.py)==(mask and case.bit!=0)) {"Filter bypass: mask=$mask ${case.raw}"}
                     if(repaired!=null)check(FcitxEngine.consume(repaired,false)==case.raw.length) {"Repair did not consume all original letters"}
                     report("mask=$mask ${case.raw} correction=${repaired!=null}, ${android.os.SystemClock.elapsedRealtime()-start} ms")

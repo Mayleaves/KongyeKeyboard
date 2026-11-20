@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ScrollView
+import android.widget.ListView
 import android.widget.TextView
 import java.io.File
 
@@ -32,11 +32,13 @@ object ClipboardMotionRegression {
             panel.layout(0,0,1080,600)
             for (category in listOf("置顶","文本","图片","全部","文本")) {
                 labels(panel).first {it.text.toString()==category}.performClick()
-                val scroll=panel.getChildAt(panel.childCount-1) as ScrollView
+                val scroll=panel.getChildAt(panel.childCount-1) as ListView
+                panel.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(600,View.MeasureSpec.EXACTLY))
+                panel.layout(0,0,1080,600)
                 check(scroll.translationX==0f) {"Empty clipboard guidance moved on category switch"}
                 check(labels(scroll).any {it.text.toString()=="复制的内容会出现在这里"})
             }
-            val scroll=panel.getChildAt(panel.childCount-1) as ScrollView
+            val scroll=panel.getChildAt(panel.childCount-1) as ListView
             val y=scroll.top+80f
             fun swipe(from:Float,to:Float) {
                 val now=android.os.SystemClock.uptimeMillis()
@@ -69,7 +71,9 @@ object ClipboardMotionRegression {
         Thread.sleep(650)
         i.runOnMainSync {
             check(selected=="置顶") {"Record category did not settle on the requested category"}
-            val scroll=panel.getChildAt(panel.childCount-1) as ScrollView
+            panel.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(600,View.MeasureSpec.EXACTLY))
+            panel.layout(0,0,1080,600)
+            val scroll=panel.getChildAt(panel.childCount-1) as ListView
             check(scroll.translationX==0f && labels(scroll).any {it.text.toString()=="isolated pinned card"} && labels(scroll).none {it.text.toString()=="isolated history card"})
             for(name in listOf("recordsAnimator","recordsBitmap","recordsCover")) {
                 val field=ClipboardPanel::class.java.getDeclaredField(name);field.isAccessible=true

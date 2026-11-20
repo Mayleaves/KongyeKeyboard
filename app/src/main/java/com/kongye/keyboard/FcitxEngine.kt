@@ -20,6 +20,7 @@ object FcitxEngine {
         catch(e:java.util.concurrent.ExecutionException) {throw (e.cause ?: e)}
     fun initialize(ctx:Context) {
         if(ready) return
+        HanReadings.load(ctx)
         try { native {
             if(ready) return@native
             val root=File(ctx.filesDir,"fcitx-0.1.3-model-r1")
@@ -101,14 +102,25 @@ object FcitxEngine {
                     val queryLength=query.count {it!='\''}
                     val estimated=parts.take(chars).sumOf {token->token.count {it in 'a'..'z'}}.coerceIn(1,queryLength.coerceAtLeast(1))
                     val consumed=if(query!=source && estimated==queryLength)length else minOf(estimated,length)
-                    Cand(c.text,consumed,null,0f,py=Lexicon.pinyinOf(c.text),inputDisplay=Lexicon.streamingDisplay(keys),
-                        nativeChoice=RimeChoice("fcitx/pinyin",query,source),correction=query!=source)
+                    val reading=HanReadings.resolve(c.text,query.filter {it!='\''}.take(estimated),parts)
+                    Cand(c.text,consumed,null,0f,py=reading,inputDisplay=Lexicon.streamingDisplay(keys),
+                        nativeChoice=RimeChoice("fcitx/pinyin",query,source),correction=!SpellingAssist.matchesTypedReading(source.filter {it!='\''}.take(consumed),reading))
                 }
             }.filter {c->c.py.isNullOrEmpty() || SpellingAssist.allows(source.filter {it!='\''}.take(c.n),c.py.orEmpty())}
         }
-        val original=collect(raw,raw,if(includeShort) 80 else 40)
+        val original=collect(raw,raw,if(includeShort) 512 else 48).sortedBy {candidate->
+            if(HanReadings.plain(candidate.py.orEmpty()).replace(" ","")==raw.filter {it!='\''}.take(candidate.n))0 else if(candidate.correction)2 else 1
+        }
         onPrimary?.invoke(original+Cand(raw,count,null,-100f))
         val result=original.toMutableList()
+        if(Prefs.FUZZY_V_U in Lexicon.fuzzyRules && raw.any {it in "uv"}) {
+            val variants=linkedSetOf(raw.replace('v','u'),raw.replace('u','v')).apply {remove(raw)}
+            for(variant in variants) {
+                prepare(variant,current)
+                for(c in collect(variant,raw,96))if(result.none {it.w==c.w && it.n==c.n})result.add(c)
+            }
+            prepare(raw,current)
+        }
         // Native words appear immediately; bounded repairs refine the same page.
         try {
             val repairs=ArrayList<Cand>()
@@ -116,12 +128,13 @@ object FcitxEngine {
             val reading=first?.py.orEmpty().replace(" ","").replace("'","")
             val exact=first?.n==count && reading==raw
             val nativeRepair=first?.n==count && reading.length==raw.length && reading!=raw && SpellingAssist.wordCost(raw,first?.py.orEmpty())<=15
-            val variants=if(nativeRepair)emptyList() else SpellingAssist.repairs(raw).filter {!exact || it.length<raw.length}
+            val variants=if(nativeRepair || exact && raw in Lexicon.pinyinSyllables())emptyList()
+                else SpellingAssist.repairs(raw)
             for(variant in variants) {
                 if(!current()) throw java.util.concurrent.CancellationException()
                 prepare(variant,current)
                 val alternative=collect(variant,raw,12).firstOrNull {it.n==count} ?: continue
-                if((!exact || original.any {it.w==alternative.w&&it.n<count}) && repairs.none {it.w==alternative.w})repairs.add(alternative)
+                if(repairs.none {it.w==alternative.w})repairs.add(alternative)
             }
             val additions=ArrayList<Cand>()
             for(c in repairs) {
@@ -140,7 +153,7 @@ object FcitxEngine {
                 for(c in short) if(result.none {it.w==c.w}) result.add(c)
             }
         } finally {prepare(raw,current)}
-        result + Cand(raw,count,null,-100f)
+        HanReadings.complete(result + Cand(raw,count,null,-100f),keys)
     }
 
     /** Keep alternate dictionary spellings selectable after a gesture. Only
@@ -161,7 +174,7 @@ object FcitxEngine {
     fun consume(c:Cand,learn:Boolean):Int = native {
         val raw=c.nativeChoice!!.raw
         prepare(raw)
-        val list=Fcitx.getFcitxCandidates(0,100).orEmpty()
+        val list=Fcitx.getFcitxCandidates(0,512).orEmpty()
         val index=list.indexOfFirst {it.text==c.w}
         check(index>=0) {"Native candidate is no longer available"}
         Fcitx.committed=""

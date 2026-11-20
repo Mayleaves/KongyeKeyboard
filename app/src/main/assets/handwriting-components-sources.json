@@ -1,0 +1,7 @@
+{
+  "url": "https://www.babelstone.co.uk/CJK/IDS.TXT",
+  "sha256": "cc2a0a97e6a51ed6ebe59870ef2af66e83f3c3c27387d79b4441bb2d791d78b1",
+  "output_sha256": "830258f84d92a1ec3a12e44e0e3ed53336c409b9880b4a92b30dd5cd3eff681f",
+  "transform": "Axis-aligned binary/ternary IDS trees, depth <= 3 and 2-6 leaves. Full source retained in build/handwriting-components.",
+  "rows": 89680
+}

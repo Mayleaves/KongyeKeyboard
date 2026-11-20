@@ -24,10 +24,12 @@ object OpenHandwriting {
     @Volatile var ready = false; private set
     @Volatile var failure: String? = null; private set
     private var loading = false
-    private var generation = 0
-    private var request = 0
+    @Volatile private var generation = 0
+    @Volatile private var request = 0
+    private var appContext:Context?=null
     private var session: OrtSession? = null
     private var fallback = false
+    val usingTemplate get()=fallback
     private var chars: List<String> = emptyList()
     private val waiters = ArrayList<() -> Unit>()
 
@@ -37,6 +39,7 @@ object OpenHandwriting {
         waiters.add(callback)
         if (loading) return
         loading = true
+        appContext=ctx.applicationContext
         val token = generation
         worker.execute {
             val result = runCatching {
@@ -46,8 +49,7 @@ object OpenHandwriting {
                 val options = OrtSession.SessionOptions()
                 try {
                     options.setIntraOpNumThreads(2); options.setInterOpNumThreads(1)
-                    check(ResourcePacks.ready(ctx,"handwriting")) {"请在设置的离线资源中下载笔迹识别模型"}
-                    val engine = OrtEnvironment.getEnvironment().createSession(ResourcePacks.file(ctx,"handwriting").absolutePath, options)
+                    val engine = OrtEnvironment.getEnvironment().createSession(ResourcePacks.handwritingModel(ctx).absolutePath, options)
                     // Warm the execution graph outside the first recognition callback.
                     try { predict(engine, labels, listOf(listOf(floatArrayOf(0f, 0f), floatArrayOf(50f, 50f)))) }
                     catch (e: Exception) { engine.close(); throw e }
@@ -77,14 +79,36 @@ object OpenHandwriting {
     private fun notifyReady() {
         val callbacks = waiters.toList(); waiters.clear(); callbacks.forEach { it() }
     }
+    fun cancelRecognition() {request++}
 
     fun recognize(strokes: List<List<FloatArray>>, callback: (List<String>) -> Unit): Boolean {
+        return recognize(strokes,callback,null)
+    }
+    fun recognize(strokes:List<List<FloatArray>>,callback:(List<String>)->Unit,supplement:((List<String>)->Unit)?):Boolean {
         check(Looper.myLooper() == Looper.getMainLooper())
-        if (fallback) return TemplateHandwriting.recognize(strokes, callback)
-        val engine = session ?: return false
         if (!ready) return false
         val input = strokes.map { line -> line.filter { it.size >= 2 && it[0].isFinite() && it[1].isFinite() }.map { it.copyOf(2) } }.filter { it.isNotEmpty() }
         val token = generation; val id = ++request; val labels = chars
+        if(fallback)return TemplateHandwriting.recognize(input,primary@ {primary->
+            if(token!=generation || id!=request)return@primary
+            callback(primary)
+            if(supplement!=null)worker.execute {
+                val extra=runCatching {
+                    appContext?.let {HandwritingComponents.load(it)}
+                    HandwritingComponents.recognize(input,primary.toSet(),{token==generation && id==request}) {part->
+                        val done=java.util.concurrent.CountDownLatch(1);var result=emptyList<String>()
+                        main.post {
+                            if(token!=generation || id!=request)done.countDown()
+                            else if(!TemplateHandwriting.recognize(part,{result=it;done.countDown()},false))done.countDown()
+                        }
+                        done.await(1,java.util.concurrent.TimeUnit.SECONDS)
+                        result
+                    }
+                }.getOrDefault(emptyList())
+                main.post {if(token==generation && id==request)supplement(extra)}
+            }
+        })
+        val engine = session ?: return false
         worker.execute {
             val result = runCatching { predict(engine, labels, input) }
             main.post {
@@ -92,6 +116,15 @@ object OpenHandwriting {
                     result.onFailure { failure = it.javaClass.simpleName + ": " + it.message }
                     callback(result.getOrDefault(emptyList()))
                 }
+            }
+            if(supplement!=null && token==generation && id==request) {
+                val extra=runCatching {
+                    appContext?.let {HandwritingComponents.load(it)}
+                    HandwritingComponents.recognize(input,labels.toHashSet(),{token==generation && id==request}) {
+                        predict(engine,labels,it)
+                    }
+                }.getOrDefault(emptyList())
+                main.post {if(token==generation && id==request)supplement(extra)}
             }
         }
         return true
@@ -151,7 +184,7 @@ object OpenHandwriting {
         if (Looper.myLooper() != Looper.getMainLooper()) { main.post { release() }; return }
         generation++; request++; ready = false; loading = false; fallback = false; waiters.clear(); chars = emptyList()
         val old = session; session = null
-        if (old != null) worker.execute { old.close() }
+        worker.execute {old?.close();HandwritingComponents.release()}
         TemplateHandwriting.release()
     }
 }

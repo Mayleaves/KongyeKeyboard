@@ -377,6 +377,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var clipboard: ClipboardManager? = null
     private var ignoreClipUntil = 0L
     private var lastImageUri = ""
+    private var lastCapturedClip:Triple<Long,String?,String?>?=null
+    private var clipImportGeneration=0
+    private val clipImporter=java.util.concurrent.Executors.newSingleThreadExecutor {task->Thread(task,"clipboard-import").apply {isDaemon=true}}
     /** 刚复制的文字：在候选栏弹出快捷粘贴/分词/关闭条 */
     private var pendingClipText: String? = null
     private var pendingSmsCode:SmsCodeClipboard.Code?=null
@@ -423,6 +426,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onDestroy() {
+        clipImportGeneration++;clipImporter.shutdown()
         main.removeCallbacks(releaseTools)
         hideInline()
         candidateRevision++;candidateWorker.shutdownNow()
@@ -590,7 +594,10 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         keyboard = KeyboardView(this).also { it.listener = this }
         panelHost = PanelHost(this).apply {
             visibility = View.GONE
-            heightOf = { if(landscapeEdit()) (168*resources.displayMetrics.density).toInt() else keyboard.desiredHeight() }
+            heightOf = {
+                (if(landscapeEdit()) (168*resources.displayMetrics.density).toInt() else keyboard.desiredHeight())+
+                    if(panel in listOf(Panel.CANDS,Panel.HAND_CANDS))bar.measuredHeight else 0
+            }
         }
         // 左下角：收起键盘
         bottomStrip = BottomStrip(this, onKeyboard = { requestHideSelf(0) }, onClip = { if (panel == Panel.CLIP) closePanel() else openClipboard() })
@@ -814,8 +821,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         val recentCopy = ts > 0L && (System.currentTimeMillis() - ts) in 0..120_000L
         val item = clip.getItemAt(0) ?: return
         if (item.uri != null) return
-        val text = runCatching { item.coerceToText(this)?.toString() }.getOrNull()?.trim().orEmpty()
-        if (text.isEmpty()) return
+        val text = runCatching { item.coerceToText(this)?.toString() }.getOrNull().orEmpty()
+        if (text.isBlank()) return
         ClipStore.add(text)
         if ((recentCopy || pendingClipText == text) && text != dismissedClipText) {
             pendingClipText = text
@@ -1261,7 +1268,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             if(revision==candidateRevision) {
                 renderBar()
                 val page=panelHost.getChildAt(0) as? ExpandedCandidates
-                if(panel==Panel.CANDS)page?.submit(cands.take(120).map {it.w},candItems().take(120).map {it.py})
+                if(panel==Panel.CANDS)page?.submit(cands.map {it.w},candItems().map {it.py},cands.map {it.py})
             }
         }
     }
@@ -1281,7 +1288,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     })
             }
             val translate=gloss==1 || gloss==0 && c.w.codePointCount(0,c.w.length)<=6
-            val translation=if(!translate)null else CandidateGloss.get(c.w,zh) ?: "…"
+            val translation=if(!translate || !CandidateGloss.available(zh))null else CandidateGloss.get(c.w,zh) ?: "…"
             CandItem(c.w,listOfNotNull(reading,translation).joinToString(" · ").ifEmpty {null},
                 if(translation==null && V3Prefs.enabled(this,V3Prefs.FEEDBACK))c.mask else null)
         }
@@ -1289,6 +1296,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun renderBar() {
         if (root == null) return
+        barHost.visibility=if(voiceCollapsed || panel in listOf(Panel.CANDS,Panel.HAND_CANDS))View.GONE else View.VISIBLE
         val rowWidth=if(landscapeEdit()) minOf(resources.displayMetrics.widthPixels,(744*resources.displayMetrics.density).toInt()) else MATCH_PARENT
         for(view in listOf(barHost,sinkStrip)) {
             val params=view.layoutParams as LinearLayout.LayoutParams
@@ -1365,13 +1373,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             return
         }
         checkpoint(typing = typing, group="latin")
-        val before=if(appComposing) "" else ic()?.getTextBeforeCursor(1,0)?.toString().orEmpty()
+        val automaticSpace=!externalInsertion && (V3Prefs.enabled(this,V3Prefs.SPACE_LATIN,false) || V3Prefs.enabled(this,V3Prefs.SPACE_DIGIT,false))
+        val before=if(appComposing || !automaticSpace) "" else ic()?.getTextBeforeCursor(1,0)?.toString().orEmpty()
         val current=text.firstOrNull()
         val previous=before.lastOrNull()
         fun han(c:Char?)=c!=null && c in '一'..'鿿'
-        val needsSpace=(V3Prefs.enabled(this,V3Prefs.SPACE_LATIN,false) &&
+        val needsSpace=automaticSpace && ((V3Prefs.enabled(this,V3Prefs.SPACE_LATIN,false) &&
             (han(previous) && current?.isLetter()==true && !han(current) || han(current) && previous?.isLetter()==true && !han(previous))) ||
-            (V3Prefs.enabled(this,V3Prefs.SPACE_DIGIT,false) && (han(previous) && current?.isDigit()==true || han(current) && previous?.isDigit()==true))
+            (V3Prefs.enabled(this,V3Prefs.SPACE_DIGIT,false) && (han(previous) && current?.isDigit()==true || han(current) && previous?.isDigit()==true)))
         val output=(if(needsSpace) " " else "")+text
         appComposing=false;appComposingText=""
         val committed=ic()?.commitText(output,1)==true
@@ -1404,7 +1413,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         val raw=seq.joinToString("")
         val fallback=Lexicon.streamingDisplay(seq.toList())
         val display=if(seq.all {it.length==1} && resolvedKeys==seq.toList()) {
-            SpellingAssist.presentation(raw,cands.firstOrNull()?.py.orEmpty(),fallback)
+            EnglishInput.literalSpelling(raw,cands.firstOrNull()) ?: SpellingAssist.presentation(raw,cands.firstOrNull()?.py.orEmpty(),fallback)
         } else if(tabPresentationRaw.isNotEmpty() && raw.startsWith(tabPresentationRaw)) {
             var letters=0;var cut=0
             while(cut<fallback.length && letters<tabPresentationRaw.count {it!='\''}) {if(fallback[cut]!='\'')letters++;cut++}
@@ -1512,7 +1521,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     private fun checkpoint(typing: Boolean, group: String = "typing") {
-        if (passwordField || sink != Sink.NONE || currentInputEditorInfo?.extras?.getInt("com.kongye.input.EDITOR_PROTOCOL",0)==1) return
+        if (passwordField || remoteEditor() || sink != Sink.NONE || currentInputEditorInfo?.extras?.getInt("com.kongye.input.EDITOR_PROTOCOL",0)==1) return
         val now = SystemClock.uptimeMillis()
         if (typing && group==lastTypingGroup && now - lastTypingAt <= 700) { lastTypingAt = now; return }
         snap()?.let { s ->
@@ -1621,7 +1630,10 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private val followingKeys=ArrayDeque<Key>()
     private var candidateFrame: (() -> Unit)? = null
     private var candidateFrameScheduled = false
-    private fun showCandidateResult(revision: Int, keys: List<String>, result: List<Cand>, complete: Boolean) {
+    private fun showCandidateResult(
+        revision: Int, keys: List<String>, result: List<Cand>, complete: Boolean,
+        fullLookup: Boolean = false, originalOrder: List<Cand> = emptyList(),
+    ) {
         if(revision!=candidateRevision)return
         val english=if(zh && V3Prefs.enabled(this,V3Prefs.MIXED) && keys.all {it.length==1 && it[0] in 'a'..'z'})
             EnglishInput.candidates(applicationContext,keys.joinToString("")).filter {it.w!=keys.joinToString("")}.take(2) else emptyList()
@@ -1641,9 +1653,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 if(zh) {
                     updated.removeAll {c->
                         when {
-                            c.w.any {Character.getType(it)==Character.OTHER_SYMBOL.toInt()} -> !V3Prefs.enabled(this,V3Prefs.EMOJI)
-                            c.w.none {it in '一'..'鿿'} && c.w.any {it in "()￣▽╰╯"} -> !V3Prefs.enabled(this,V3Prefs.KAOMOJI)
-                            c.w.none {it.isLetterOrDigit()} -> !V3Prefs.enabled(this,V3Prefs.SYMBOLS)
+                            c.w.codePoints().anyMatch {Character.getType(it)==Character.OTHER_SYMBOL.toInt()} -> !V3Prefs.enabled(this,V3Prefs.EMOJI)
+                            c.w.codePoints().noneMatch {Character.UnicodeScript.of(it)==Character.UnicodeScript.HAN} && c.w.any {it in "()￣▽╰╯"} -> !V3Prefs.enabled(this,V3Prefs.KAOMOJI)
+                            c.w.codePoints().noneMatch {Character.isLetterOrDigit(it)} -> !V3Prefs.enabled(this,V3Prefs.SYMBOLS)
                             else -> false
                         }
                     }
@@ -1652,25 +1664,31 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     }
                 }
                 if(growing && cands.isNotEmpty() && SpellingAssist.correctionFlags==15) {
-                    val old=cands.first()
-                    if(old.n<=keys.count {it!="'"} && old.w.count {it in '一'..'鿿'}> (updated.firstOrNull()?.w?.count {it in '一'..'鿿'} ?: 0)) {
-                        updated.removeAll {it.w==old.w};updated.add(0,old)
-                    }
                     // A temporarily unmatched suffix must not collapse the strip
-                    // to a lone literal. Older words retain their prefix boundary.
-                    for(c in cands) if(updated.size<cands.size && updated.none {it.w==c.w}) updated.add(c)
+                    // to a lone literal. Never promote an older repaired word
+                    // over the native model's result for the current spelling.
+                    for(c in cands) if(updated.size<cands.size && updated.none {it.w==c.w} &&
+                        !c.correction && HanReadings.plain(c.py.orEmpty()).replace(" ","")==keys.joinToString("").take(c.n)) updated.add(c)
                 }
                 if(mixed.isNotEmpty())updated.addAll(0,mixed)
-                cands=if(zh) EnglishInput.recognize(applicationContext,keys.joinToString(""),updated) else updated
+                val next=if(zh) EnglishInput.recognize(applicationContext,keys.joinToString(""),updated) else updated
+                cands=if(panel==Panel.CANDS && originalOrder.isNotEmpty()) {
+                    // Extend the original row in place when the full lookup arrives.
+                    val existing=originalOrder.mapTo(HashSet()) {it.w to it.n}
+                    originalOrder+next.filter {existing.add(it.w to it.n)}
+                } else next
                 resolvedKeys=keys
                 if(complete) candidatesPending=false
                 renderBar()
-                if(panel==Panel.CANDS && complete) (panelHost.getChildAt(0) as? ExpandedCandidates)?.submit(cands.take(120).map {it.w},candItems().take(120).map {it.py})
+                if(panel==Panel.CANDS) (panelHost.getChildAt(0) as? ExpandedCandidates)?.submit(cands.map {it.w},candItems().map {it.py},cands.map {it.py})
                 val requested=pendingPick
                 if(complete && requested?.first==revision) {
                     pendingPick=null
                     cands.getOrNull(requested.second)?.let {pick(it)}
                     while(followingKeys.isNotEmpty() && pendingPick==null) onKey(followingKeys.removeFirst())
+                } else if(complete && !fullLookup && panel==Panel.CANDS && canExpandLookup(keys)) {
+                    // The panel opened before the lookup for the latest keys had produced a row.
+                    refreshComposing(originalOrder=cands)
                 }
             }
             if(!candidateFrameScheduled) {
@@ -1682,18 +1700,21 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             }
         }
     }
-    private fun refreshComposing() {
+    private fun canExpandLookup(keys: List<String>) =
+        zh && keys.isNotEmpty() && keys.all {it.length==1} && flag(Prefs.ABBR) && FcitxEngine.ready
+
+    private fun refreshComposing(originalOrder: List<Cand> = emptyList()) {
         val keys=seq.toList();val revision=++candidateRevision
         val pending=pendingText();val abbr=flag(Prefs.ABBR)
-        val expanded=panel==Panel.CANDS && abbr && FcitxEngine.ready && keys.all {it.length==1}
+        val fullLookup=panel==Panel.CANDS && canExpandLookup(keys)
         candidatesPending=true
         val chinese=zh
-        composeOut(pending+Lexicon.streamingDisplay(keys))
+        if(originalOrder.isEmpty())composeOut(pending+Lexicon.streamingDisplay(keys))
         candidateTask?.cancel(false)
         candidateTask=candidateWorker.submit {
             val result=try {
                 if(!chinese) EnglishInput.candidates(applicationContext,keys.joinToString(""))
-                else if(expanded) PinyinExpressions.insert(FcitxEngine.candidates(keys) {revision==candidateRevision},keys)
+                else if(fullLookup) PinyinExpressions.insert(FcitxEngine.candidates(keys) {revision==candidateRevision},keys)
                 else PinyinEngine.candidatesLive(keys,abbr,{revision==candidateRevision}) {primary ->
                     showCandidateResult(revision,keys,primary,false)
                 }
@@ -1702,7 +1723,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 android.util.Log.e("KongyeIME","Candidate query failed",error)
                 listOf(Cand(keys.joinToString("") {it.take(1)},keys.count {it!="'"},null,0f))
             }
-            showCandidateResult(revision,keys,result,true)
+            showCandidateResult(revision,keys,result,true,fullLookup,originalOrder)
         }
     }
 
@@ -2121,7 +2142,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             cands=saved.candidates;resolvedKeys=saved.keys
             tabPresentationRaw=saved.displayRaw;tabPresentation=saved.display
             renderBar()
-            if(panel==Panel.CANDS) (panelHost.getChildAt(0) as? ExpandedCandidates)?.submit(cands.take(120).map {it.w},candItems().take(120).map {it.py})
+            if(panel==Panel.CANDS) (panelHost.getChildAt(0) as? ExpandedCandidates)?.submit(cands.map {it.w},candItems().map {it.py},cands.map {it.py})
         } else refreshComposing()
         return true
     }
@@ -2425,8 +2446,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             return
         }
         if(panel==Panel.CANDS) closePanel() else {
+            val keys=seq.toList()
+            val ready=resolvedKeys==keys
+            candidateFilter=0
             openPanel(Panel.CANDS)
-            if(seq.isNotEmpty() && FcitxEngine.ready && flag(Prefs.ABBR) && seq.all {it.length==1}) refreshComposing()
+            if(ready && canExpandLookup(keys)) refreshComposing(originalOrder=cands)
         }
     }
 
@@ -2909,16 +2933,20 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     // —————————— 剪贴板 ——————————
 
-    private fun captureClip() {
+    private fun captureClip(refreshUi:Boolean=true) {
         if(passwordField) return
         if (SystemClock.uptimeMillis() < ignoreClipUntil) return
         val cm = clipboard ?: return
         val clip = runCatching { cm.primaryClip }.getOrNull() ?: return
+        if(ClipboardTransfer.own(clip)) return
         if(SmsCodeClipboard.ephemeral(clip)){captureSmsCode(clip);return}
         pendingSmsCode=null
         val desc = clip.description
+        if(clip.itemCount==0) return
         val item = clip.getItemAt(0) ?: return
         val uri = item.uri
+        val signature=Triple(desc.timestamp,item.text?.toString(),uri?.toString())
+        if(signature==lastCapturedClip) return
         if (uri != null && (0 until desc.mimeTypeCount).any { desc.getMimeType(it).startsWith("image/") }) {
             if (uri.toString() == lastImageUri) return
             lastImageUri = uri.toString()
@@ -2926,10 +2954,17 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             val ext = when { mime.contains("jpeg") || mime.contains("jpg") -> "jpg"; mime.contains("gif") -> "gif"; mime.contains("webp") -> "webp"; else -> "png" }
             val dir = ClipStore.dir ?: return
             val name = "clip_${System.currentTimeMillis()}.$ext"
-            val ok = runCatching {
-                contentResolver.openInputStream(uri)?.use { input -> File(dir, name).outputStream().use { input.copyTo(it) } } != null
-            }.getOrDefault(false)
-            if (ok) ClipStore.addImage(name)
+            val generation=clipImportGeneration
+            clipImporter.execute {
+                val file=File(dir,name)
+                val ok=runCatching {contentResolver.openInputStream(uri)?.use {input->file.outputStream().use {input.copyTo(it)}}!=null}.getOrDefault(false)
+                main.post {
+                    if(ok && generation==clipImportGeneration) {
+                        ClipStore.addImage(name)
+                        if(panel==Panel.CLIP) buildPanel()
+                    } else {file.delete();if(lastImageUri==uri.toString())lastImageUri=""}
+                }
+            }
         } else {
             val text = runCatching { item.coerceToText(this)?.toString() }.getOrNull()
             if (text.isNullOrBlank()) return
@@ -2939,12 +2974,20 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             pendingClipAt = SystemClock.uptimeMillis()
             if (trimmed == dismissedClipText) dismissedClipText = ""
         }
-        if (panel == Panel.CLIP) buildPanel() else renderBar()
+        lastCapturedClip=signature
+        if(refreshUi) {if (panel == Panel.CLIP) buildPanel() else renderBar()}
     }
 
     private fun pasteExternal(text:String) {
         vault.invalidateCapture();externalInsertion=true
-        try {typeChar(text);ClipStore.usedText(text)} finally {externalInsertion=false}
+        try {
+            breakChain()
+            pendingClipText?.let {dismissedClipText=it;pendingClipText=null}
+            if(seq.isNotEmpty()) finalizeComposing()
+            assoc=emptyList()
+            commitOut(text);ClipStore.usedText(text)
+            renderBar();updateAutoCaps()
+        } finally {externalInsertion=false}
     }
     private fun pasteClip(c: Clip) {
         val f = ClipStore.imageFile(c)
@@ -2957,9 +3000,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             val info = InputContentInfo(uri, ClipDescription("图片", arrayOf(mime)), null)
             if (ic()?.commitContent(info, InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null) == true) {ClipStore.used(c);if(panel==Panel.CLIP) buildPanel();return}
         }
-        ignoreClipUntil = SystemClock.uptimeMillis() + 1500
         grantUriPermission(currentInputEditorInfo?.packageName ?: packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        clipboard?.setPrimaryClip(ClipData.newUri(contentResolver, "图片", uri));ClipStore.used(c);if(panel==Panel.CLIP) buildPanel()
+        if(!ClipboardTransfer.copy(clipboard,ClipData.newUri(contentResolver,"图片",uri))) {message("未能写入剪贴板，请检查写入剪贴板权限");return}
+        ClipStore.used(c);if(panel==Panel.CLIP) buildPanel()
         message("这个输入框不能直接插图片，已复制到系统剪贴板，可以长按粘贴")
     }
 
@@ -2967,11 +3010,10 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         when {
             id == "pin" -> ClipStore.togglePin(c)
             id == "copy" -> {
-                ignoreClipUntil = SystemClock.uptimeMillis() + 1500
                 val f = ClipStore.imageFile(c)
-                if (f != null) clipboard?.setPrimaryClip(ClipData.newUri(contentResolver, "图片", FileProvider.getUriForFile(this, "com.kongye.keyboard.files", f)))
-                else clipboard?.setPrimaryClip(ClipData.newPlainText("空叶键盘", c.text))
-                message("已复制")
+                val clip=if(f!=null) ClipData.newUri(contentResolver,"图片",FileProvider.getUriForFile(this,"com.kongye.keyboard.files",f))
+                    else ClipData.newPlainText("空叶键盘",c.text)
+                message(if(ClipboardTransfer.copy(clipboard,clip)) "已复制" else "未能写入剪贴板，请检查写入剪贴板权限")
             }
             id == "edit" -> { startSink(Sink.EDIT, c.text, c); return }
             id == "split" -> { tokens = Lexicon.segment(c.text); tokensFromBar = false; openPanel(Panel.TOKENS); return }
@@ -3220,11 +3262,15 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun openClipboard() {
         NativeMotion.finishSwap(root,col)
+        clipTab="全部";clipQuery="";clipExpanded=null;clipPicking=null
         openPanelNow(Panel.CLIP)
-        NativeMotion.enter(panelHost,3f)
+        // Render the cached first page immediately; re-read the system clip
+        // after that frame in case a copy arrived while the IME was hidden.
+        panelHost.postOnAnimation {panelHost.post {if(panel==Panel.CLIP) captureClip()}}
     }
 
     private fun openPanel(p: Panel) {
+        if(p==Panel.CLIP) {openClipboard();return}
         if(p!=Panel.ADJUST && panel!=Panel.ADJUST) NativeMotion.swap(root,col) { openPanelNow(p) }
         else openPanelNow(p)
     }
@@ -3326,7 +3372,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         adjustOverlay?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }; adjustOverlay = null
         panelHost.removeAllViews()
         editView = null
-        if (panel != Panel.HAND) handView = null
+        if (panel !in listOf(Panel.HAND,Panel.HAND_CANDS)) handView = null
         val p = prefs
         val v: View = when (panel) {
             Panel.NONE -> return
@@ -3342,7 +3388,15 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 onNewContent = { clipTab = it; startSink(Sink.CLIP_ADD, "", null) },
                 onSearch = { startSink(Sink.SEARCH, clipQuery, null) },
                 onClearQuery = { clipQuery = ""; buildPanel() },
-                onClear = { confirm("clear", "再点一次垃圾桶清空历史，保留置顶和自定义分类") { ClipStore.clearUnpinned(); clipExpanded = null; buildPanel(); message("已清空历史，保留置顶和自定义分类") } },
+                onClear = {
+                    val category=clipTab.takeIf {it in ClipStore.tabs()} ?: "全部"
+                    val count=ClipStore.list(category,"").size
+                    if(count==0)message("“$category”中没有内容")
+                    else confirm("clear:$category", "再点一次垃圾桶，删除“$category”中的全部 $count 条内容（含置顶）") {
+                        ClipStore.clearCategory(category);clipExpanded=null;clipPicking=null;buildPanel()
+                        message("已清空“$category”")
+                    }
+                },
                 onPaste = ::pasteClip,
                 onExpand = { clipExpanded = it; clipPicking = null },
                 onAction = ::clipAction,
@@ -3351,8 +3405,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 typeChar(it)
                 if (tokensFromBar) closePanel()
             }, onCopy = {
-                ignoreClipUntil = SystemClock.uptimeMillis() + 1500
-                clipboard?.setPrimaryClip(ClipData.newPlainText("空叶键盘", it)); message("已复制")
+                message(if(ClipboardTransfer.copy(clipboard,ClipData.newPlainText("空叶键盘",it))) "已复制" else "未能写入剪贴板，请检查写入剪贴板权限")
             }, onClose = { if (tokensFromBar) closePanel() else openPanel(Panel.CLIP) })
             Panel.EDIT -> EditPanelView(this, skin, selecting) { editAction(it) }.also { editView = it }
             Panel.SKIN -> SkinPanel(
@@ -3410,13 +3463,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 onBack = { closePanel(render = false); layer = Layer.LETTERS; render(); updateAutoCaps() },
                 onNum = { closePanel(render = false); layer = Layer.NUM; render() },
                 onDel = { onKey(Key(Kind.DEL)) })
-            Panel.HAND -> HandwriteView(this, skin, onRecognize = { v -> recognize(v) }, onAction = { a ->
+            Panel.HAND -> handView?.also {it.updateSkin(skin)} ?: HandwriteView(this, skin, onRecognize = { v -> recognize(v) }, onAction = { a ->
                 when (a) {
                     "del" -> if (handView?.empty == false) handView?.clear() else onKey(Key(Kind.DEL))
                     "space" -> if (handCands.isNotEmpty()) onCandidate(0) else typeChar(" ")
                     "enter" -> if (handCands.isNotEmpty()) onCandidate(0) else onKey(Key(Kind.ENTER))
                 }
             }, onChanged = {
+                OpenHandwriting.cancelRecognition()
                 cancelHandwritingPreview()
                 handCands = emptyList()
                 assoc = emptyList()
@@ -3450,15 +3504,20 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 it.update(voiceText.toString(), voicePartial, voiceStatus, listening)
                 it.polishState(voicePolishJob != null, voicePolishOriginal != null)
             }
-            Panel.CANDS -> ExpandedCandidates(this, skin, cands.take(120).map { it.w }, candidateFilter,
-                onMode = { candidateFilter=it },
-                onPick = { i -> onCandidate(i) },
-                onDelete = { onKey(Key(Kind.DEL)); if (seq.isEmpty()) closePanel() }, onBack = { closePanel() },
-                onOverflow = {},labels=candItems().take(120).map {it.py},onVisibleWords={requestVisibleGloss(it)})
+            Panel.CANDS -> {
+                val candidates=if(resolvedKeys==seq.toList())cands else emptyList()
+                ExpandedCandidates(this, skin, candidates.map {it.w}, candidateFilter,
+                    onMode = { candidateFilter=it },
+                    onPick = { i -> onCandidate(i) },
+                    onDelete = { onKey(Key(Kind.DEL)); if (seq.isEmpty()) closePanel() }, onBack = { closePanel() },
+                    labels=if(candidates.isEmpty())emptyList() else candItems().map {it.py},
+                    onVisibleWords={requestVisibleGloss(it)},spellings=candidates.map {it.py})
+            }
             Panel.HAND_CANDS -> ExpandedCandidates(this, skin, handCands, candidateFilter,
                 onMode = { candidateFilter=it }, onPick = { onCandidate(it) },
-                onDelete = { cancelHandwritingPreview();handCands=emptyList(); panel=Panel.HAND; buildPanel(); renderBar() },
-                onBack = { openPanel(Panel.HAND) }, labels=handCands.map {if(V3Prefs.enabled(this,V3Prefs.HAND_TONE))HandwritingPinyin.label(it) else null})
+                onDelete = { cancelHandwritingPreview();handCands=emptyList();handView?.clear(); panel=Panel.HAND; buildPanel(); renderBar() },
+                onBack = { openPanel(Panel.HAND) }, labels=handCands.map {if(V3Prefs.enabled(this,V3Prefs.HAND_TONE))HandwritingPinyin.label(it) else null},
+                spellings=handCands.map {HandwritingPinyin.label(it)})
         }
         if (panel == Panel.ADJUST) {
             adjustOverlay=v
@@ -3489,13 +3548,35 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun recognize(view: HandwriteView) {
         val revision = inkRevision
-        fun deliver(list: List<String>, ocr: Boolean) {
-            if (panel != Panel.HAND || handView !== view || inkRevision != revision) return
-            handCands = HandwritingCandidates.expand(list, Lexicon::assoc, similar = ocr)
+        var primary:List<String>?=null
+        val supplementary=LinkedHashSet<String>()
+        val structural=LinkedHashSet<String>()
+        fun publish() {
+            if(panel !in listOf(Panel.HAND,Panel.HAND_CANDS) || handView!==view || inkRevision!=revision || primary==null)return
+            val base=primary.orEmpty()
+            handCands=HandwritingCandidates.singleCharacters(base.take(2)+structural+supplementary+base.drop(2)).take(96)
             previewHandwriting(handCands.firstOrNull().orEmpty())
-            if (list.isEmpty()) message("没认出来，写大一点再试") else renderBar()
+            if(panel==Panel.HAND_CANDS)(panelHost.getChildAt(0) as? ExpandedCandidates)?.submit(handCands,
+                handCands.map {if(V3Prefs.enabled(this,V3Prefs.HAND_TONE))HandwritingPinyin.label(it) else null},handCands.map {HandwritingPinyin.label(it)})
+            renderBar()
+        }
+        fun deliver(list: List<String>, ocr: Boolean) {
+            if (panel !in listOf(Panel.HAND,Panel.HAND_CANDS) || handView !== view || inkRevision != revision) return
+            primary=HandwritingCandidates.singleCharacters(list)
+            publish()
+        }
+        fun supplement(list:List<String>) {supplementary.addAll(list.filter {it.isNotBlank()});publish()}
+        fun structure(list:List<String>) {structural.addAll(list);publish()}
+        // A closed-label neural model can return plausible common characters
+        // even when the written character is outside its alphabet. Supplement
+        // successful results too, instead of waiting for an empty result.
+        view.bitmap()?.let {Ink.recognize(it,::supplement)}
+        TemplateHandwriting.prepare(applicationContext) {
+            if(panel==Panel.HAND && handView===view && inkRevision==revision && TemplateHandwriting.ready && !OpenHandwriting.usingTemplate)
+                TemplateHandwriting.recognize(view.inkStrokes(),::supplement)
         }
         val pre = runCatching { ic()?.getTextBeforeCursor(20, 0)?.toString() }.getOrNull().orEmpty()
+        if(HandInk.state==2)HandInk.recognize(view.inkStrokes(),view.padWidth(),view.padHeight(),pre,::supplement)
         fun backup() {
             if (panel != Panel.HAND || handView !== view || inkRevision != revision) return
             if (HandInk.recognize(view.inkStrokes(), view.padWidth(), view.padHeight(), pre) { deliver(it, ocr = false) }) return
@@ -3507,13 +3588,13 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             } }
             view.bitmap()?.let { bmp -> Ink.recognize(bmp) { deliver(it, ocr = true) } }
         }
-        if (OpenHandwriting.recognize(view.inkStrokes()) { result ->
+        if (OpenHandwriting.recognize(view.inkStrokes(), { result ->
             if (result.isNotEmpty()) deliver(result, ocr = false)
             else backup()
-        }) return
+        },::structure)) return
         OpenHandwriting.prepare(applicationContext) {
             if (panel == Panel.HAND && handView === view && inkRevision == revision) {
-                if (OpenHandwriting.ready) OpenHandwriting.recognize(view.inkStrokes()) { if (it.isEmpty()) backup() else deliver(it, ocr = false) }
+                if (OpenHandwriting.ready) OpenHandwriting.recognize(view.inkStrokes(),{if(it.isEmpty())backup()else deliver(it,ocr=false)},::structure)
                 else backup()
             }
         }
@@ -3583,7 +3664,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             "paste" -> {
                 SmsCodeClipboard.expire(this)
                 val t = runCatching { clipboard?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() }.getOrNull()
-                if (t.isNullOrEmpty()) message("剪贴板是空的") else { checkpoint(false); externalInsertion=true; try {commitOut(t);ClipStore.usedText(t)} finally {externalInsertion=false;vault.invalidateCapture()} }
+                if (t.isNullOrEmpty()) message("剪贴板是空的") else pasteExternal(t)
             }
             "del" -> { checkpoint(true,"delete"); deleteCommitted() }
             "enter" -> { checkpoint(false); commitOut("\n") }

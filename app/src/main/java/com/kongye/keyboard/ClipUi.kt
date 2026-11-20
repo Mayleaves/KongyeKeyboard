@@ -23,6 +23,9 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.FrameLayout
+import android.widget.AbsListView
+import android.widget.BaseAdapter
+import android.widget.ListView
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.inputmethod.BaseInputConnection
@@ -204,9 +207,13 @@ class ClipboardPanel(
     private lateinit var addContent: View
     val tabsScrollPosition get() = tabScroll.scrollX
     fun restoreTabsScroll(x: Int) { tabScroll.post { tabScroll.scrollTo(x, 0) } }
-    private lateinit var recordsScroll: ScrollView
-    val scrollPosition get() = recordsScroll.scrollY
-    fun restoreScroll(y: Int) { recordsScroll.post { recordsScroll.scrollTo(0, y) } }
+    private lateinit var recordsScroll: ListView
+    private val rowHeight get() = cardHeight + (7*d).toInt()
+    val scrollPosition get() = recordsScroll.firstVisiblePosition*rowHeight -
+        ((recordsScroll.getChildAt(0)?.top ?: recordsScroll.paddingTop)-recordsScroll.paddingTop)
+    fun restoreScroll(y: Int) {
+        recordsScroll.setSelectionFromTop(y.coerceAtLeast(0)/rowHeight,-(y.coerceAtLeast(0)%rowHeight))
+    }
 
     private fun expand(clip: Clip?) {
         expanded = clip
@@ -269,7 +276,7 @@ class ClipboardPanel(
         head.addView(addContent, lp((36 * d).toInt(), (36 * d).toInt()))
         head.addView(IconButton(context, R.drawable.ic_search, skin.barFg, 20f) { onSearch() }.apply { contentDescription = "搜索" },
             lp((36 * d).toInt(), (36 * d).toInt()))
-        head.addView(IconButton(context, R.drawable.ic_trash, skin.barFg, 20f) { onClear() }.apply { contentDescription = "清空" },
+        head.addView(IconButton(context, R.drawable.ic_trash, skin.barFg, 20f) { onClear() }.apply { contentDescription = "清空当前分类" },
             lp((36 * d).toInt(), (36 * d).toInt()))
         addView(head, lp(MATCH, WRAP))
         if (query.isNotEmpty()) {
@@ -279,9 +286,18 @@ class ClipboardPanel(
             queryRow = q
             addView(q, lp(MATCH, WRAP))
         }
-        recordsScroll = ScrollView(context).apply {
+        recordsScroll = ListView(context).apply {
             isVerticalScrollBarEnabled = false
-            setOnScrollChangeListener {_,_,_,_,_->activeThumbnails.toList().forEach {it.releaseIfOffscreen()} }
+            divider=null;dividerHeight=0;cacheColorHint=Color.TRANSPARENT
+            setSelector(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            setPadding((8*d).toInt(),(2*d).toInt(),(8*d).toInt(),(10*d).toInt())
+            clipToPadding=false
+            setOnScrollListener(object:AbsListView.OnScrollListener {
+                override fun onScrollStateChanged(view:AbsListView?,state:Int) {}
+                override fun onScroll(view:AbsListView?,first:Int,count:Int,total:Int) {
+                    activeThumbnails.toList().forEach {it.releaseIfOffscreen()}
+                }
+            })
         }
         addView(recordsScroll, lp(MATCH, 0, 1f))
         renderRecords()
@@ -293,7 +309,7 @@ class ClipboardPanel(
                 swipeX=event.x;swipeY=event.y;swiping=false
                 swipeEligible=event.y>=recordsScroll.top && event.y<=recordsScroll.bottom
             }
-            MotionEvent.ACTION_MOVE -> if(swipeEligible && recordsAnimator==null && abs(event.x-swipeX)>swipeSlop*1.3f && abs(event.x-swipeX)>abs(event.y-swipeY)*1.3f) {
+            MotionEvent.ACTION_MOVE -> if(swipeEligible && abs(event.x-swipeX)>swipeSlop*1.3f && abs(event.x-swipeX)>abs(event.y-swipeY)*1.3f) {
                 swiping=true;recordsScroll.animate().cancel();parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
@@ -319,48 +335,17 @@ class ClipboardPanel(
     }
 
     private fun selectTab(tab: String, direction:Int=0) {
-        if (tab == activeTab) return
-        if(recordsAnimator!=null) {queuedTab=tab;return}
-        val tabs=ClipStore.tabs()
-        val slide=if(direction!=0) direction else if(tabs.indexOf(tab)>tabs.indexOf(activeTab)) 1 else -1
-        val offset=recordsScroll.translationX
-        val before=if(!recordsEmpty) NativeMotion.snapshot(recordsScroll) else null
-        positions[activeTab] = recordsScroll.scrollY
-        activeTab = tab; query = ""; expanded = null; picking = null
-        queryRow?.visibility = View.GONE
-        labels.forEach { (name, label) -> styleTab(label, name == tab) }
+        if(tab==activeTab)return
+        positions[activeTab]=scrollPosition
+        activeTab=tab;query="";expanded=null;picking=null
+        queryRow?.visibility=View.GONE
+        labels.forEach {(name,label)->styleTab(label,name==tab)}
         moveUnderline(true)
-        addContent.visibility = if (tab in ClipStore.customTabs()) View.VISIBLE else View.GONE
+        addContent.visibility=if(tab in ClipStore.customTabs())View.VISIBLE else View.GONE
         onTab(tab)
-        recordsScroll.animate().cancel();renderRecords();restoreScroll(positions[activeTab] ?: 0)
-        if(!android.animation.ValueAnimator.areAnimatorsEnabled() || recordsScroll.width<=0 || before==null && recordsEmpty) {
-            before?.recycle();recordsScroll.translationX=0f;return
-        }
-        val distance=recordsScroll.width.toFloat()
-        val start=if(recordsEmpty) 0f else slide*distance+offset
-        recordsScroll.translationX=start
-        val cover=before?.let {bitmap ->
-            android.graphics.drawable.BitmapDrawable(resources,bitmap).also {
-                it.setBounds((recordsScroll.left+offset).toInt(),recordsScroll.top,(recordsScroll.right+offset).toInt(),recordsScroll.bottom)
-                recordsBitmap=bitmap;recordsCover=it;overlay.add(it)
-            }
-        }
-        recordsAnimator=android.animation.ValueAnimator.ofFloat(0f,1f).apply {
-            duration=NativeMotion.DURATION;interpolator=android.view.animation.DecelerateInterpolator(1.25f)
-            addUpdateListener {
-                val fraction=it.animatedValue as Float
-                recordsScroll.translationX=start*(1-fraction)
-                cover?.setBounds((recordsScroll.left+offset+(-slide*distance-offset)*fraction).toInt(),recordsScroll.top,
-                    (recordsScroll.right+offset+(-slide*distance-offset)*fraction).toInt(),recordsScroll.bottom)
-            }
-            addListener(object:android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation:android.animation.Animator) {
-                    clearRecordsMotion()
-                    val pending=queuedTab;queuedTab=null
-                    if(pending!=null && pending!=activeTab) post {selectTab(pending)}
-                }
-            });start()
-        }
+        // No screenshot or transition over the new category: its first frame
+        // should be visible immediately, including rapid successive taps.
+        clearRecordsMotion();renderRecords();restoreScroll(positions[activeTab] ?: 0)
     }
 
     private fun moveUnderline(animate:Boolean) {
@@ -409,32 +394,31 @@ class ClipboardPanel(
         overlays.clear()
         val list = ClipStore.list(activeTab, query)
         recordsEmpty = list.isEmpty()
-        val col = LinearLayout(context).apply { orientation = VERTICAL; setPadding((8 * d).toInt(), (2 * d).toInt(), (8 * d).toInt(), (10 * d).toInt()) }
-        if (list.isEmpty()) {
-            col.addView(TextView(context).apply {
-                text = if (ClipStore.items.isEmpty()) "复制的内容会出现在这里" else "暂无记录"
-                setTextColor(skin.barFg)
-                textSize = 13f
-                gravity = Gravity.CENTER
-                setPadding(0, (32 * d).toInt(), 0, 0)
-            }, lp(MATCH, WRAP))
-        }
-        // 两列瀑布/自适应网格；长按展开的卡片独占整行，避免6个操作按钮挤在一半宽度里
-        var i = 0
-        while (i < list.size) {
-            val first = list[i]
-            val second = list.getOrNull(i + 1)
-            run {
-                val row = LinearLayout(context).apply { orientation = HORIZONTAL }
-                row.addView(card(first), lp(0, cardHeight, 1f).apply { marginStart = (2 * d).toInt(); marginEnd = (4 * d).toInt() })
-                if (second == null) row.addView(View(context), lp(0, 1, 1f).apply { marginStart = (4 * d).toInt(); marginEnd = (2 * d).toInt() })
-                else row.addView(card(second), lp(0, cardHeight, 1f).apply { marginStart = (4 * d).toInt(); marginEnd = (2 * d).toInt() })
-                col.addView(row, lp(MATCH, WRAP).apply { topMargin = (7 * d).toInt() })
-                i += 2
+        // Only materialize visible rows. Creating every card (and six action
+        // buttons per card) delayed the first frame with a full history.
+        recordsScroll.adapter=object:BaseAdapter() {
+            override fun getCount()=max(1,(list.size+1)/2)
+            override fun getItem(position:Int)=list.getOrNull(position*2)
+            override fun getItemId(position:Int)=position.toLong()
+            override fun isEnabled(position:Int)=false
+            override fun getView(position:Int,convert:View?,parent:android.view.ViewGroup):View {
+                if(list.isEmpty()) return TextView(context).apply {
+                    text=if(ClipStore.items.isEmpty()) "复制的内容会出现在这里" else "暂无记录"
+                    setTextColor(skin.barFg);textSize=13f;gravity=Gravity.CENTER
+                    setPadding(0,(32*d).toInt(),0,0)
+                }
+                val row=(convert as? LinearLayout) ?: LinearLayout(context).apply {orientation=HORIZONTAL}
+                @Suppress("UNCHECKED_CAST")
+                (row.tag as? List<Clip>)?.forEach {old->overlays.remove(old)?.animate()?.cancel()}
+                row.removeAllViews();row.setPadding(0,(7*d).toInt(),0,0)
+                row.layoutParams=AbsListView.LayoutParams(MATCH,rowHeight)
+                val first=list[position*2];val second=list.getOrNull(position*2+1)
+                row.tag=listOfNotNull(first,second)
+                row.addView(card(first),lp(0,cardHeight,1f).apply {marginStart=(2*d).toInt();marginEnd=(4*d).toInt()})
+                row.addView(second?.let(::card) ?: View(context),lp(0,cardHeight,1f).apply {marginStart=(4*d).toInt();marginEnd=(2*d).toInt()})
+                return row
             }
         }
-        recordsScroll.removeAllViews()
-        recordsScroll.addView(col)
     }
 
     private fun card(clip: Clip): View {

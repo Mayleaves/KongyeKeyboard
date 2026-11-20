@@ -178,7 +178,9 @@ class CandFlowView(context: Context, private val skin: Skin, private var items: 
     private var pressed = -1
     private var dx = 0f
     private var dy = 0f
-    private val cellH get() = (if(subtitles.any {it!=null}) 80 else 48) * d
+    var rowHeight:Float=0f
+        set(value) {if(field!=value){field=value;requestLayout()}}
+    private val cellH get() = if(rowHeight>0)rowHeight else (if(subtitles.any {it!=null}) 80 else 48)*d
     private val hintPaint=android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {textSize=10*d}
     private val hintLayouts=ArrayList<android.text.StaticLayout?>()
 
@@ -196,18 +198,19 @@ class CandFlowView(context: Context, private val skin: Skin, private var items: 
         text.textSize=16*d
         var overflow:String?=null
         items.forEachIndexed { i, word ->
-            val span=kotlin.math.ceil((text.measureText(word)+12*d+gap)/(unit+gap)).toInt().coerceIn(1,cols)
+            val span=1
             if(col+span>cols) {row++;col=0}
             val bw=span*unit+(span-1)*gap
             val x=pad+col*(unit+gap);val y=pad+row*(cellH+gap)
             boxes.add(RectF(x,y,x+bw,y+cellH))
-            val visible=TextUtils.ellipsize(word,android.text.TextPaint(text),bw-12*d,TextUtils.TruncateAt.END).toString()
+            text.textSize=22*d
+            val visible=TextUtils.ellipsize(word,android.text.TextPaint(text),bw-24*d,TextUtils.TruncateAt.END).toString()
             shown.add(visible)
             if(visible!=word && overflow==null) overflow=word
             val hint=subtitles.getOrNull(i)
             hintLayouts.add(hint?.let {
                 android.text.StaticLayout.Builder.obtain(it,0,it.length,hintPaint,(bw-10*d).toInt().coerceAtLeast(1))
-                    .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER).setIncludePad(false).setMaxLines(3)
+                    .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER).setIncludePad(false).setMaxLines(((cellH-32*d)/(12*d)).toInt().coerceIn(1,3))
                     .setEllipsize(android.text.TextUtils.TruncateAt.END).build()
             })
             col+=span
@@ -228,28 +231,22 @@ class CandFlowView(context: Context, private val skin: Skin, private var items: 
         post {onVisibleWords(visible)}
         val fm = text.fontMetrics
         for ((i, r) in boxes.withIndex()) {
-            val kongyeFirst = i == 0 && skin.style == SkinStyle.KONGYE
-            fill.color = when {
-                kongyeFirst && i == pressed -> darken(Color.rgb(240, 73, 44), 0.88f)
-                kongyeFirst -> Color.rgb(240, 73, 44)
-                i == pressed -> skin.keyDown
-                else -> skin.keyBg
-            }
+            if(r.bottom<clip.top || r.top>clip.bottom)continue
+            fill.color=withAlpha(skin.keyFg,28)
+            c.drawRoundRect(RectF(r.left,r.top+1.5f*d,r.right,r.bottom+1.5f*d),10*d,10*d,fill)
+            fill.color = if(i==pressed)skin.keyDown else skin.keyBg
             c.drawRoundRect(r, 10 * d, 10 * d, fill)
-            text.color = when {
-                kongyeFirst -> Color.WHITE
-                i == 0 -> skin.candHi
-                else -> skin.keyFg
-            }
+            text.color = skin.keyFg
             text.typeface = Typeface.DEFAULT
-            text.textSize = 16 * d
+            text.textSize = 22 * d
+            text.textAlign=Paint.Align.LEFT
             val tfm = text.fontMetrics
             val hint=hintLayouts.getOrNull(i)
-            val cy=if(hint==null) r.centerY() else r.top+21*d
-            c.drawText(shown.getOrElse(i) {items[i]}, r.centerX(), cy - (tfm.ascent + tfm.descent) / 2, text)
+            val cy=if(hint==null) r.centerY() else r.top+min(21*d,cellH*.35f)
+            c.drawText(shown.getOrElse(i) {items[i]}, r.left+12*d, cy - (tfm.ascent + tfm.descent) / 2, text)
             if(hint!=null) {
-                hintPaint.color=withAlpha(if(kongyeFirst) Color.WHITE else skin.barFg,210)
-                c.save();c.translate(r.left+5*d,r.top+37*d);hint.draw(c);c.restore()
+                hintPaint.color=withAlpha(skin.barFg,210)
+                c.save();c.translate(r.left+5*d,r.top+min(37*d,cellH*.58f));hint.draw(c);c.restore()
             }
         }
     }

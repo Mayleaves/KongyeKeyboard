@@ -50,10 +50,16 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("resource-policy".equals(mode)) {ResourcePolicyRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("review306".equals(mode)) {Review306Regression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("handwriting-components".equals(mode)) {HandwritingComponentRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("home-search-back".equals(mode)) {HomeSearchBackRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("input-coverage".equals(mode)) {InputCoverageRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("punctuation-flicks".equals(mode)) {PunctuationFlickRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("settings-restored-controls".equals(mode)) {SettingsOrganizationRegression.INSTANCE.run(this,true);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("settings-organization".equals(mode)) {SettingsOrganizationRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("layout-backup-ui".equals(mode)) {SettingsLayoutBackupRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+
             if ("orientation-keyboard".equals(mode)) {OrientationKeyboardRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("floating-mode".equals(mode)) {FloatingModeRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("factory-reset".equals(mode)) {FactoryResetRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
@@ -127,6 +133,9 @@ public final class OfflineResourcesCheck extends Instrumentation {
             }
             if ("settings-motion".equals(mode)) {
                 SettingsMotionRegression.INSTANCE.run(this);report("ALL SETTINGS INTRO MOTION CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("clipboard-performance".equals(mode)) {
+                ClipboardPerformanceRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;
             }
             if ("clipboard-motion".equals(mode)) {
                 ClipboardMotionRegression.INSTANCE.run(this);report("ALL EMPTY CLIPBOARD CATEGORY MOTION CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;

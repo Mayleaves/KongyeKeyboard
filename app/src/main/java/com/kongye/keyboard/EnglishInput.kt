@@ -59,7 +59,7 @@ object EnglishInput {
         load(ctx)
         if (raw !in vocabulary[raw.take(1)].orEmpty()) return base
         val word = names[raw] ?: raw
-        val candidate = Cand(word, raw.length, null, 0f)
+        val candidate = Cand(word, raw.length, null, 0f,inputDisplay=raw)
         val result = base.filterNot { it.w == word && it.n == raw.length }.toMutableList()
         // An English word that is also full pinyin keeps Chinese as the first choice.
         val pinyin = Lexicon.decode(raw)
@@ -68,6 +68,11 @@ object EnglishInput {
         val position = if (raw in names || raw.length >= 3 && !completePinyin) 0 else minOf(1, result.size)
         result.add(position, candidate)
         return result
+    }
+    /** An exact recognized English choice keeps its literal spelling in composing UI. */
+    fun literalSpelling(raw:String,first:Cand?):String? = raw.takeIf {
+        raw.isNotEmpty() && raw.all {it in 'a'..'z'} && first?.inputDisplay==raw &&
+            first.n==raw.length && first.py.isNullOrEmpty() && first.w.equals(raw,ignoreCase=true)
     }
 
     private fun distance(a:String,b:String):Int {

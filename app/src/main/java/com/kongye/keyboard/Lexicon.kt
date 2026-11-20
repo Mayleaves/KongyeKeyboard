@@ -264,6 +264,9 @@ object Lexicon {
         for ((id, ab) in FINAL_PAIRS) if (id in rules) {
             if (fin == ab.first) fins.add(ab.second) else if (fin == ab.second) fins.add(ab.first)
         }
+        if(Prefs.FUZZY_V_U in rules) {
+            fins.toList().forEach {f->fins.add(f.replace('v','u'));fins.add(f.replace('u','v'))}
+        }
         val out = ArrayList<String>()
         for (i in inis) for (f in fins) {
             val v = i + f

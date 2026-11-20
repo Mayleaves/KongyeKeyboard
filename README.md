@@ -2,9 +2,11 @@
 
 Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，以及 26 键、14 键和九键布局。
 
-当前版本：**[3.0.3](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.3)**。Android 8.0 及以上；提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
+当前版本为 **[3.0.8](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.8)**。支持 Android 8.0 及以上，提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
 
-**3.0.3**：横竖屏分别保存键位和正常／分体／悬浮形态；重整本地与 WebDAV 备份，支持备份管理、确认删除和自动备份频率；补充短信后台复制权限指引，修复系统边缘返回手势。详见 [3.0.3 更新说明](app/src/main/assets/release-current.md)。
+**3.0.8** 展开候选保留原顺序，顶部可横滑筛选拼音。单字手写新增笔画撤回与重做，剪贴板加快打开和切换分类，翻译及备用识别资源可按需下载。详见 [3.0.8 更新说明](app/src/main/assets/release-current.md)。
+
+**3.0.3** 支持横竖屏分别保存键位和键盘形态，本地与 WebDAV 备份可管理和删除，WebDAV 可设自动备份频率。补充短信后台复制权限指引并修复系统边缘返回手势。详见 [3.0.3 更新说明](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.3)。
 
 **3.0.2**：手写首选字可在输入框内带下划线预览，新增仅清空当前段落、远程应用自动悬浮和英文单词识别，统一底部滑动与空格长按的光标模式。详见 [3.0.2 更新说明](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.2)。
 
@@ -72,7 +74,7 @@ python tools/fetch_neural_handwriting.py
 python tools/fetch_streaming_voice.py
 ```
 
-脚本下载的上游数据保留为可复现构建输入，Gradle 的 `lightAssets` 任务只打包基础 Fcitx/libime、Rime 词典与必要元数据；大型整句模型、神经手写、语音、标点及离线润色权重不会打进 APK，改由应用按固定来源和 SHA256 按需下载。首次启动在后台解压基础数据。安装包按架构约为 ARM64 122 MiB、x86_64 126 MiB、universal 168 MiB。
+脚本下载的上游数据保留为可复现构建输入。Gradle 的 `lightAssets` 任务打包基础 Fcitx/libime、Rime 词典、约 7 MB 的单字手写模型与必要元数据。大型整句模型、语音、标点及离线润色权重由应用按固定来源和 SHA256 按需下载。首次启动在后台解压基础数据。安装包按架构约为 ARM64 129 MiB、x86_64 133 MiB、universal 175 MiB。
 
 离线润色运行库还需 Android NDK r29、CMake 和 Ninja，按固定源码构建两种架构：
 

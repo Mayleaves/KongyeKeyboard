@@ -103,7 +103,7 @@ internal object TemplateHandwriting {
         } }
     }
 
-    fun recognize(strokes: List<List<FloatArray>>, callback: (List<String>) -> Unit): Boolean {
+    fun recognize(strokes: List<List<FloatArray>>, callback: (List<String>) -> Unit, cancelPrevious:Boolean=true): Boolean {
         check(Looper.myLooper() == Looper.getMainLooper())
         if (!ready || web == null) return false
         val points = strokes.flatten().filter { it.size >= 2 && it[0].isFinite() && it[1].isFinite() }
@@ -121,7 +121,8 @@ internal object TemplateHandwriting {
         }
         val id = ++nextId
         // Superseded strokes need no callbacks; the IME also checks revisions.
-        pending.clear(); pending[id] = callback
+        if(cancelPrevious) {val old=pending.values.toList();pending.clear();old.forEach {it(emptyList())}}
+        pending[id] = callback
         web!!.evaluateJavascript("recognize($id,$array)", null)
         main.postDelayed({ pending.remove(id)?.invoke(emptyList()) }, 3000)
         return true

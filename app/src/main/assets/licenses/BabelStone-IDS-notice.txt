@@ -1,0 +1,44 @@
+# Ideographic Description Sequences (IDS) for CJK Unified Ideographs
+# URL: <https://babelstone.co.uk/CJK/IDS.TXT>
+# File Encoding: UTF-8 with BOM and CR/LF
+# Maintained by: Andrew West (魏安) <babelstone@gmail.com>
+# Unicode Version: 16.0 (September 2024)
+# Total entries: 97,680
+# File Date: 2025-06-27
+#
+# Caveat Lector
+#	Please be aware that IDS sequences do not describe absolute glyph forms, but describe glyph forms in the context of
+#	the region where a character is used, and many IDS components correspond to more than one region-dependent glyph form;
+#	so a single IDS sequence for a character may reflect multiple actual glyph forms, and conversely,
+#	different IDS sequence for the same character may reflect the same actual glyph form.
+#
+#	Therefore, what you may imagine a character's glyph should look like, based on its IDS structure, is often dependent
+#	on the font or fonts you are using to view this file, as different fonts may represent the same IDS component with
+#	different glyph forms, depending on what region the particular font is designed for.
+#
+# Note on the new Japanese source references in Unicode 16.0
+#	Unicode 16.0 adds 36,412 new Japanese source references for Moji Jōhō Kiban 文字情報基盤 (JMJ), all of the glyphs for
+#	which need to have their IDS checked and verified, which is a massive task. The IDS checking of the new JMJ glyph forms
+#	has not yet been completed, so the current version of this IDS file does not reference any of the new JMJ source references.
+#	There are still 3,205 JMJ glyphs left to check, and I hope to complete this for the Unicode 17.0 release at the latest.
+#
+# Documentation
+#
+# 1. This file is based on IDS data provided by Kawabata Taichi <https://github.com/kawabata/ids>, John Knightley,
+#	and Andrew West, and from data provided in encoding submissions by IRG member bodies. However, the format of this
+#	file was designed by myself, and the file does not reproduce the format or presentation form of any pre-existing IDS
+#	data sources. I (Andrew West) have edited the original raw IDS data to conform to the format used in this file, and
+#	have made a very large number of changes and corrections to the original data. My thanks to Eiso Chan (陈永聪), James
+#	Kass, Huáng Jùnliàng (黄俊亮), Jaemin Chung, and Jerry You (游程宇) for providing numerous corrections and improvements
+#	to the data; and my especial thanks to Michel Mariani who has provided thousands of corrections and improvements which
+#	have immeasurably improved the quality of the IDS data.
+#
+# 2. Under U.S. copyright law, data (i.e. a collection of facts) is not eligible to copyright protection (see
+#	<https://sco.library.emory.edu/research-data-management/publishing/copyright-data.html>), and as IDS descriptions
+#	for CJK ideographs are facts not original creative compositions, IDS sequences in themselves are not eligible for
+#	copyright protection (that is to say, you could no more copyright 彼 = ⿰彳皮 than you could copyright 1 + 1 = 2).
+#	Therefore, anyone is free to make use of the IDS data provided in this file for personal or commercial purposes
+#	without asking permission or providing attribution. I furthermore waive any copyright claims to the presentation
+#	format of the IDS data used in this file, so anyone is free to fork the file, or use it as the basis for a new IDS
+#	data set.
+#

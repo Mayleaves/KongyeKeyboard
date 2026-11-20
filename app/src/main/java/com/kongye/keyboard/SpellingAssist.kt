@@ -150,6 +150,7 @@ object SpellingAssist {
             .mapIndexed {index,key->if(V3Prefs.enabled(ctx,key)) 1 shl index else 0}.fold(0){a,b->a or b}
     }
     fun allows(raw:String,reading:String):Boolean {
+        if(matchesTypedReading(raw,reading))return true
         if(correctionFlags==15)return true
         val groups=align(raw,reading) ?: return false
         return groups.all {group->
@@ -183,6 +184,18 @@ object SpellingAssist {
             return dp.last()
         }
         val variants=LinkedHashSet<String>()
+        if(correctionFlags and 1!=0) {
+            val positions=buildMap<Char,Pair<Float,Int>> {
+                listOf("qwertyuiop","asdfghjkl","zxcvbnm").forEachIndexed {row,keys->
+                    keys.forEachIndexed {col,c->put(c,(col+when(row){1->.5f;2->1.5f;else->0f}) to row)}
+                }
+            }
+            for(i in raw.indices)for((c,target) in positions) {
+                val source=positions.getValue(raw[i])
+                if(c!=raw[i] && abs(source.first-target.first)<=1.25f && abs(source.second-target.second)<=1)
+                    variants.add(raw.substring(0,i)+c+raw.substring(i+1))
+            }
+        }
         if(correctionFlags and 4!=0)for(i in raw.indices)variants.add(raw.removeRange(i,i+1))
         if(correctionFlags and 8!=0)for(i in 0..raw.length)for(c in 'a'..'z')variants.add(raw.substring(0,i)+c+raw.substring(i))
         if(correctionFlags and 2!=0)variants.addAll(transpositions(raw))
@@ -205,10 +218,7 @@ object SpellingAssist {
             }
         }
         if(a == b) return true
-        // Only the complete u/v final is fuzzy. Do not treat iu, ong, etc. as typing variants.
-        return Prefs.FUZZY_V_U in rules &&
-            a.length == 2 && b.length == 2 && a[0] == b[0] && a[0] in "nl" &&
-            (a[1] == 'u' && b[1] == 'v' || a[1] == 'v' && b[1] == 'u')
+        return Prefs.FUZZY_V_U in rules && a.replace('v','u')==b.replace('v','u')
     }
     private fun permittedDistance(a:String,b:String):Int {
         val rows=listOf("qwertyuiop","asdfghjkl","zxcvbnm")
