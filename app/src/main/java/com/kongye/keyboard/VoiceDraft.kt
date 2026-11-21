@@ -4,7 +4,7 @@ import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import androidx.annotation.Keep
 
-/** 用编辑器原生 composing 区预览语音或手写；确认才结束组字，取消恢复原选区。 */
+/** 用编辑器原生 composing 区预览语音或手写，并替换临时识别结果或恢复原选区。 */
 @Keep
 class VoiceDraft(private var connection: InputConnection) {
     private val selection = connection.getExtractedText(ExtractedTextRequest(), 0)?.let {
@@ -15,6 +15,8 @@ class VoiceDraft(private var connection: InputConnection) {
     private var touched = false
     private var closed = false
     private var text = ""
+
+    val start: Int? get() = selection?.let { minOf(it.first, it.second) }
 
     fun rebind(connection: InputConnection) { this.connection = connection }
 
@@ -50,6 +52,13 @@ class VoiceDraft(private var connection: InputConnection) {
         if (closed) return
         closed = true
         if (touched) connection.finishComposingText()
+    }
+
+    fun commit(value: String): Boolean {
+        if (closed || touched && !pinRegion()) return false
+        if (!connection.commitText(value, 1)) return false
+        closed = true
+        return true
     }
 
     fun cancel() = cancel(null)

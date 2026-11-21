@@ -89,10 +89,15 @@ object FcitxEngine {
         if(!current()) throw java.util.concurrent.CancellationException()
         if(fuzzy!=Lexicon.fuzzyRules || correctionFlags!=SpellingAssist.correctionFlags) configure(Lexicon.fuzzyRules)
         val raw=keys.joinToString("")
+        val letters=raw.replace("'","")
+        val count=letters.length
+        val literal=Cand(raw,count,null,-100f)
+        val repeated=Lexicon.repeatedInitialCandidates(raw)
+        if(repeated.isNotEmpty())return@native HanReadings.complete(repeated+literal,keys)
+        val display=Lexicon.streamingDisplay(keys)
         prepare(raw,current)
         if(!current()) throw java.util.concurrent.CancellationException()
         val tokens=Fcitx.preedit.split(' ', '\'').filter {it.isNotEmpty()}
-        val count=raw.count {it!='\''}
         fun collect(query:String,source:String,limit:Int=80):List<Cand> {
             val parts=Fcitx.preedit.split(' ', '\'').filter {it.isNotEmpty()}
             val length=source.count {it!='\''}
@@ -103,15 +108,23 @@ object FcitxEngine {
                     val estimated=parts.take(chars).sumOf {token->token.count {it in 'a'..'z'}}.coerceIn(1,queryLength.coerceAtLeast(1))
                     val consumed=if(query!=source && estimated==queryLength)length else minOf(estimated,length)
                     val reading=HanReadings.resolve(c.text,query.filter {it!='\''}.take(estimated),parts)
-                    Cand(c.text,consumed,null,0f,py=reading,inputDisplay=Lexicon.streamingDisplay(keys),
+                    Cand(c.text,consumed,null,0f,py=reading,inputDisplay=display,
                         nativeChoice=RimeChoice("fcitx/pinyin",query,source),correction=!SpellingAssist.matchesTypedReading(source.filter {it!='\''}.take(consumed),reading))
                 }
-            }.filter {c->c.py.isNullOrEmpty() || SpellingAssist.allows(source.filter {it!='\''}.take(c.n),c.py.orEmpty())}
+            }.filter {c->!c.correction || SpellingAssist.correctionFlags==15 ||
+                SpellingAssist.allows(source.replace("'","").take(c.n),c.py.orEmpty())}
         }
-        val original=collect(raw,raw,if(includeShort) 512 else 48).sortedBy {candidate->
-            if(HanReadings.plain(candidate.py.orEmpty()).replace(" ","")==raw.filter {it!='\''}.take(candidate.n))0 else if(candidate.correction)2 else 1
+        val nativeWords=collect(raw,raw,if(includeShort) 512 else 48).sortedBy {candidate->
+            if(HanReadings.plain(candidate.py.orEmpty()).replace(" ","")==letters.take(candidate.n))0 else if(candidate.correction)2 else 1
         }
-        onPrimary?.invoke(original+Cand(raw,count,null,-100f))
+        val firstNative=nativeWords.firstOrNull()
+        val original=if(firstNative?.n==count && !firstNative.correction && firstNative.w.none {it in 'a'..'z'})nativeWords
+        else {
+            val streaming=display.split('\'').filter {it.isNotEmpty()}
+            val exact=Lexicon.mixedSyllableCandidates(streaming,current)
+            (exact+nativeWords).distinctBy {it.w to it.n}
+        }
+        onPrimary?.invoke(original+literal)
         val result=original.toMutableList()
         if(Prefs.FUZZY_V_U in Lexicon.fuzzyRules && raw.any {it in "uv"}) {
             val variants=linkedSetOf(raw.replace('v','u'),raw.replace('u','v')).apply {remove(raw)}
@@ -128,7 +141,7 @@ object FcitxEngine {
             val reading=first?.py.orEmpty().replace(" ","").replace("'","")
             val exact=first?.n==count && reading==raw
             val nativeRepair=first?.n==count && reading.length==raw.length && reading!=raw && SpellingAssist.wordCost(raw,first?.py.orEmpty())<=15
-            val variants=if(nativeRepair || exact && raw in Lexicon.pinyinSyllables())emptyList()
+            val variants=if(first?.abbr==true || nativeRepair || exact && raw in Lexicon.pinyinSyllables())emptyList()
                 else SpellingAssist.repairs(raw)
             for(variant in variants) {
                 if(!current()) throw java.util.concurrent.CancellationException()
@@ -153,7 +166,7 @@ object FcitxEngine {
                 for(c in short) if(result.none {it.w==c.w}) result.add(c)
             }
         } finally {prepare(raw,current)}
-        HanReadings.complete(result + Cand(raw,count,null,-100f),keys)
+        HanReadings.complete(result+literal,keys)
     }
 
     /** Keep alternate dictionary spellings selectable after a gesture. Only

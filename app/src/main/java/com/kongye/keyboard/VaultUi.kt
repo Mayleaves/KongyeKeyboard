@@ -1,11 +1,86 @@
 package com.kongye.keyboard
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.RippleDrawable
+import android.text.TextUtils
 import android.view.Gravity
+import android.view.View
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+
+/** 在键盘工具栏显示待确认的保存操作，沿用系统账号候选的胶囊样式。 */
+internal class VaultSaveBar(context: Context) : LinearLayout(context) {
+    private val d = resources.displayMetrics.density
+    private val title = label("保存到空叶文档",14f)
+    private val details = label("",12f)
+    private val discard = label("不保存",14f)
+    private val save = LinearLayout(context)
+    private var saveAction: VaultFill.Action? = null
+    private var discardAction: VaultFill.Action? = null
+    private var palette: Skin? = null
+
+    init {
+        visibility = GONE
+        gravity = Gravity.CENTER_VERTICAL
+        setPaddingRelative((6*d).toInt(),(4*d).toInt(),(6*d).toInt(),(4*d).toInt())
+        save.apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPaddingRelative((8*d).toInt(),0,(8*d).toInt(),0)
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_key)
+                setColorFilter(Color.rgb(65,127,249))
+                scaleX=-1f
+            },lp((20*d).toInt(),(20*d).toInt()))
+            addView(title,lp(WRAP,WRAP).apply {marginStart=(4*d).toInt()})
+            addView(details,lp(0,WRAP,1f).apply {marginStart=(4*d).toInt()})
+            importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            setOnClickListener { saveAction?.run?.invoke() }
+        }
+        addView(save,lp(0,MATCH,1f))
+        discard.setPaddingRelative((8*d).toInt(),0,(8*d).toInt(),0)
+        discard.setOnClickListener { discardAction?.run?.invoke() }
+        discard.importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        addView(discard,lp(WRAP,MATCH).apply {marginStart=(6*d).toInt()})
+    }
+
+    private fun label(value: String, size: Float) = TextView(context).apply {
+        text = value
+        textSize = size
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    fun bind(skin: Skin, actions: List<VaultFill.Action>): Boolean {
+        val current = actions.firstOrNull()?.takeIf { it.saveDetails != null }
+        saveAction = current
+        discardAction = if (current != null) actions.getOrNull(1) else null
+        visibility = if (current != null) VISIBLE else GONE
+        save.contentDescription = current?.label
+        details.text = current?.saveDetails.orEmpty()
+        if (current == null) return false
+        if (palette != skin) {
+            palette = skin
+            val surface = if (skin.dark) skin.keyBg else Color.WHITE
+            fun chip() = RippleDrawable(ColorStateList.valueOf(withAlpha(skin.keyFg,20)),
+                roundBg(surface,32*d).apply { setStroke(d.toInt().coerceAtLeast(1),withAlpha(skin.keyFg,31)) },null)
+            setBackgroundColor(skin.kbBg)
+            save.background = chip()
+            discard.background = chip()
+            title.setTextColor(skin.keyFg)
+            details.setTextColor(skin.barFg)
+            discard.setTextColor(skin.keyFg)
+        }
+        return true
+    }
+}
 
 /**
  * 「密码空间」面板（需求文档 v2 第 9.2 节，样式参照下拉框）：

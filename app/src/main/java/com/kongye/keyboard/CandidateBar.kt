@@ -18,6 +18,9 @@ import kotlin.math.max
 /** 候选栏的一项：词，可选的拼音（音节空格隔开）和标红的字母 */
 class CandItem(val w: String, val py: String? = null, val mask: BooleanArray? = null)
 
+internal const val CANDIDATE_TEXT_DP = 17f
+internal const val CANDIDATE_READING_DP = 11.5f
+
 /**
  * 键盘顶上那一条：空闲时是工具栏（打开面板时那个工具高亮，再点一下收起），
  * 打拼音时是候选词（可横滑，纠错的词后面带拼音、打错的字母标红，右边有展开按钮），上屏后是联想词。
@@ -166,8 +169,8 @@ class CandidateBar(context: Context) : View(context) {
     }
 
     private fun layoutItems() {
-        text.textSize = 17 * d
-        small.textSize = 11.5f * d
+        text.textSize = CANDIDATE_TEXT_DP * d
+        small.textSize = CANDIDATE_READING_DP * d
         starts = FloatArray(items.size)
         widths = FloatArray(items.size)
         var x = 4 * d
@@ -183,9 +186,10 @@ class CandidateBar(context: Context) : View(context) {
     }
 
     private fun updateLongCandidate() {
-        text.textSize=17*d
+        text.textSize=CANDIDATE_TEXT_DP*d
+        text.typeface=Typeface.DEFAULT
         val word=items.firstOrNull()?.w
-        onLongCandidate(word?.takeIf {mode==Mode.CANDS && !expanded && width>0 && text.measureText(it)>width-expandW-2*pad})
+        onLongCandidate(word?.takeIf {mode==Mode.CANDS && width>0 && text.measureText(it)>width-expandW-2*pad})
     }
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int) {
         super.onSizeChanged(w,h,oldw,oldh);updateLongCandidate()
@@ -301,7 +305,7 @@ class CandidateBar(context: Context) : View(context) {
         c.save()
         c.clipRect(0f, 0f, viewW, h)
         c.translate(-scrollPos, 0f)
-        text.textSize = 17 * d
+        text.textSize = CANDIDATE_TEXT_DP * d
         val fm = text.fontMetrics
         val spellingHeight=if(inputSpelling.isNotEmpty())16*d else 0f
         if(spellingHeight>0) {
@@ -328,12 +332,12 @@ class CandidateBar(context: Context) : View(context) {
             }
             text.color = if (kongyeHi) Color.WHITE else skin.candFg
             text.typeface = Typeface.DEFAULT
-            text.textSize = 17 * d
+            text.textSize = CANDIDATE_TEXT_DP * d
             c.drawText(it.w, x + pad, base, text)
             val py = it.py ?: continue
             // 拼音：打错的字母标红
             var px = x + pad + text.measureText(it.w) + 4 * d
-            small.textSize = 11.5f * d
+            small.textSize = CANDIDATE_READING_DP * d
             // Draw tone marks as a shaped string (including combining marks).
             if (it.mask == null) {
                 small.color = withAlpha(if (kongyeHi) Color.WHITE else skin.barFg, 200)

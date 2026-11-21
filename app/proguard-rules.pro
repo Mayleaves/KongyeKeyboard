@@ -87,6 +87,7 @@
 -keep class com.kongye.keyboard.FlickPreviewView { *; }
 -keep class com.kongye.keyboard.CandidateBar** { *; }
 -keep class com.kongye.keyboard.VaultPanel { *; }
+-keep class com.kongye.keyboard.VaultSaveBar { *; }
 -keep class com.kongye.keyboard.NativeMotion { *; }
 
 -keep class com.kongye.keyboard.ClipStore { *; }
@@ -121,7 +122,10 @@
 -keep class com.kongye.keyboard.StatsReport { *; }
 
 -keepclassmembers class com.kongye.keyboard.KongyeIME {
-    private java.lang.StringBuilder voiceText;
+    private void previewVoice(java.lang.String);
+    private void commitVoiceSegment(java.lang.String);
+    private boolean listening;
+    private boolean voiceCapturing;
     private void openVoice();
     private void updateVoice();
 }

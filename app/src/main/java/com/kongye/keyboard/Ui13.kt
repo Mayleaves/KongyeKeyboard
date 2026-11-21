@@ -133,9 +133,8 @@ class SymbolBoard(
             bottom.addView(v, lp(0, keyH, w).apply { marginEnd = (5 * d).toInt() })
             return v
         }
-        // 左下角返回键用箭头符号代替“中文/英文”文字
-        modKey(null, R.drawable.ic_back, 1.25f, onBack)
         modKey("123", 0, 1.25f, onNum)
+        modKey(null, R.drawable.ic_back, 1.25f, onBack).contentDescription="返回"
         val tabs=CategoryLabels(initialCats.map {it.first},curCat) {pager.select(it)}
         val scroller=HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled=false
@@ -662,47 +661,60 @@ class ClipSearchRow(context: Context, private val skin: Skin, list: List<Clip>, 
 }
 
 /**
- * 语音面板：说话时实时出字，下面的波形跟着音量跳；可以选普通话或四川话；
- * 取消就丢掉，确定才上屏。
+ * 语音面板：用中央声波显示音量，底部主按钮随录音状态变化。
  */
 class VoiceBoard(
     context: Context,
     private val skin: Skin,
     dialect: Int,
-    needPermission: Boolean,
+    private val needPermission: Boolean,
     onDialect: (Int) -> Unit,
-    onMic: () -> Unit,
-    onCancel: () -> Unit,
-    onOk: () -> Unit,
+    onStart: () -> Unit,
+    onFinish: () -> Unit,
     onPermission: () -> Unit,
     onCollapse: (() -> Unit)? = null,
     onPolish: (() -> Unit)? = null,
 ) : LinearLayout(context) {
     private val d = resources.displayMetrics.density
     private val statusView = TextView(context)
+    private val primary = TextView(context)
     private var polishButton: TextView? = null
     private var cancelPolishButton: TextView? = null
     private val wave = Wave()
-    private val mic = MicButton()
+    private var active = false
+    private var hasText = false
+    private var stopping = false
+    private var polishing = false
 
     init {
         orientation = VERTICAL
         val inset = (12 * d).toInt()
-        statusView.textSize = 13f
-        statusView.typeface = Typeface.DEFAULT_BOLD
-        statusView.setTextColor(skin.candHi)
-        statusView.maxLines = 2
-        statusView.ellipsize = TextUtils.TruncateAt.END
-        statusView.setPadding(inset, (6 * d).toInt(), inset, (2 * d).toInt())
-        addView(statusView, lp(MATCH, WRAP))
-
+        val iconWidth = (44*d).toInt()
         val controls = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(inset, 0, inset, 0)
+            setPadding(inset, (6*d).toInt(), inset, 0)
         }
-        controls.addView(segmented(context, skin, listOf("普通话", "四川话"), dialect, 8f, 5f, 12f, onDialect), lp(WRAP, WRAP))
+        controls.addView(segmented(context, skin, listOf("普通话", "四川话"), dialect, 10f, 5f, 13f, onDialect), lp(WRAP, WRAP))
         controls.addView(View(context), lp(0, 1, 1f))
+        if (onCollapse != null) controls.addView(IconButton(context,R.drawable.ic_voice_minimize,skin.keyFg,22f,onCollapse).apply {
+            contentDescription="收起"
+            tooltipText="收起听写面板"
+        },lp(iconWidth,iconWidth))
+        addView(controls, lp(MATCH, WRAP))
+        addView(wave, lp(MATCH, 0, 1f))
+
+        statusView.apply {
+            textSize=12f
+            gravity=Gravity.CENTER
+            setTextColor(skin.barFg)
+            maxLines=2
+            ellipsize=TextUtils.TruncateAt.END
+            setPadding(inset,0,inset,0)
+            visibility=GONE
+        }
+        addView(statusView,lp(MATCH,WRAP))
+
         fun action(label: String, onClick: () -> Unit) = TextView(context).apply {
             text = label
             textSize = 12f
@@ -715,48 +727,86 @@ class VoiceBoard(
             setOnClickListener { onClick() }
         }
         if (onPolish != null) {
-            polishButton = action("润色", onPolish).also { controls.addView(it, lp(WRAP, WRAP)) }
+            val polishControls=LinearLayout(context).apply {gravity=Gravity.CENTER}
+            polishButton = action("润色", onPolish).also {
+                it.visibility=GONE
+                polishControls.addView(it,lp(WRAP,WRAP))
+            }
             cancelPolishButton = action("取消润色", onPolish).also {
                 it.visibility = GONE
-                controls.addView(it, lp(WRAP, WRAP))
+                polishControls.addView(it, lp(WRAP, WRAP))
+            }
+            addView(polishControls,lp(MATCH,WRAP))
+        }
+
+        val footer = FrameLayout(context).apply {setPadding(inset, (4*d).toInt(), inset, (9*d).toInt())}
+        primary.apply {
+            gravity=Gravity.CENTER
+            maxLines=1
+            textSize=18f
+            typeface=Typeface.DEFAULT_BOLD
+            setTextColor(skin.accFg)
+            background=roundBg(skin.accBg,15*d)
+            setOnClickListener {
+                when {
+                    active || hasText -> onFinish()
+                    needPermission -> onPermission()
+                    else -> onStart()
+                }
             }
         }
-        if (onCollapse != null) controls.addView(action("收起", onCollapse), lp(WRAP, WRAP).apply { marginStart = (6 * d).toInt() })
-        addView(controls, lp(MATCH, WRAP))
-        addView(wave, lp(MATCH, 0, 1f))
-        val row = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding((16 * d).toInt(), (2 * d).toInt(), (16 * d).toInt(), (8 * d).toInt()) }
-        fun btn(t: String, strong: Boolean, f: () -> Unit) = TextView(context).apply {
-            text = t; textSize = 15f; gravity = Gravity.CENTER
-            typeface = if (strong) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            setTextColor(if (strong) skin.accFg else skin.modFg)
-            background = roundBg(if (strong) skin.accBg else skin.modBg, 21 * d)
-            setOnClickListener { f() }
+        footer.addView(primary,FrameLayout.LayoutParams(WRAP,(44*d).toInt(),Gravity.CENTER))
+        addView(footer,lp(MATCH,WRAP))
+        update(false, "", false, false, false)
+    }
+
+    override fun onMeasure(widthMeasureSpec:Int,heightMeasureSpec:Int) {
+        val width=MeasureSpec.getSize(widthMeasureSpec)
+        val available=(width-(24*d).toInt()).coerceAtLeast(1)
+        val buttonWidth=(width*.39f).toInt().coerceAtLeast((128*d).toInt()).coerceAtMost(available)
+        primary.layoutParams.width=buttonWidth
+        val size=(buttonWidth/(5.4f*d)).coerceIn(11f,18f)
+        val unit=android.util.TypedValue.COMPLEX_UNIT_SP
+        if (primary.textSize!=android.util.TypedValue.applyDimension(unit,size,resources.displayMetrics)) {
+            primary.setTextSize(unit,size)
         }
-        row.addView(btn("取消", false, onCancel), lp(0, (42 * d).toInt(), 1f))
-        mic.setOnClickListener { if (needPermission) onPermission() else onMic() }
-        row.addView(mic, lp((76 * d).toInt(), (68 * d).toInt()).apply { marginStart = (14 * d).toInt(); marginEnd = (14 * d).toInt() })
-        row.addView(btn("确定", true, onOk), lp(0, (42 * d).toInt(), 1f))
-        addView(row, lp(MATCH, WRAP))
+        super.onMeasure(widthMeasureSpec,heightMeasureSpec)
     }
 
     fun polishState(busy: Boolean, restore: Boolean) {
+        polishing=busy
         polishButton?.apply {
-            visibility = if (busy) GONE else VISIBLE
+            visibility = if (!busy && hasText && !active && !stopping) VISIBLE else GONE
             text = if (restore) "恢复原文" else "润色"
         }
         cancelPolishButton?.visibility = if (busy) VISIBLE else GONE
+        refreshActions()
     }
 
-    /** committed 为已识别句子，partial 为临时结果；麦克风保持静态，只有声波随音量变化。 */
-    fun update(committed: String, partial: String, status: String, listening: Boolean) {
-        statusView.visibility = if (status.isBlank() || status.startsWith("正在聆听")) GONE else VISIBLE
-        statusView.text = status
-        statusView.setTextColor(if (listening) skin.candHi else skin.barFg)
-        mic.listening = listening
+    fun update(hasText: Boolean, status: String, listening: Boolean, active: Boolean, stopping: Boolean) {
+        this.hasText=hasText
+        this.active=active
+        this.stopping=stopping
+        val showStatus=status.isNotBlank() && status!="已暂停" && !status.startsWith("正在聆听") &&
+            status!="请说话" && !(hasText && status.startsWith("需要麦克风权限"))
+        statusView.visibility=if(showStatus)VISIBLE else GONE
+        if(showStatus)statusView.text=status
         wave.active = listening
+        refreshActions()
     }
 
-    fun update(text: String, status: String, listening: Boolean) = update(text, "", status, listening)
+    private fun refreshActions() {
+        val label=when {
+            stopping -> "正在识别…"
+            active -> "说完了"
+            hasText -> "返回键盘"
+            needPermission -> "授权麦克风"
+            else -> "开始说话"
+        }
+        if(primary.text!=label)primary.text=label
+        primary.isEnabled=!polishing && !stopping
+        primary.alpha=if(primary.isEnabled)1f else .55f
+    }
 
     /** 系统与离线录音统一到约 0–10 的音量；底噪不抬高声波。 */
     fun level(rmsDb: Float) {
@@ -765,39 +815,21 @@ class VoiceBoard(
 
     fun spectrum(values: FloatArray) { wave.bands(values) }
 
-    private inner class MicButton : View(context) {
-        private val icons = Icons(context)
-        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        var listening = false
-            set(v) {
-                if (field != v) {
-                    field = v
-                    if (v) postInvalidateOnAnimation() else invalidate()
-                }
-            }
-
-        override fun onDraw(c: Canvas) {
-            val cx = width / 2f
-            val cy = height / 2f
-            val baseR = min(width, height) / 2f - 10 * d
-
-            p.color = if (listening) skin.accBg else skin.modBg
-            c.drawCircle(cx, cy, baseR, p)
-            icons.draw(c, R.drawable.ic_mic, cx, cy, 28f, if (listening) skin.accFg else skin.modFg)
-
-        }
-    }
-
-    /** 声波：一排竖条，只随说话的音量起伏；没声音时是平的 */
+    /** 中间频段跟随音量，两端始终保留点状尾部。 */
     private inner class Wave : View(context) {
         private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val rmsProfile=floatArrayOf(.22f,.30f,.48f,.73f,1f,.64f,.45f,.63f,.89f,.67f,.54f,.70f,.98f,.65f,.42f,.27f,.19f)
         private val levels=FloatArray(17)
         private val displayed=FloatArray(17)
         private var lastSpectrum=0L
         var active = false
             set(v) {
+                if(field==v)return
                 field=v
-                if(!v) levels.fill(0f)
+                if(!v) {
+                    levels.fill(0f)
+                    lastSpectrum=0L
+                }
                 postInvalidateOnAnimation()
             }
 
@@ -810,32 +842,35 @@ class VoiceBoard(
         }
 
         fun sample(value:Float) {
-            if(!active || android.os.SystemClock.uptimeMillis()-lastSpectrum<600) return
+            if(!active || (lastSpectrum!=0L && android.os.SystemClock.uptimeMillis()-lastSpectrum<600)) return
             // 系统识别只给总音量时采用固定位置的包络；离线录音使用实际频谱。
             for(i in levels.indices) {
-                val profile=.35f+.65f*(1f-abs(i-8)/8f)
-                levels[i]=value*profile
+                val profile=rmsProfile[i]
+                levels[i]=value*profile*profile
             }
             postInvalidateOnAnimation()
         }
 
         override fun onDraw(c: Canvas) {
-            val n = levels.size
-            val gap = 8.5f * d
-            val bw = 2.6f * d
-            val total = n * bw + (n - 1) * gap
-            var x = (width - total) / 2
-            val flat = 2.6f * d
+            val tail=8
+            val count=levels.size+2*tail
+            val gap=width*.72f/(count-1)
+            val stroke=min(3*d,gap*.52f)
+            var x=(width-(count-1)*gap)/2
+            val amplitude=min(82*d,height*.74f)
+            p.color=skin.candHi
             var moving=false
-            // 整段颜色固定，波形不随音量在红色与灰色之间切换。
-            p.color=if(skin.dark) android.graphics.Color.parseColor("#ACBEBB") else android.graphics.Color.parseColor("#879D9B")
-            for (i in 0 until n) {
-                val response = if(levels[i] > displayed[i]) .52f else .25f
-                displayed[i]+=(levels[i]-displayed[i])*response
-                if(abs(levels[i]-displayed[i])>.002f) moving=true
-                val h = flat + min(36*d,height*.7f)*displayed[i]
-                c.drawRoundRect(RectF(x, height / 2f - h / 2, x + bw, height / 2f + h / 2), bw / 2, bw / 2, p)
-                x += bw + gap
+            for (position in 0 until count) {
+                val i=position-tail
+                val h=if(i in levels.indices) {
+                    val response=if(levels[i]>displayed[i]).58f else .28f
+                    displayed[i]+=(levels[i]-displayed[i])*response
+                    if(abs(levels[i]-displayed[i])>.002f)moving=true
+                    val taper=.58f+.42f*(1f-abs(i-8)/8f)
+                    stroke+amplitude*kotlin.math.sqrt(displayed[i])*taper
+                } else stroke
+                c.drawRoundRect(x-stroke/2,height/2f-h/2,x+stroke/2,height/2f+h/2,stroke/2,stroke/2,p)
+                x+=gap
             }
             if(moving) postInvalidateOnAnimation()
         }

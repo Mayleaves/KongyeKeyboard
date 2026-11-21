@@ -168,10 +168,13 @@ class CellGridView(context: Context) : View(context) {
     }
 }
 
-/** 展开的候选：自动换行的格子 */
+/** 四列候选共用一块底板，行间以细线区分。 */
 class CandFlowView(context: Context, private val skin: Skin, private var items: List<String>, private var subtitles: List<String?> = emptyList(), private val onPick: (Int) -> Unit) : View(context) {
     private val d = resources.displayMetrics.density
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = 16 * d }
+    private val text = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        textSize = CANDIDATE_TEXT_DP * d
+    }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val boxes = ArrayList<RectF>()
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
@@ -181,43 +184,47 @@ class CandFlowView(context: Context, private val skin: Skin, private var items: 
     var rowHeight:Float=0f
         set(value) {if(field!=value){field=value;requestLayout()}}
     private val cellH get() = if(rowHeight>0)rowHeight else (if(subtitles.any {it!=null}) 80 else 48)*d
-    private val hintPaint=android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {textSize=10*d}
+    private val hintPaint=android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {textSize=CANDIDATE_READING_DP*d}
     private val hintLayouts=ArrayList<android.text.StaticLayout?>()
 
     var onOverflow:(String?)->Unit = {}
     var onVisibleWords:(List<String>)->Unit = {}
     private val shown=ArrayList<String>()
+    private val clipped=ArrayList<Int>()
     fun submit(items:List<String>,subtitles:List<String?> = emptyList()) {
-        this.items=items;this.subtitles=subtitles;pressed=-1;requestLayout();invalidate()
+        this.items=items;this.subtitles=subtitles;clipped.clear();pressed=-1;requestLayout();invalidate()
     }
+    fun firstClippedCandidate(top:Int,bottom:Int):Int? =
+        clipped.firstOrNull {boxes[it].bottom>top && boxes[it].top<bottom}
+
     private fun layoutBoxes(w: Int): Int {
-        boxes.clear();hintLayouts.clear();shown.clear()
-        val gap=6*d;val pad=6*d;val cols=4
-        val unit=((w-2*pad-(cols-1)*gap)/cols).coerceAtLeast(1f)
-        var row=0;var col=0
-        text.textSize=16*d
-        var overflow:String?=null
+        boxes.clear();hintLayouts.clear();shown.clear();clipped.clear()
+        val cols=4
+        val unit=w/cols.toFloat()
+        val inset=min(5*d,unit*.10f)
+        var column=0
+        var row=0
         items.forEachIndexed { i, word ->
-            val span=1
-            if(col+span>cols) {row++;col=0}
-            val bw=span*unit+(span-1)*gap
-            val x=pad+col*(unit+gap);val y=pad+row*(cellH+gap)
-            boxes.add(RectF(x,y,x+bw,y+cellH))
-            text.textSize=22*d
-            val visible=TextUtils.ellipsize(word,android.text.TextPaint(text),bw-24*d,TextUtils.TruncateAt.END).toString()
+            val span=ceil((text.measureText(word)+2*inset)/unit.coerceAtLeast(1f)).toInt().coerceIn(1,cols)
+            if(column+span>cols) {row++;column=0}
+            val x=column*unit
+            val y=row*cellH
+            val width=span*unit
+            boxes.add(RectF(x,y,x+width,y+cellH))
+            val visible=TextUtils.ellipsize(word,text,(width-2*inset).coerceAtLeast(0f),TextUtils.TruncateAt.END).toString()
             shown.add(visible)
-            if(visible!=word && overflow==null) overflow=word
+            if(visible!=word)clipped.add(i)
             val hint=subtitles.getOrNull(i)
             hintLayouts.add(hint?.let {
-                android.text.StaticLayout.Builder.obtain(it,0,it.length,hintPaint,(bw-10*d).toInt().coerceAtLeast(1))
+                android.text.StaticLayout.Builder.obtain(it,0,it.length,hintPaint,(width-2*inset).toInt().coerceAtLeast(1))
                     .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER).setIncludePad(false).setMaxLines(((cellH-32*d)/(12*d)).toInt().coerceIn(1,3))
                     .setEllipsize(android.text.TextUtils.TruncateAt.END).build()
             })
-            col+=span
+            column+=span
         }
-        val full=overflow
+        val full=clipped.firstOrNull()?.let {items[it]}
         post {if(isAttachedToWindow) onOverflow(full)}
-        return (pad*2+(row+1)*(cellH+gap)-gap).toInt()
+        return if(items.isEmpty())0 else kotlin.math.round((row+1)*cellH).toInt()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -229,24 +236,27 @@ class CandFlowView(context: Context, private val skin: Skin, private var items: 
         val clip=c.clipBounds
         val visible=boxes.indices.filter {boxes[it].bottom>=clip.top && boxes[it].top<=clip.bottom}.map {items[it]}
         post {onVisibleWords(visible)}
-        val fm = text.fontMetrics
+        text.color=skin.keyFg
+        val fm=text.fontMetrics
         for ((i, r) in boxes.withIndex()) {
             if(r.bottom<clip.top || r.top>clip.bottom)continue
-            fill.color=withAlpha(skin.keyFg,28)
-            c.drawRoundRect(RectF(r.left,r.top+1.5f*d,r.right,r.bottom+1.5f*d),10*d,10*d,fill)
-            fill.color = if(i==pressed)skin.keyDown else skin.keyBg
-            c.drawRoundRect(r, 10 * d, 10 * d, fill)
-            text.color = skin.keyFg
-            text.typeface = Typeface.DEFAULT
-            text.textSize = 22 * d
-            text.textAlign=Paint.Align.LEFT
-            val tfm = text.fontMetrics
+            if(i==pressed) {
+                fill.color=skin.keyDown
+                c.drawRect(r,fill)
+            }
+            if(r.left==0f && r.top>0f) {
+                fill.color=withAlpha(skin.keyFg,24)
+                c.drawRect(0f,r.top,width.toFloat(),r.top+(d*.5f).coerceAtLeast(1f),fill)
+            }
             val hint=hintLayouts.getOrNull(i)
-            val cy=if(hint==null) r.centerY() else r.top+min(21*d,cellH*.35f)
-            c.drawText(shown.getOrElse(i) {items[i]}, r.left+12*d, cy - (tfm.ascent + tfm.descent) / 2, text)
+            val cy=if(hint==null)r.centerY() else r.top+cellH*.34f
+            c.drawText(shown[i],r.centerX(),cy-(fm.ascent+fm.descent)/2,text)
             if(hint!=null) {
                 hintPaint.color=withAlpha(skin.barFg,210)
-                c.save();c.translate(r.left+5*d,r.top+min(37*d,cellH*.58f));hint.draw(c);c.restore()
+                c.save()
+                c.translate(r.centerX()-hint.width/2f,r.top+min(37*d,cellH*.58f))
+                hint.draw(c)
+                c.restore()
             }
         }
     }

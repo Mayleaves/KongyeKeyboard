@@ -5,6 +5,7 @@ import android.content.Context
 /** Bounded local prefix and edit-distance lookup using the bundled English vocabulary. */
 object EnglishInput {
     @Volatile private var vocabulary:Map<String,List<String>> = emptyMap()
+    private var byLength:Map<Int,List<String>> = emptyMap()
     private val names = mapOf(
         "github" to "GitHub", "gitlab" to "GitLab", "claude" to "Claude",
         "anthropic" to "Anthropic", "openai" to "OpenAI", "chatgpt" to "ChatGPT",
@@ -13,23 +14,39 @@ object EnglishInput {
         "javascript" to "JavaScript", "typescript" to "TypeScript",
     )
     private val common=listOf("the","to","and","a","of","in","is","it","you","that","hello","world","thanks","keyboard","please","today","tomorrow")
+    private val contractions=listOf("I'm","I'll","I've","I'd","don't","can't","won't","it's","you're","that's","we're","they're")
     @Synchronized fun load(ctx:Context) {
         if(vocabulary.isNotEmpty())return
         val words=LinkedHashSet<String>();words.addAll(common);words.addAll(names.keys)
         ctx.assets.open("glide-english.tsv").bufferedReader().useLines {lines->
             lines.forEach {line->val word=line.substringBefore('\t');if(word.length in 2..32 && word.all {it in 'a'..'z'}) words.add(word)}
         }
+        byLength=words.groupBy {it.length}
         vocabulary=words.groupBy {it.take(1)}
     }
-    fun candidates(ctx:Context,raw:String):List<Cand> {
+    fun literalOptions(raw:String):List<String> {
+        if(raw.isEmpty()) return emptyList()
+        if(raw.length!=1)return listOf(raw)
+        val key=raw[0].lowercaseChar()
+        val number="qwertyuiop".indexOf(key)
+        return listOfNotNull(raw,if(raw[0].isUpperCase())raw.lowercase() else raw.uppercase(),
+            if(number>=0)"1234567890"[number].toString() else null).distinct()
+    }
+    fun candidates(ctx:Context,raw:String,checkCorrection:Boolean=true):List<Cand> {
         load(ctx)
         val lower=raw.lowercase()
         val prefix=vocabulary[lower.take(1)].orEmpty().filter {it.startsWith(lower)}.take(12)
-        val words=LinkedHashSet<String>();words.add(raw);words.addAll(prefix)
-        if(V3Prefs.enabled(ctx,V3Prefs.EN_CORRECT)) {
-            val nearby=vocabulary.values.asSequence().flatten().filter {kotlin.math.abs(it.length-lower.length)<=1 && it.length>2}
-                .filter {distance(lower,it)<=1}.take(8).toList()
-            if(lower.length>=3 && prefix.isEmpty() && lower !in vocabulary[lower.take(1)].orEmpty() && nearby.isNotEmpty()) {
+        val words=LinkedHashSet<String>();words.add(raw)
+        if(lower=="i") words.add("I")
+        words.addAll(prefix.take(4))
+        val matchingContractions=if(lower.isEmpty())emptyList()
+            else contractions.filter {it.lowercase().replace("'","").startsWith(lower)}
+        words.addAll(matchingContractions)
+        words.addAll(prefix.drop(4))
+        if(checkCorrection && lower.length>=3 && V3Prefs.enabled(ctx,V3Prefs.EN_CORRECT)) {
+            val nearby=(lower.length-1..lower.length+1).asSequence().flatMap {byLength[it].orEmpty()}
+                .filter {it.length>2 && distance(lower,it)<=1}.take(8).toList()
+            if(prefix.isEmpty() && matchingContractions.isEmpty() && nearby.isNotEmpty()) {
                 words.clear();words.addAll(nearby);words.add(raw)
             } else words.addAll(nearby)
         }
@@ -40,7 +57,7 @@ object EnglishInput {
                 else -> word
             }
             Cand(display,raw.length,null,0f)
-        }
+        }.distinctBy {it.w}
     }
     fun mixed(ctx:Context,raw:String,base:List<Cand>):List<Cand> {
         if(!V3Prefs.enabled(ctx,V3Prefs.MIXED) || raw.any {it !in 'a'..'z'})return emptyList()
@@ -78,10 +95,10 @@ object EnglishInput {
     private fun distance(a:String,b:String):Int {
         if(a==b)return 0
         if(a.length==b.length) {
-            val different=a.indices.filter {a[it]!=b[it]}
-            if(different.size==1)return 1
-            if(different.size==2) {val x=different[0];val y=different[1];if(y==x+1 && a[x]==b[y] && a[y]==b[x])return 1}
-            return 2
+            val first=a.indices.first {a[it]!=b[it]}
+            val second=(first+1 until a.length).firstOrNull {a[it]!=b[it]} ?: return 1
+            return if(second==first+1 && a[first]==b[second] && a[second]==b[first] &&
+                (second+1 until a.length).all {a[it]==b[it]})1 else 2
         }
         val short=if(a.length<b.length)a else b;val long=if(a.length<b.length)b else a
         var i=0;var j=0

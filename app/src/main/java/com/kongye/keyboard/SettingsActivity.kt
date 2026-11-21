@@ -2245,7 +2245,7 @@ class SettingsActivity : ComponentActivity() {
             }
             Page.POLISH -> {
                 StatsHeading(pal,"润色设置")
-                SettingsToggle(pal,"语句润色",V3Prefs.VOICE_POLISH,false,tick,"整理语序与表达；预览后确认，可恢复原文")
+                SettingsToggle(pal,"语句润色",V3Prefs.VOICE_POLISH,false,tick,"听写结束后整理已输入的文字，可恢复原文")
                 SettingsChoice(pal,"润色方式",VoicePolish.MODE,listOf(0 to "离线模型",1 to "联网接口"),0,tick,showExample=false)
                 if(p.getInt(VoicePolish.MODE,0)==0) {
                     StatsHeading(pal,"离线模型")

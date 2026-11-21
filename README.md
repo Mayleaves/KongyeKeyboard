@@ -2,9 +2,11 @@
 
 Android 中文输入法，支持全拼、简拼、纠错、联想、自造词，以及 26 键、14 键和九键布局。
 
-当前版本为 **[3.0.8](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.8)**。支持 Android 8.0 及以上，提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
+当前版本为 **[3.0.14](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.14)**。支持 Android 8.0 及以上，提供 ARM64、x86_64 和包含这两种架构的 universal 包，暂不支持 32 位。
 
-**3.0.8** 展开候选保留原顺序，顶部可横滑筛选拼音。单字手写新增笔画撤回与重做，剪贴板加快打开和切换分类，翻译及备用识别资源可按需下载。详见 [3.0.8 更新说明](app/src/main/assets/release-current.md)。
+**3.0.14** 语音识别结果直接写入输入框，收起后的听写条会显示录音状态。展开候选保留候选顺序，文字在格子内居中，长候选可点右上角的气泡输入全文。工具栏的密码保存提示沿用「更多密码」的圆角样式。详见 [3.0.14 更新说明](app/src/main/assets/release-current.md)。
+
+**3.0.8** 展开候选保留原顺序，顶部可横滑筛选拼音。单字手写新增笔画撤回与重做，剪贴板加快打开和切换分类，翻译及备用识别资源可按需下载。详见 [3.0.8 更新说明](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.8)。
 
 **3.0.3** 支持横竖屏分别保存键位和键盘形态，本地与 WebDAV 备份可管理和删除，WebDAV 可设自动备份频率。补充短信后台复制权限指引并修复系统边缘返回手势。详见 [3.0.3 更新说明](https://github.com/Mayleaves/KongyeKeyboard/releases/tag/v3.0.3)。
 

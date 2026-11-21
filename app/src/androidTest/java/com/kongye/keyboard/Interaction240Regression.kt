@@ -40,10 +40,10 @@ object Interaction240Regression {
             var bubble:String?=null;bar.onLongCandidate={bubble=it}
             val long="这是很长的候选段落，请完整显示在普通打字界面右上角".repeat(4)
             bar.showCandidates(listOf(CandItem(long)),false);check(bubble==long)
-            bar.showCandidates(listOf(CandItem(long)),true);check(bubble==null)
+            bar.showCandidates(listOf(CandItem(long)),true);check(bubble==long)
             bar.showCandidates(listOf(CandItem("五个字够吗")),false);check(bubble==null)
         }
-        report("Typing-only overflow eligibility and no length-only popup passed")
+        report("Toolbar overflow eligibility is unchanged by expansion, and short candidates do not trigger a preview")
         val isolated=object:ContextWrapper(ctx) {
             override fun getSharedPreferences(name:String,mode:Int)=super.getSharedPreferences("qa240_"+name,mode)
         }

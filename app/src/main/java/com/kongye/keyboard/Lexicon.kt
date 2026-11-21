@@ -65,18 +65,29 @@ object Lexicon {
     }
     private val exact = HashMap<String, ArrayList<Entry>>()
     private val initials = HashMap<String, ArrayList<Entry>>()
+    private var syllablePrefixes: Set<String> = emptySet()
     private val byHead = HashMap<Char, ArrayList<Entry>>()
     private var nativeOnly = false
     private val associationWords = HashMap<Char, List<String>>()
 
-    /** Rime owns decoding. Retain compact words for clipboard segmentation and
-     * associations, not a second full spelling trie and every Entry object.
+    /** Keep common dictionary entries for mixed-abbreviation completion and
+     * reduplication after the native engine takes over the full dictionary.
      */
     @Synchronized fun compactForNative() {
         if (nativeOnly) return
         byHead.forEach { (head, entries) -> associationWords[head] = entries.filterNot { it.user }.map { it.w } }
+        val single = exact.values.flatMap { entries -> entries.asSequence().filter { it.syl.size == 1 }.take(4).toList() }
+        val phrases = sorted.filter { entry ->
+            entry.user || entry.syl.size in 2..6 && entry.sc >= 49 || isReduplication(entry)
+        }
+        exact.clear()
+        initials.clear()
+        for (entry in (single + phrases).sortedByDescending { it.sc }) {
+            exact.getOrPut(entry.p) { ArrayList() }.add(entry)
+            if (entry.syl.size > 1) initials.getOrPut(entry.ini) { ArrayList() }.add(entry)
+        }
         sorted = emptyArray(); rangeEntries = emptyArray(); rangeExtras.clear()
-        prefixRanges.clear(); exact.clear(); initials.clear(); byHead.clear()
+        prefixRanges.clear(); byHead.clear()
         corrector = null; candidateCache.clear(); nativeOnly = true
     }
     /** 单字 → 最常用的读音，手写候选显示拼音用 */
@@ -124,6 +135,7 @@ object Lexicon {
             input.bufferedReader().use { br ->
                 syllables = br.readLine().split(' ').filter { it.isNotEmpty() }
                 sylSet = HashSet(syllables)
+                syllablePrefixes = syllables.flatMap {sound->(1..sound.length).map(sound::take)}.toSet()
                 br.forEachLine { line ->
                     val a = line.indexOf(' ')
                     val b = line.indexOf(' ', a + 1)
@@ -231,6 +243,60 @@ object Lexicon {
     }
 
     fun candidates(raw: String, abbr: Boolean = true): List<Cand> = candidates(raw.map { it.toString() }, abbr)
+
+    private fun isTypedInitial(token:String) =
+        token.length==1 && token[0] in "bpmfdtnlgkhjqxrzcsyw" || token in listOf("zh","ch","sh")
+
+    private fun isReduplication(entry:Entry) =
+        entry.syl.size in 2..8 && entry.w.length == entry.syl.size &&
+            entry.w.all { it == entry.w[0] } && entry.syl.all { it == entry.syl[0] }
+
+    /** Extend dictionary reduplications past the length stored in the lexicon. */
+    @Synchronized
+    fun repeatedInitialCandidates(raw:String):List<Cand> {
+        if(raw.length<5 || !isTypedInitial(raw.take(1)) || raw.any {it!=raw[0]})return emptyList()
+        val seeds=(min(8,raw.length) downTo 2).asSequence().flatMap {length->initials[raw.take(length)].orEmpty().asSequence()}
+            .filter(::isReduplication)
+            .distinctBy {it.w[0]}.take(4).toList()
+        return seeds.map {entry->
+            Cand(entry.w.take(1).repeat(raw.length),raw.length,null,entry.sc.toFloat(),
+                abbr=true,py=List(raw.length) {entry.syl[0]}.joinToString(" "))
+        }
+    }
+
+    /** Find a complete path across full syllables and abbreviated dictionary words. */
+    @Synchronized
+    fun mixedSyllableCandidates(tokens:List<String>,current:()->Boolean):List<Cand> {
+        if(!ready || tokens.size<2 || tokens.none {it !in sylSet && isTypedInitial(it)} || tokens.none {it in sylSet} ||
+            tokens.any {it !in sylSet && !isTypedInitial(it)})return emptyList()
+        data class Path(val text:String,val reading:String,val score:Int)
+        val paths=Array(tokens.size+1) {emptyList<Path>()}
+        paths[0]=listOf(Path("","",0))
+        for(start in tokens.indices) {
+            if(!current())throw java.util.concurrent.CancellationException()
+            if(paths[start].isEmpty())continue
+            for(end in start+1..min(tokens.size,start+6)) {
+                val segment=tokens.subList(start,end)
+                val hasInitial=segment.any {it !in sylSet}
+                if(hasInitial && end==start+1)continue
+                val entries=if(hasInitial)initials[segment.joinToString("") {it.take(1)}].orEmpty()
+                    else exact[segment.joinToString("")].orEmpty()
+                val matches=entries.asSequence().filter {entry->
+                    entry.syl.size==segment.size && segment.indices.all {i->
+                        segment[i]==entry.syl[i] || segment[i] !in sylSet && entry.syl[i].startsWith(segment[i])
+                    }
+                }.take(4).toList()
+                if(matches.isEmpty())continue
+                val next=paths[start].flatMap {path->matches.map {entry->
+                    Path(path.text+entry.w,(path.reading+" "+entry.syl.joinToString(" ")).trim(),
+                        path.score+entry.sc*entry.syl.size-14)
+                }}
+                paths[end]=(paths[end]+next).sortedByDescending {it.score}.distinctBy {it.text}.take(4)
+            }
+        }
+        val count=tokens.sumOf {it.length}
+        return paths.last().map {Cand(it.text,count,null,it.score.toFloat(),abbr=true,py=it.reading)}
+    }
 
     /** 打开的模糊音规则（Prefs.FUZZY_RULES 的 id） */
     @Volatile
@@ -532,7 +598,7 @@ object Lexicon {
                 syllable="";continue
             }
             val next=syllable+key
-            if (syllable.isNotEmpty() && syllables.none {it.startsWith(next)}) {
+            if (syllable.isNotEmpty() && next !in syllablePrefixes) {
                 out.append('\'');syllable=key
             } else syllable=next
             out.append(key)

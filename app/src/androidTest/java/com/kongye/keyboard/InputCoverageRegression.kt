@@ -40,6 +40,16 @@ object InputCoverageRegression {
                     }
                 }
             }
+            for(size in listOf(5,8,32,128)) {
+                val words=PinyinEngine.candidates(List(size) {"h"})
+                check(words.any {it.w=="哈".repeat(size) && it.n==size}) {"Repeated initials stopped at $size: ${words.take(5).map {it.w}}"}
+            }
+            val mixed="wozhebkan"
+            val phrases=PinyinEngine.candidates(mixed.map(Char::toString))
+            check(phrases.take(8).any {it.w=="我这边看" && it.n==mixed.length}) {
+                "Mixed full spelling and initials lost full phrase: ${phrases.take(12).map {it.w to it.n}}"
+            }
+            report("ABBREVIATION PASSED: same initial from 5 through 128 keys, and full match for wozhebkan")
             report("INPUT COVERAGE PASSED: polyphones, rare and supplementary Han, full/grouped pinyin, independent v/u key substitution, native selection boundaries")
         } finally {Lexicon.fuzzyRules=oldRules;SpellingAssist.correctionFlags=oldFlags;FcitxEngine.clear()}
     }

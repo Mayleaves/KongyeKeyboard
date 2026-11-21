@@ -149,25 +149,25 @@ class HandwriteView(context: Context, private var skin: Skin, private val onReco
     private val handler = Handler(Looper.getMainLooper())
     private val recognize = Runnable { if (strokes.isNotEmpty()) onRecognize(this) }
     private var pressedSide = -1
-    private val side = listOf("undo" to "撤回笔画", "redo" to "重做笔画", "rewrite" to "重写", "del" to "", "space" to "空格", "enter" to "")
+    private val side = listOf("undo", "redo", "del", "space", "enter")
 
     private val sideW get() = 52 * d
-    private val headerH get() = min(40*d,height*.22f)
+    private val toolsHeight get() = min(40*d,height*.22f)
+    private fun boardRect() = RectF(6*d,6*d,width-sideW-12*d,height-6*d)
     private fun sideRect(i: Int): RectF {
-        val pad = 6 * d
-        if(i<3) {
-            val right=padRect().right
-            val w=min(36*d,padRect().width()/4)
-            return RectF(right-(3-i)*w,3*d,right-(2-i)*w,headerH-2*d)
+        val gap=6*d
+        val board=boardRect()
+        if(i<2) {
+            val cellWidth=min(46*d,board.width()/2)
+            val left=board.left+i*cellWidth
+            return RectF(left,board.bottom-toolsHeight,left+cellWidth,board.bottom)
         }
-        val top=padRect().top
-        val h = (height-top-3*pad)/3
-        val x = width - sideW - pad
-        val row=i-3
-        return RectF(x,top+row*(h+pad),width-pad,top+row*(h+pad)+h)
+        val h=(board.height()-2*gap)/3
+        val top=board.top+(i-2)*(h+gap)
+        return RectF(board.right+gap,top,width-gap,top+h)
     }
 
-    private fun padRect() = RectF(6 * d, headerH+6*d, width - sideW - 12 * d, height - 6 * d)
+    private fun padRect() = boardRect().apply {bottom-=toolsHeight}
     fun writingBounds()=padRect()
 
     fun clear() {
@@ -198,17 +198,12 @@ class HandwriteView(context: Context, private var skin: Skin, private val onReco
 
     override fun onDraw(c: Canvas) {
         val pr = padRect()
+        val board=boardRect()
         fill.color=skin.keyBg
-        val actions=RectF(sideRect(0).left,3*d,sideRect(2).right,headerH-2*d)
-        c.drawRoundRect(actions,16*d,16*d,fill)
-        text.textSize=12*d;text.color=skin.barFg;text.textAlign=Paint.Align.LEFT
-        val fm=text.fontMetrics
-        if(actions.left-pr.left>68*d)c.drawText("单字手写",pr.left+6*d,headerH/2-(fm.ascent+fm.descent)/2,text)
-        text.textAlign=Paint.Align.CENTER
-        fill.color = skin.keyBg
-        c.drawRoundRect(pr, 14 * d, 14 * d, fill)
-        // 米字格淡线
+        c.drawRoundRect(board,14*d,14*d,fill)
+        // 写字区与底部笔画工具共享底板，触控区域独立。
         fill.color = withAlpha(skin.keyFg, 18)
+        c.drawRect(board.left+10*d,pr.bottom,board.right-10*d,pr.bottom+1f,fill)
         c.drawRect(pr.centerX() - d / 2, pr.top + 10 * d, pr.centerX() + d / 2, pr.bottom - 10 * d, fill)
         c.drawRect(pr.left + 10 * d, pr.centerY() - d / 2, pr.right - 10 * d, pr.centerY() + d / 2, fill)
         if (status.isNotEmpty()) {
@@ -223,23 +218,20 @@ class HandwriteView(context: Context, private var skin: Skin, private val onReco
         c.restore()
         for ((i, s) in side.withIndex()) {
             val r = sideRect(i)
-            if(i>=3 || pressedSide==i) {
+            if(i>=2) {
                 fill.color = if (pressedSide == i) skin.keyDown else skin.modBg
                 c.drawRoundRect(r,12*d,12*d,fill)
+            } else if(pressedSide==i) {
+                fill.color=skin.keyDown
+                c.drawRoundRect(r.left+4*d,r.top+4*d,r.right-4*d,r.bottom-4*d,8*d,8*d,fill)
             }
-            when (s.first) {
-                "undo", "redo" -> icons.draw(c,if(s.first=="undo")R.drawable.ic_undo else R.drawable.ic_redo,
-                    r.centerX(),r.centerY(),min(20f,r.width()/d*.65f),if(if(s.first=="undo")canUndo else canRedo)skin.modFg else withAlpha(skin.modFg,65))
+            val smallIcon=min(19f,min(r.width(),r.height())/d*.65f)
+            when (s) {
+                "undo" -> icons.draw(c,R.drawable.ic_undo,r.centerX(),r.centerY(),smallIcon,if(canUndo)skin.modFg else withAlpha(skin.modFg,65))
+                "redo" -> icons.draw(c,R.drawable.ic_redo,r.centerX(),r.centerY(),smallIcon,if(canRedo)skin.modFg else withAlpha(skin.modFg,65))
                 "del" -> icons.draw(c, R.drawable.ic_del, r.centerX(), r.centerY(), 22f, skin.modFg)
-                "rewrite" -> icons.draw(c, R.drawable.ic_eraser, r.centerX(), r.centerY(), min(20f,r.width()/d*.65f), skin.modFg)
                 "space" -> icons.draw(c, R.drawable.ic_space, r.centerX(), r.centerY(), 24f, skin.modFg)
                 "enter" -> icons.draw(c, R.drawable.ic_enter, r.centerX(), r.centerY(), 22f, skin.modFg)
-                else -> {
-                    text.textSize = 15 * d
-                    text.color = skin.modFg
-                    val fm = text.fontMetrics
-                    c.drawText(s.second, r.centerX(), r.centerY() - (fm.ascent + fm.descent) / 2, text)
-                }
             }
         }
     }
@@ -253,8 +245,8 @@ class HandwriteView(context: Context, private var skin: Skin, private val onReco
         if (pressedSide >= 0) {
             if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) {
                 if (e.actionMasked == MotionEvent.ACTION_UP && sideRect(pressedSide).contains(e.x,e.y)) {
-                    val id = side[pressedSide].first
-                    when(id) {"rewrite"->clear();"undo"->undoStroke();"redo"->redoStroke();else->onAction(id)}
+                    val id = side[pressedSide]
+                    when(id) {"undo"->undoStroke();"redo"->redoStroke();else->onAction(id)}
                 }
                 pressedSide = -1
                 invalidate()

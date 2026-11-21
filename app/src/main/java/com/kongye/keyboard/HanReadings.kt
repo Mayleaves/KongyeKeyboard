@@ -27,12 +27,15 @@ object HanReadings {
 
     fun resolve(text:String,typed:String,tokens:List<String> = emptyList()):String {
         val chars=text.codePoints().toArray().map {String(Character.toChars(it))}
-        val original=Lexicon.pinyinOf(text)
-        if(chars.size>1 && SpellingAssist.matchesTypedReading(typed,original))return original
+        if(chars.size>1) {
+            val original=Lexicon.pinyinOf(text)
+            if(SpellingAssist.matchesTypedReading(typed,original))return original
+        }
         return chars.mapIndexed {index,char->
             val input=if(chars.size==1)typed else tokens.getOrNull(index).orEmpty()
+            val normalized=plain(input)
             val sounds=options(char)
-            sounds.firstOrNull {it==plain(input)}
+            sounds.firstOrNull {it==normalized}
                 ?: sounds.firstOrNull {SpellingAssist.matchesTypedReading(input,it)}
                 ?: sounds.firstOrNull() ?: Lexicon.pinyinOf(char)
         }.joinToString(" ")

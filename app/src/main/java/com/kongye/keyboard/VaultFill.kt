@@ -148,7 +148,7 @@ class VaultFill(
     data class Entry(val id: String, val name: String, val account: String, val matchedBy: String) {
         val certMismatch get() = matchedBy == "cert_mismatch"
     }
-    data class Action(val label: String, val run: () -> Unit)
+    data class Action(val label: String, val run: () -> Unit, val saveDetails: String? = null)
     private data class Target(val pkg: String, val field: Int, val kind: VaultFields.Kind, val hint: String, val inputType: Int, val browser: Boolean, val accountType: String = "username")
     private data class Pending(val id: String, val target: Target, val until: Long, val bind: Boolean, val confirmCert: Boolean = false)
 
@@ -339,19 +339,19 @@ class VaultFill(
             val account = saveAccountValue()
             val count = 1 + saveFields.count { (_, v) -> v.isNotEmpty() && String(v) != account }
             val who = appName(savePkg)
-            val label = buildString {
-                append("保存到空叶文档？").append(who)
+            val details = buildString {
+                append(who)
                 if (account.isNotEmpty()) append(" · ").append(VaultFields.mask(account))
                 append(" · ").append(count).append(" 项")
                 if (saveBrowser) append("（需补网址）")
             }
-            return listOf(Action(label, ::save), Action("不保存", ::discard))
+            return listOf(Action("保存到空叶文档？$details", ::save, details), Action("不保存", ::discard))
         }
         val t = target ?: return emptyList()
         if (t.kind == VaultFields.Kind.OTHER) return emptyList()
         val result = ArrayList<Action>()
         if (t.kind == VaultFields.Kind.CONFIRM && generatedPkg == t.pkg && generated.isNotEmpty() && clock()-generatedAt < 120000)
-            result.add(Action("使用刚生成的密码") { useGenerated() })
+            result.add(Action("使用刚生成的密码", ::useGenerated))
         if (t.kind == VaultFields.Kind.NEW_PASSWORD || t.kind == VaultFields.Kind.CONFIRM) result.add(Action("生成随机密码", ::generate))
         return result
     }

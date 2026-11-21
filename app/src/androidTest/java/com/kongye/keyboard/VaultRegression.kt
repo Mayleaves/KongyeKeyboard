@@ -112,7 +112,33 @@ object VaultRegression {
         ui {vault.hide();vault.focus(info(password,21,"确认密码"))}
         waitFor("confirm reuse") {vault.actions().any {it.label=="使用刚生成的密码"}}
         ui {vault.actions().first {it.label=="使用刚生成的密码"}.run();vault.submitted()}
-        ui {check(vault.actions().any {it.label.startsWith("保存到空叶文档？")});vault.actions().first {it.label.startsWith("保存到空叶文档？")}.run()}
+        ui {
+            val saveBar = VaultSaveBar(inst.targetContext)
+            val actions = vault.actions()
+            check(actions.first().saveDetails?.contains("项") == true && saveBar.bind(Skins.KONGYE,actions))
+            val primary = saveBar.getChildAt(0) as android.widget.LinearLayout
+            val decline = saveBar.getChildAt(1) as android.widget.TextView
+            check((primary.getChildAt(1) as android.widget.TextView).text == "保存到空叶文档" && decline.text == "不保存")
+            check(primary.background is android.graphics.drawable.RippleDrawable && decline.background is android.graphics.drawable.RippleDrawable)
+            check(!primary.contentDescription.toString().contains("Generated-Only!8"))
+            val metrics = saveBar.resources.displayMetrics
+            val width = metrics.widthPixels
+            val height = (44 * metrics.density).toInt()
+            val exact = android.view.View.MeasureSpec.EXACTLY
+            saveBar.measure(android.view.View.MeasureSpec.makeMeasureSpec(width,exact),android.view.View.MeasureSpec.makeMeasureSpec(height,exact))
+            saveBar.layout(0,0,width,height)
+            check(primary.right < decline.left && primary.height == decline.height && decline.right < width)
+            val bitmap = android.graphics.Bitmap.createBitmap(width,height,android.graphics.Bitmap.Config.ARGB_8888)
+            try {
+                saveBar.draw(android.graphics.Canvas(bitmap))
+                java.io.File(inst.targetContext.getExternalFilesDir(null),"layout312-save.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)
+                }
+            } finally { bitmap.recycle() }
+            check(calls.none {it=="save"})
+            check(primary.performClick())
+            check(!saveBar.bind(Skins.KONGYE,vault.actions()))
+        }
         waitFor("explicit save") {saved}
         ui {check(vault.actions().none {it.label.startsWith("保存到空叶文档？")})}
         ui {vault.focus(info(password,30))}
@@ -121,7 +147,13 @@ object VaultRegression {
         ui {vault.focus(info(password,31))}
         waitFor("manual capture status") {vault.diagnosticState().contains("available=true")}
         val savesBefore=calls.count {it=="save"}
-        ui {vault.typed("never-save");vault.submitted();check(vault.actions().any {it.label.startsWith("保存到空叶文档？")});vault.discard();check(vault.actions().none {it.label.startsWith("保存到空叶文档？")})}
+        ui {
+            vault.typed("never-save");vault.submitted()
+            val saveBar = VaultSaveBar(inst.targetContext)
+            check(saveBar.bind(Skins.KONGYE,vault.actions()))
+            check(saveBar.getChildAt(1).performClick())
+            check(!saveBar.bind(Skins.KONGYE,vault.actions()))
+        }
         check(calls.count {it=="save"}==savesBefore) {"Typing saved without explicit consent"}
         ui {vault.focus(info(password,32,"新密码"))}
         waitFor("second generation") {vault.actions().any {it.label=="生成随机密码"}}

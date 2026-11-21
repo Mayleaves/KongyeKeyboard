@@ -58,14 +58,14 @@ object LiveInteraction240Regression {
                 bubble.getLocationOnScreen(a);host.getLocationOnScreen(b)
                 check(kotlin.math.abs(a[0]+bubble.width-b[0]-host.width)<=2) {"Candidate bubble has right margin"}
             }
-            ui {ime.onExpand()};Thread.sleep(250)
-            check(ui {!bubble.isShown}) {"Long bubble leaked into expanded candidate page"}
-            ui {ime.onExpand()};Thread.sleep(250)
-            waitFor("typing bubble restored") {ui {bubble.isShown}}
+            ui {ime.onExpand()}
+            waitFor("expanded page keeps the full candidate bubble") {
+                ui {bubble.isShown && views().filterIsInstance<ExpandedCandidates>().any {it.isShown}}
+            }
             Thread.sleep(1400)
             val wanted=ui {bubble.text.toString()}
             tap(bubble);waitFor("bubble selected text") {text()==wanted}
-            report("Real typing-only bubble click committed full long candidate; expanded page hid bubble")
+            report("Touching the expanded-page bubble committed the full candidate")
             clear();type("woianu")
             waitFor("grouped typo tab") {ui {views().filterIsInstance<PinyinTab>().any {it.isShown && it.contentDescription?.toString()?.contains("wo'ia'nu")==true}}}
             val tab=ui {views().filterIsInstance<PinyinTab>().first {it.isShown}}
