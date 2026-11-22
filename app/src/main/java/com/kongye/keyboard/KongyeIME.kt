@@ -309,7 +309,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     private var clipExpanded: Clip? = null
     private var clipPicking: Clip? = null
     private var tokens: List<String> = emptyList()
+    private var tokenSelection = BooleanArray(0)
     private var tokensFromBar = false
+    private var tokenDraft: VoiceDraft? = null
     private var emojiTab = 0
     private var symCat = 0
     /** 拼音条上的编辑光标：seq 里的下标，-1 表示在最后 */
@@ -333,7 +335,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         if (sink != Sink.NONE) {
             handwritingPreview = word
-            sinkStrip.previewHandwriting(word)
+            sinkStrip.previewInput(word)
         } else if (!passwordField && !remoteEditor()) {
             val draft = handwritingDraft ?: ic()?.let { VoiceDraft(it) } ?: return
             handwritingDraft = draft
@@ -350,7 +352,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (keepSelection == null) draft?.cancel()
         else draft?.cancelKeepingSelection(keepSelection.first, keepSelection.second)
         if (hadPreview && sink != Sink.NONE && ::sinkStrip.isInitialized) {
-            sinkStrip.cancelHandwritingPreview()
+            sinkStrip.cancelInputPreview()
         }
     }
     private var confirmAt = 0L
@@ -437,6 +439,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         stopListening(keepPartial=false)
         cancelVoiceDraft()
         cancelHandwritingPreview()
+        if (panel == Panel.TOKENS) cancelTokenPreview()
         OfflineVoice.releaseCache()
         OpenHandwriting.release()
         Translator.cancel()
@@ -546,6 +549,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     }
 
     override fun onCreateInputView(): View {
+        if (panel == Panel.TOKENS) cancelTokenPreview()
         floating = V3Prefs.keyboardForm(this) == KeyboardForm.FLOATING
         val r = Root(this)
         val voicePanelWasOpen = panel == Panel.VOICE
@@ -781,6 +785,14 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         val sameEditor=info.packageName==inputPackage && info.inputType==inputKind && info.fieldId==inputFieldId
         if (!sameEditor || !restarting) bottomStrip.cancelCursorGesture()
+        if (panel == Panel.TOKENS) {
+            if (sameEditor && restarting && !VaultFields.sensitive(info)) {
+                ic()?.let { tokenDraft?.rebind(it) }
+                renderBar()
+                return
+            }
+            closePanel(render = false, animate = false)
+        }
         if (sameEditor && restarting && !VaultFields.sensitive(info) &&
             panel in listOf(Panel.HAND, Panel.HAND_CANDS)) {
             ic()?.let { handwritingDraft?.rebind(it) }
@@ -872,6 +884,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     override fun onFinishInputView(finishingInput: Boolean) {
         cancelHandwritingPreview()
+        if (panel == Panel.TOKENS) cancelTokenPreview()
         if (::bottomStrip.isInitialized) bottomStrip.cancelCursorGesture()
         if(statsAllowed())TypingStats.of(this).endSession()
         EditorDeletion.cancel()
@@ -1000,6 +1013,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     override fun onFinishInput() {
         remoteHistory.reset()
+        if (panel == Panel.TOKENS) closePanel(render = false, animate = false)
         if (panel == Panel.VOICE || voiceCollapsed) {
             stopListening()
             cancelVoiceDraft()
@@ -1013,6 +1027,16 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         if(passwordField && sink==Sink.NONE) vault.selection(newSelStart,newSelEnd)
+        tokenDraft?.let { draft ->
+            if (newSelStart != oldSelStart || newSelEnd != oldSelEnd) {
+                val composingCaret = candidatesStart >= 0 && newSelStart == candidatesEnd && newSelStart == newSelEnd
+                if (!composingCaret && !draft.selectionAtPreviewEnd(newSelStart, newSelEnd)) {
+                    tokenDraft = null
+                    draft.cancelKeepingSelection(newSelStart, newSelEnd)
+                    closePanel(animate = false)
+                }
+            }
+        }
         handwritingDraft?.let { draft ->
             if (newSelStart != oldSelStart || newSelEnd != oldSelEnd) {
                 val composingCaret = candidatesStart >= 0 && newSelStart == candidatesEnd && newSelStart == newSelEnd
@@ -2507,9 +2531,32 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         val t = pendingClipText ?: return
         dismissedClipText = t
         pendingClipText = null
-        tokens = Lexicon.segment(t)
-        tokensFromBar = true
+        openTokens(t, fromBar = true)
+    }
+
+    private fun openTokens(text: String, fromBar: Boolean) {
+        tokens = Lexicon.segment(text)
+        tokenSelection = BooleanArray(tokens.size)
+        tokensFromBar = fromBar
         openPanel(Panel.TOKENS)
+    }
+
+    private fun previewTokens(text: String) {
+        if (text.isEmpty()) {
+            cancelTokenPreview()
+        } else if (sink != Sink.NONE) {
+            sinkStrip.previewInput(text)
+        } else if (!passwordField && !remoteEditor()) {
+            val draft = tokenDraft ?: ic()?.let { VoiceDraft(it) } ?: return
+            if (draft.preview(text, underline = true)) tokenDraft = draft
+        }
+    }
+
+    private fun cancelTokenPreview() {
+        val draft = tokenDraft
+        tokenDraft = null
+        draft?.cancel()
+        if (sink != Sink.NONE) sinkStrip.cancelInputPreview()
     }
 
     override fun onClipDismiss() {
@@ -3291,7 +3338,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 message(if(ClipboardTransfer.copy(clipboard,clip)) "已复制" else "未能写入剪贴板，请检查写入剪贴板权限")
             }
             id == "edit" -> { startSink(Sink.EDIT, c.text, c); return }
-            id == "split" -> { tokens = Lexicon.segment(c.text); tokensFromBar = false; openPanel(Panel.TOKENS); return }
+            id == "split" -> { openTokens(c.text, fromBar = false); return }
             id == "cat" -> clipPicking = if (clipPicking === c) null else c
             id.startsWith("cat:") -> {
                 val cat = id.removePrefix("cat:")
@@ -3364,7 +3411,10 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         sinkStrip.multiline = mode == Sink.EDIT || mode == Sink.CLIP_ADD || mode==Sink.REMOTE_EDIT
         sinkStrip.localEditing = sinkStrip.multiline || mode == Sink.TRANSLATE
         sinkStrip.caption=if(mode==Sink.REMOTE_EDIT) "UU · 本次输入，点勾同步到远端" else ""
-        sinkStrip.onBeforeSelection = {if(seq.isNotEmpty() || picks.isNotEmpty()) finalizeComposing()}
+        sinkStrip.onBeforeSelection = {
+            if (panel == Panel.TOKENS) closePanel(animate = false)
+            if (seq.isNotEmpty() || picks.isNotEmpty()) finalizeComposing()
+        }
         sinkStrip.onEdited = {text ->
             sinkBuf.setLength(0);sinkBuf.append(text);onSinkChanged()
         }
@@ -3382,6 +3432,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
 
     private fun endSink(animate: Boolean=false) {
         if(animate) {NativeMotion.swap(root,col) {endSink(false)};return}
+        if (panel == Panel.TOKENS) cancelTokenPreview()
         resetComposing()
         if (sink == Sink.TRANSLATE) { Translator.cancel(); main.removeCallbacks(transTask) }
         if (voiceToSink) {voicePolishJob?.cancel();voicePolishJob=null;stopListening();voiceToSink = false}
@@ -3562,6 +3613,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if (panel == Panel.ADJUST && p != Panel.ADJUST) closePanel(render=false)
         if (p != Panel.CANDS && seq.isNotEmpty()) finalizeComposing()
         if (p !in listOf(Panel.HAND, Panel.HAND_CANDS)) cancelHandwritingPreview()
+        if (panel == Panel.TOKENS && p != Panel.TOKENS) cancelTokenPreview()
         if (p != Panel.CLIP && p != Panel.TOKENS) { clipExpanded = null; clipPicking = null }
         if (panel == Panel.VOICE && p != Panel.VOICE) { stopListening(); cancelVoiceDraft() }
         panel = p
@@ -3579,6 +3631,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         val hadPanel = panel != Panel.NONE
         cancelHandwritingPreview()
+        if (panel == Panel.TOKENS) cancelTokenPreview()
         if (panel == Panel.VOICE && !voiceCollapsed) { stopListening(); cancelVoiceDraft() }
         val wasAdjust = panel == Panel.ADJUST
         adjustOverlay?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }; adjustOverlay = null
@@ -3676,8 +3729,15 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 onExpand = { clipExpanded = it; clipPicking = null },
                 onAction = ::clipAction,
             )
-            Panel.TOKENS -> TokensPanel(this, skin, tokens, onInsert = {
-                typeChar(it)
+            Panel.TOKENS -> TokensPanel(this, skin, tokens, tokenSelection, ::previewTokens, onInsert = {
+                val connection = ic().takeIf { tokenDraft != null }
+                connection?.beginBatchEdit()
+                try {
+                    cancelTokenPreview()
+                    typeChar(it)
+                } finally {
+                    connection?.endBatchEdit()
+                }
                 if (tokensFromBar) closePanel()
             }, onCopy = {
                 message(if(ClipboardTransfer.copy(clipboard,ClipData.newPlainText("空叶键盘",it))) "已复制" else "未能写入剪贴板，请检查写入剪贴板权限")
@@ -3887,12 +3947,16 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
     // —————————— 编辑面板 ——————————
 
     private fun editAction(id: String) {
+        val transfer = id == "copy" || id == "cut"
         if(sink!=Sink.NONE && sinkStrip.localEditing) {
             buzz()
             if(seq.isNotEmpty()) finalizeComposing()
             if(id=="select") {
                 selecting=!selecting;editView?.selecting=selecting;editView?.invalidate()
-            } else sinkStrip.editAction(id,selecting)
+            } else {
+                val done = sinkStrip.editAction(id, selecting)
+                if (transfer && done && panel == Panel.EDIT) closePanel()
+            }
             return
         }
         if(passwordField) { vault.invalidateCapture(); if(id in setOf("copy","cut")) {message("密码不复制到剪贴板");return} }
@@ -3936,13 +4000,29 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                     val e = maxOf(ext?.selectionStart ?: 0, ext?.selectionEnd ?: 0)
                     ext?.text?.takeIf { e > s && e <= it.length }?.subSequence(s, e)?.toString()
                 }
-                if (t.isNullOrEmpty()) message("先选中文字：点中间的“选择”再移动，或点“全选”")
-                else {
-                    clipboard?.setPrimaryClip(ClipData.newPlainText("空叶键盘", t))
-                    if (id == "cut") { checkpoint(false); ic.commitText("", 1) }
-                    message(if (id == "cut") "已剪切" else "已复制")
+                if (t.isNullOrEmpty()) {
+                    endSelect()
+                    message("先选中文字：点中间的“选择”再移动，或点“全选”")
+                    return
+                }
+                val manager = clipboard
+                val copied = manager != null && runCatching {
+                    manager.setPrimaryClip(ClipData.newPlainText("空叶键盘", t))
+                }.isSuccess
+                if (!copied) {
+                    message("未能写入剪贴板，请检查写入剪贴板权限")
+                    return
+                }
+                if (id == "cut") {
+                    checkpoint(false)
+                    if (!ic.commitText("", 1)) {
+                        message("已复制，当前输入框未能剪切")
+                        return
+                    }
                 }
                 endSelect()
+                if (panel == Panel.EDIT) closePanel()
+                message(if (id == "cut") "已剪切" else "已复制")
             }
             "paste" -> {
                 SmsCodeClipboard.expire(this)

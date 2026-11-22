@@ -624,9 +624,9 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         try {value=editor.text.toString();composing=""} finally {changingEditor=false}
         onEdited(value);requestLayout()
     }
-    private var handwritingDraft: VoiceDraft? = null
+    private var inputPreview: VoiceDraft? = null
 
-    fun previewHandwriting(text: String) {
+    fun previewInput(text: String) {
         if (!localEditing) {
             composing=text
             refresh()
@@ -634,18 +634,18 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         }
         changingEditor=true
         try {
-            val draft=handwritingDraft ?: VoiceDraft(localConnection)
-            handwritingDraft=draft
+            val draft=inputPreview ?: VoiceDraft(localConnection)
+            inputPreview=draft
             if (draft.preview(text,underline=true)) composing=text
         } finally { changingEditor=false }
         refresh()
     }
 
-    fun cancelHandwritingPreview() {
+    fun cancelInputPreview() {
         changingEditor=true
         try {
-            handwritingDraft?.cancel()
-            handwritingDraft=null
+            inputPreview?.cancel()
+            inputPreview=null
             composing=""
         } finally { changingEditor=false }
         refresh()
@@ -691,17 +691,20 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         refresh()
     }
 
-    fun editAction(id:String, selecting:Boolean=false) {
+    fun editAction(id:String, selecting:Boolean=false): Boolean {
         val menu=when(id) {
             "all" -> android.R.id.selectAll; "copy" -> android.R.id.copy
             "cut" -> android.R.id.cut; "paste" -> android.R.id.paste
             "undo" -> android.R.id.undo; "redo" -> android.R.id.redo
             else -> 0
         }
-        if(menu!=0) {editor.onTextContextMenuItem(menu);return}
-        if(id=="del") {deleteAtCursor();return}
-        if(id=="enter") {insertAtCursor("\n");return}
-        val layout=editor.layout ?: return
+        if (menu != 0) {
+            if ((id == "copy" || id == "cut") && !editor.hasSelection()) return false
+            return editor.onTextContextMenuItem(menu)
+        }
+        if(id=="del") {deleteAtCursor();return true}
+        if(id=="enter") {insertAtCursor("\n");return true}
+        val layout=editor.layout ?: return false
         val text=editor.text
         when(id) {
             "left" -> if(selecting) android.text.Selection.extendLeft(text,layout) else android.text.Selection.moveLeft(text,layout)
@@ -710,8 +713,10 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
             "down" -> if(selecting) android.text.Selection.extendDown(text,layout) else android.text.Selection.moveDown(text,layout)
             "home" -> if(selecting) android.text.Selection.extendToLeftEdge(text,layout) else android.text.Selection.moveToLeftEdge(text,layout)
             "end" -> if(selecting) android.text.Selection.extendToRightEdge(text,layout) else android.text.Selection.moveToRightEdge(text,layout)
+            else -> return false
         }
         editor.bringPointIntoView(editor.selectionEnd)
+        return true
     }
 
     private var scrollOffsetY = 0f
@@ -952,9 +957,17 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
 }
 
 /** 分词：把一段文字切成词块，点选后插入或复制 */
-class TokensPanel(context: Context, private val skin: Skin, private val tokens: List<String>, onInsert: (String) -> Unit, onCopy: (String) -> Unit, onClose: () -> Unit) : LinearLayout(context) {
+class TokensPanel(
+    context: Context,
+    private val skin: Skin,
+    private val tokens: List<String>,
+    private val chosen: BooleanArray,
+    private val onSelectionChanged: (String) -> Unit,
+    onInsert: (String) -> Unit,
+    onCopy: (String) -> Unit,
+    onClose: () -> Unit,
+) : LinearLayout(context) {
     private val d = resources.displayMetrics.density
-    private val chosen = BooleanArray(tokens.size)
     private val flow = TokenFlow()
 
     init {
@@ -964,16 +977,24 @@ class TokensPanel(context: Context, private val skin: Skin, private val tokens: 
         fun btn(icon: Int, f: () -> Unit) = acts.addView(IconButton(context, icon, skin.modFg, 21f) { f() }.apply {
             background = roundBg(skin.modBg, 16 * d)
         }, lp(0, (38 * d).toInt(), 1f).apply { marginEnd = (6 * d).toInt() })
-        btn(R.drawable.ic_select_all) { val all = chosen.all { it }; chosen.fill(!all); flow.invalidate() }
-        btn(R.drawable.ic_copy) { onCopy(selected()) }
-        btn(R.drawable.ic_insert) { onInsert(selected()) }
+        btn(R.drawable.ic_select_all) {
+            chosen.fill(!chosen.all { it })
+            selectionChanged()
+        }
+        btn(R.drawable.ic_copy) { onCopy(selected(fallbackToAll = true)) }
+        btn(R.drawable.ic_insert) { onInsert(selected(fallbackToAll = true)) }
         btn(R.drawable.ic_close) { onClose() }
         addView(acts, lp(MATCH, WRAP))
     }
 
-    private fun selected(): String {
+    private fun selectionChanged() {
+        flow.invalidate()
+        onSelectionChanged(selected(fallbackToAll = false))
+    }
+
+    private fun selected(fallbackToAll: Boolean): String {
         val picked = tokens.filterIndexed { i, _ -> chosen[i] }
-        val list = picked.ifEmpty { tokens }
+        val list = if (fallbackToAll && picked.isEmpty()) tokens else picked
         val sb = StringBuilder()
         for (t in list) {
             if (sb.isNotEmpty() && sb.last().isLetterOrDigit() && sb.last() !in '一'..'鿿' && t.first().isLetterOrDigit() && t.first() !in '一'..'鿿') sb.append(' ')
@@ -1029,12 +1050,15 @@ class TokensPanel(context: Context, private val skin: Skin, private val tokens: 
                         target = !chosen[i]
                         chosen[i] = target
                         parent?.requestDisallowInterceptTouchEvent(true)
-                        invalidate()
+                        selectionChanged()
                     }
                 }
                 MotionEvent.ACTION_MOVE -> if (dragging) {
                     val i = boxes.indexOfFirst { it.contains(e.x, e.y) }
-                    if (i >= 0 && chosen[i] != target) { chosen[i] = target; invalidate() }
+                    if (i >= 0 && chosen[i] != target) {
+                        chosen[i] = target
+                        selectionChanged()
+                    }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dragging = false
             }
