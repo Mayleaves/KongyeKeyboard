@@ -32,6 +32,12 @@ object UpdateDialogRegression {
             return tree(auto.rootInActiveWindow) + auto.windows.flatMap {tree(it.root)}
         }
         fun has(t:String)=nodes().any {it.text?.lines()?.contains(t)==true||it.contentDescription?.toString()==t}
+        fun hasProgress(expected:Float?)=nodes().any { node ->
+            val range=node.rangeInfo
+            node.isVisibleToUser && node.className=="android.widget.ProgressBar" &&
+                if(expected==null) range==null
+                else range!=null && range.min==0f && range.max==1f && kotlin.math.abs(range.current-expected)<.005f
+        }
         fun waitFor(name:String,f:()->Boolean){
             val end=SystemClock.uptimeMillis()+35000
             while(SystemClock.uptimeMillis()<end){if(f())return;SystemClock.sleep(80)}
@@ -76,9 +82,14 @@ object UpdateDialogRegression {
                 waitFor("download required"){has("发现新版本")&&has("下载更新")};check(!has("安装更新"))
                 capture("02-检查更新-原页面弹窗")
                 ui {download.value=true;fraction.value=.37f}
-                waitFor("download progress"){has("正在下载安装包")&&has("37%")&&has("取消下载")};check(!has("安装更新"))
+                waitFor("download progress"){has("正在下载安装包")&&has("37%")&&hasProgress(.37f)&&has("取消下载")}
+                check(!has("安装更新"))
+                capture("03-下载安装包-进度条")
+                ui {fraction.value=null;progress.value="已下载 24 MB"}
+                waitFor("unknown download size"){has("已下载 24 MB")&&!has("37%")&&hasProgress(null)}
+                ui {fraction.value=1f}
                 ui {validating.value=true}
-                waitFor("validation status"){has("正在校验安装包")&&!has("37%")&&!has("取消下载")}
+                waitFor("validation status"){has("正在校验安装包")&&!has("100%")&&!has("取消下载")&&hasProgress(null)}
                 ui {validating.value=false}
                 ui {download.value=false;rel.value=UpdateChecker.Release("v99.0.0","",null,"")}
                 waitFor("no compatible asset"){has("暂无适配本机的安装包。")};check(!has("下载更新")&&!has("安装更新"))
@@ -92,11 +103,12 @@ object UpdateDialogRegression {
             } finally {
                 ui {rel.value=original[0] as UpdateChecker.Release?;file.value=original[1] as File?;download.value=original[2] as Boolean;message.value=original[3] as String;progress.value=original[4] as String;fraction.value=original[5] as Float?;validating.value=original[6] as Boolean}
             }
-            shell("input keyevent 4");waitFor("original page"){!has("软件更新")&&has("检查更新")&&nodes().any {it.isEditable}}
+            shell("input keyevent 4")
+            waitFor("original page"){!has("软件更新")&&!has("发现新版本")&&has("检查更新")&&has("关于")}
             home();val search=nodes().first {it.isEditable};check(search.performAction(Node.ACTION_SET_TEXT,Bundle().apply {putCharSequence(Node.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"检查更新")}));SystemClock.sleep(300)
             click("检查更新");waitFor("search entry dialog"){has("软件更新")&&has("更新历史")}
             shell("input keyevent 4");waitFor("search retained"){!has("软件更新")&&nodes().any {it.isEditable&&it.text?.toString()=="检查更新"}}
-            i.sendStatus(0,Bundle().apply {putString("stream","UPDATE DIALOG PASSED: real check, original page/search preserved; simulated download-required, progress, missing APK, cached APK with actual permission, current version and failure states. Installer was not launched.\n")})
+            i.sendStatus(0,Bundle().apply {putString("stream","UPDATE DIALOG PASSED: real check, original page/search preserved; verified known-size and unknown-size progress bars, validation, missing APK, cached APK with actual permission, current version and failure states. Installer was not launched.\n")})
         } finally {
             app.unregisterActivityLifecycleCallbacks(callback)
             ui {prefs.edit().apply {if(hadCheck)putLong(Prefs.UPDATE_CHECKED,previousCheck)else remove(Prefs.UPDATE_CHECKED)}.commit()}

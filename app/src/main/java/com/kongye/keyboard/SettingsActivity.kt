@@ -35,6 +35,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -102,7 +103,11 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
@@ -116,6 +121,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.SolidColor
@@ -144,6 +151,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import kotlin.math.roundToInt
 
 private val LocalPlainMenu=androidx.compose.runtime.staticCompositionLocalOf {false}
@@ -3039,9 +3047,9 @@ class SettingsActivity : ComponentActivity() {
             properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
         ) {
             Column(
-                Modifier.widthIn(max = 420.dp).fillMaxWidth(.9f).heightIn(max = 560.dp)
-                    .clip(RoundedCornerShape(24.dp)).background(pal.card).padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                Modifier.widthIn(max = 400.dp).fillMaxWidth(.9f).heightIn(max = 560.dp)
+                    .clip(RoundedCornerShape(24.dp)).background(pal.card).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(pal.tile),
@@ -3057,30 +3065,7 @@ class SettingsActivity : ComponentActivity() {
                     }
                 }
                 if (transferring || checkingUpdate) {
-                    Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(pal.tile).padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            BasicText(progressText, style = TextStyle(color = pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium))
-                            if (progressValue != null) BasicText(progressValue, style = TextStyle(color = pal.accent, fontSize = 13.sp))
-                        }
-                        if (progress != null) {
-                            Box(Modifier.fillMaxWidth().height(5.dp).clip(CircleShape).background(pal.track)
-                                .semantics { progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(progress, 0f..1f) }) {
-                                Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(pal.accent))
-                            }
-                        } else {
-                            AndroidView(
-                                factory = { context ->
-                                    android.widget.ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal)
-                                        .apply { isIndeterminate = true }
-                                },
-                                update = { it.indeterminateTintList = android.content.res.ColorStateList.valueOf(pal.accent.toArgb()) },
-                                modifier = Modifier.fillMaxWidth().height(5.dp),
-                            )
-                        }
-                    }
+                    UpdateProgress(pal, progressText, progressValue, progress)
                 } else {
                     Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -3096,14 +3081,15 @@ class SettingsActivity : ComponentActivity() {
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                     if (!transferring && !complete) {
                         BasicText("更新历史", style = TextStyle(color = pal.text2, fontSize = 14.sp),
                             modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable {
                                 dismiss()
                                 onHistory()
-                            }.padding(vertical = 10.dp))
-                    } else Spacer(Modifier.width(1.dp))
+                            }.padding(vertical = 12.dp))
+                        Spacer(Modifier.weight(1f))
+                    }
                     when {
                         downloading.value && !validatingUpdate.value -> Pill(pal, "取消下载", false) { updateDownloadCancelled = true }
                         confirmation != null -> Pill(pal, "继续安装", true) { AppUpdate.requestConfirmation(this@SettingsActivity, confirmation) }
@@ -3123,6 +3109,54 @@ class SettingsActivity : ComponentActivity() {
             }
         }
     }
+
+    @Composable
+    private fun UpdateProgress(pal: Pal, status: String, value: String?, progress: Float?) {
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(pal.tile).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicText(status, Modifier.weight(1f),
+                    style = TextStyle(color = pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium))
+                if (value != null) {
+                    BasicText(value, style = TextStyle(color = pal.searchMatch, fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"))
+                }
+            }
+            val track = Modifier.fillMaxWidth().height(9.dp).clip(CircleShape).background(pal.track)
+                .semantics {
+                    contentDescription = status
+                    progressBarRangeInfo = if (progress == null) ProgressBarRangeInfo.Indeterminate
+                        else ProgressBarRangeInfo(progress, 0f..1f)
+                }
+            if (progress != null) {
+                val displayed by animateFloatAsState(progress, animationSpec = tween(180), label = "update progress")
+                Canvas(track) {
+                    val width = size.width * displayed
+                    if (width > 0f) {
+                        drawRoundRect(pal.accent, size = Size(width, size.height),
+                            cornerRadius = CornerRadius(minOf(width, size.height) / 2f))
+                    }
+                }
+            } else {
+                val position by rememberInfiniteTransition(label = "update activity").animateFloat(
+                    initialValue = -.32f, targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing)),
+                    label = "progress segment",
+                )
+                Canvas(track) {
+                    drawRoundRect(pal.accent, topLeft = Offset(size.width * position, 0f),
+                        size = Size(size.width * .32f, size.height), cornerRadius = CornerRadius(size.height / 2f))
+                }
+            }
+        }
+    }
+
     @Composable
     private fun MarkdownBody(pal:Pal,source:String) {
         AndroidView(factory={ctx->MarkdownTextView(ctx)},update={it.render(source,pal.ink.toArgb(),pal.accent.toArgb())},modifier=Modifier.fillMaxWidth().padding(vertical=8.dp))
