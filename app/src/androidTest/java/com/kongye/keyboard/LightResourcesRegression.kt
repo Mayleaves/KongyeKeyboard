@@ -2,6 +2,8 @@ package com.kongye.keyboard
 
 import android.app.Instrumentation
 import android.os.Bundle
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.net.ServerSocket
 import java.security.MessageDigest
@@ -87,6 +89,29 @@ object LightResourcesRegression {
             check(restart.readBytes().contentEquals(data))
             check(runCatching {ResourceTransfer.fetch(part.copy(url="http://example.invalid/insecure"),File(dir,"insecure.bin"),ResourceTransfer.Control()) {}}.isFailure)
             report("Bad hashes rejected without installing; non-range restart and HTTPS policy passed")
+
+            val release=JSONObject().put("assets",JSONArray().put(JSONObject()
+                .put("name",part.name).put("size",data.size).put("digest","sha256:$sha").put("browser_download_url",part.url)))
+            val resolved=ResourceTransfer.grammarAsset(part.copy(bytes=1,sha256="0".repeat(64)),release)
+            check(resolved==part)
+            check(runCatching {ResourceTransfer.grammarAsset(part.copy(url="https://example.invalid"),release)}.isFailure)
+            val grammar=File(dir,"grammar");val partial=File(dir,"grammar.part");val partialMarker=File(dir,"grammar.part.sha256")
+            partial.writeBytes(ByteArray(8192));partialMarker.writeText("${part.bytes}:${"0".repeat(64)}")
+            ranged=false
+            ResourceTransfer.fetch(resolved,grammar,ResourceTransfer.Control(),releaseAsset=true){}
+            check(!ranged && grammar.readBytes().contentEquals(data) && !partialMarker.exists())
+            check(File(dir,"grammar.sha256").readText()=="${part.bytes}:$sha")
+            report("Rolling grammar release validates its metadata and restarts a partial download from a different release")
+
+            val imported = File(dir, "offline.gram")
+            check(runCatching {
+                ResourceTransfer.importGrammar(ByteArray(data.size).inputStream(), imported, listOf(part), ResourceTransfer.Control()) {}
+            }.isFailure)
+            check(!imported.exists())
+            val importedBytes = ResourceTransfer.importGrammar(data.inputStream(), imported, listOf(part), ResourceTransfer.Control()) {}
+            check(importedBytes == part.bytes && imported.readBytes().contentEquals(data))
+            check(File(dir, "offline.gram.sha256").readText() == "${part.bytes}:$sha")
+            report("Offline grammar import rejects incorrect hashes and installs verified files")
         } finally {server.close();worker.join(1000);dir.deleteRecursively()}
         if(download) {
             val done=CountDownLatch(1);var okay=false;var message=""

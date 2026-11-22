@@ -11,8 +11,8 @@ android {
         applicationId = "com.kongye.keyboard"
         minSdk = 26
         targetSdk = 36
-        versionCode = 54
-        versionName = "3.0.14"
+        versionCode = 58
+        versionName = "3.0.18"
         testInstrumentationRunner = "com.kongye.keyboard.OfflineResourcesCheck"
         // ML Kit 的识别、翻译带原生库；只要 64 位 ARM，安装包小很多
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }

@@ -98,34 +98,76 @@ object FcitxEngine {
         prepare(raw,current)
         if(!current()) throw java.util.concurrent.CancellationException()
         val tokens=Fcitx.preedit.split(' ', '\'').filter {it.isNotEmpty()}
-        fun collect(query:String,source:String,limit:Int=80):List<Cand> {
+        fun collect(query:String,source:String,limit:Int=80,offset:Int=0):List<Cand> {
             val parts=Fcitx.preedit.split(' ', '\'').filter {it.isNotEmpty()}
-            val length=source.count {it!='\''}
-            return Fcitx.getFcitxCandidates(0,limit).orEmpty().mapNotNull {c ->
+            val sourceLetters=source.replace("'","")
+            val queryLetters=if(query==source)sourceLetters else query.replace("'","")
+            val length=sourceLetters.length
+            val queryLength=queryLetters.length.coerceAtLeast(1)
+            val ends=IntArray(parts.size+1)
+            for(i in parts.indices)ends[i+1]=ends[i]+parts[i].count {it in 'a'..'z'}
+            return Fcitx.getFcitxCandidates(offset,limit).orEmpty().mapNotNull {c ->
+                if(!current()) throw java.util.concurrent.CancellationException()
                 if(c.text.isEmpty() || c.text.all {it.code<128}) null else {
                     val chars=c.text.codePointCount(0,c.text.length)
-                    val queryLength=query.count {it!='\''}
-                    val estimated=parts.take(chars).sumOf {token->token.count {it in 'a'..'z'}}.coerceIn(1,queryLength.coerceAtLeast(1))
+                    val estimated=ends[minOf(chars,parts.size)].coerceIn(1,queryLength)
                     val consumed=if(query!=source && estimated==queryLength)length else minOf(estimated,length)
-                    val reading=HanReadings.resolve(c.text,query.filter {it!='\''}.take(estimated),parts)
+                    val reading=HanReadings.resolve(c.text,queryLetters.take(estimated),parts)
                     Cand(c.text,consumed,null,0f,py=reading,inputDisplay=display,
-                        nativeChoice=RimeChoice("fcitx/pinyin",query,source),correction=!SpellingAssist.matchesTypedReading(source.filter {it!='\''}.take(consumed),reading))
+                        nativeChoice=RimeChoice("fcitx/pinyin",query,source),correction=!SpellingAssist.matchesTypedReading(sourceLetters.take(consumed),reading))
                 }
             }.filter {c->!c.correction || SpellingAssist.correctionFlags==15 ||
-                SpellingAssist.allows(source.replace("'","").take(c.n),c.py.orEmpty())}
+                SpellingAssist.allows(sourceLetters.take(c.n),c.py.orEmpty())}
         }
-        val nativeWords=collect(raw,raw,if(includeShort) 512 else 48).sortedBy {candidate->
-            if(HanReadings.plain(candidate.py.orEmpty()).replace(" ","")==letters.take(candidate.n))0 else if(candidate.correction)2 else 1
+        fun sortNative(words:List<Cand>)=words.sortedBy {candidate->
+            if(candidate.py.orEmpty().replace(" ","")==letters.take(candidate.n))0 else if(candidate.correction)2 else 1
         }
-        val firstNative=nativeWords.firstOrNull()
-        val original=if(firstNative?.n==count && !firstNative.correction && firstNative.w.none {it in 'a'..'z'})nativeWords
-        else {
-            val streaming=display.split('\'').filter {it.isNotEmpty()}
-            val exact=Lexicon.mixedSyllableCandidates(streaming,current)
-            (exact+nativeWords).distinctBy {it.w to it.n}
+        val displayParts=display.split('\'').filter {it.isNotEmpty()}
+        val mixed=Lexicon.mixedSyllableCandidates(displayParts,current)
+            .filter {it.n==count || it.n*2>=count && it.w.length>=3}
+        fun merge(words:List<Cand>):List<Cand> {
+            if(mixed.isEmpty())return words
+            val first=words.firstOrNull()
+            if(first!=null && first.n==count) {
+                val reading=first.py.orEmpty()
+                val tolerance=if(displayParts.size==2)0f else 1f
+                val supported=mixed.any {it.n==count && it.w==first.w && mixed.first().score-it.score<=tolerance}
+                if(reading.replace(" ","")==letters ||
+                    supported && !first.correction ||
+                    mixed.first().n<count && (!first.correction || SpellingAssist.wordCost(letters,reading)<=15))return words
+            }
+            val preferred=mixed.map {candidate->
+                words.firstOrNull {it.w==candidate.w && it.n==candidate.n && it.py==candidate.py && !it.correction} ?: candidate
+            }
+            return (preferred+words).distinctBy {it.w to it.n}
         }
-        onPrimary?.invoke(original+literal)
+        val preview=if(onPrimary!=null)sortNative(collect(raw,raw,12)) else emptyList()
+        if(onPrimary!=null)onPrimary(merge(preview)+literal)
+        if(!current()) throw java.util.concurrent.CancellationException()
+        val original=merge(sortNative(if(onPrimary!=null) preview+collect(raw,raw,36,12)
+            else collect(raw,raw,if(includeShort)512 else 48)))
         val result=original.toMutableList()
+        // An order typo may break a syllable into several tokens. Repair it before
+        // decoding the mixed spelling, so the words after it can still match.
+        if(SpellingAssist.correctionFlags and 2!=0 && original.firstOrNull()?.n!=count) {
+            val swaps=SpellingAssist.transpositions(raw)
+            val repaired=swaps.mapNotNull { spelling ->
+                if(!current()) throw java.util.concurrent.CancellationException()
+                val parts=Lexicon.streamingDisplay(spelling.map(Char::toString)).split('\'')
+                val phrase=Lexicon.mixedSyllableCandidates(parts,current).firstOrNull {it.n==count && !it.correction}
+                if(phrase!=null) Cand(phrase.w,count,phrase.e,phrase.score,abbr=true,py=phrase.py,
+                    inputDisplay=display,correction=true)
+                else {
+                    prepare(spelling,current)
+                    collect(spelling,raw,12).firstOrNull {it.n==count && it.py.orEmpty().replace(" ","")==spelling}
+                }
+            }.maxByOrNull {it.score}
+            if(repaired!=null) {
+                result.removeAll {it.w==repaired.w && it.n==repaired.n}
+                result.add(0,repaired)
+            }
+            if(swaps.isNotEmpty())prepare(raw,current)
+        }
         if(Prefs.FUZZY_V_U in Lexicon.fuzzyRules && raw.any {it in "uv"}) {
             val variants=linkedSetOf(raw.replace('v','u'),raw.replace('u','v')).apply {remove(raw)}
             for(variant in variants) {
@@ -137,12 +179,12 @@ object FcitxEngine {
         // Native words appear immediately; bounded repairs refine the same page.
         try {
             val repairs=ArrayList<Cand>()
-            val first=original.firstOrNull()
+            val first=result.firstOrNull()
             val reading=first?.py.orEmpty().replace(" ","").replace("'","")
             val exact=first?.n==count && reading==raw
-            val nativeRepair=first?.n==count && reading.length==raw.length && reading!=raw && SpellingAssist.wordCost(raw,first?.py.orEmpty())<=15
+            val nativeRepair=first?.n==count && reading.length==raw.length && reading!=raw && SpellingAssist.wordCost(raw,first.py.orEmpty())<=15
             val variants=if(first?.abbr==true || nativeRepair || exact && raw in Lexicon.pinyinSyllables())emptyList()
-                else SpellingAssist.repairs(raw)
+                else SpellingAssist.repairs(raw,current)
             for(variant in variants) {
                 if(!current()) throw java.util.concurrent.CancellationException()
                 prepare(variant,current)

@@ -8,7 +8,7 @@
       "files": [
         {
           "name": "wanxiang-lts-zh-hans.gram",
-          "url": "https://api.github.com/repos/amzxyz/rime-wanxiang-data/releases/assets/747939897",
+          "url": "https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/wanxiang-lts-zh-hans.gram",
           "path": "files:rime/data-2.1.0-ice-r3/wanxiang-lts-zh-hans.gram",
           "bytes": 407160876,
           "sha256": "d4f64356231764ff27b79c9b0db79cd9d665013464cf5544e2fbd9a71e0f1c5a"

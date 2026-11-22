@@ -187,6 +187,19 @@ object Review306Regression {
                 waitFor("repeated initials match all eight keys") {resolved("hhhhhhhh") && "哈哈哈哈哈哈哈哈" in stripWords().take(4)}
                 ui {ime.onKey(Key(Kind.RESET));type("wozhebkan")}
                 waitFor("mixed full syllables and abbreviated middle") {resolved("wozhebkan") && "我这边看" in stripWords().take(8)}
+                val sentenceKeys="nizaishuosmyanse"
+                val sentence="你在说什么颜色"
+                ui {ime.onKey(Key(Kind.RESET));type(sentenceKeys)}
+                waitFor("seven-character phrase first") {resolved(sentenceKeys) && stripWords().firstOrNull()==sentence}
+                var appended=sentenceKeys
+                for (letter in "vvvv") {
+                    appended+=letter
+                    ui {type(letter.toString())}
+                    waitFor("extended spelling does not flash back to a short candidate") {
+                        resolved(appended) && (stripWords().firstOrNull()?.length ?: 0)>=sentence.length
+                    }
+                }
+                report("A seven-character candidate keeps its matched span as unmatched keys are appended")
                 val rawLong="h".repeat(32)
                 val longWord="哈".repeat(32)
                 fun bubble()=visible().filterIsInstance<TextView>().firstOrNull {it.contentDescription=="完整候选，点击输入"}

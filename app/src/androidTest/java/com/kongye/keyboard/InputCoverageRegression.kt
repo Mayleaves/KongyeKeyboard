@@ -50,6 +50,48 @@ object InputCoverageRegression {
                 "Mixed full spelling and initials lost full phrase: ${phrases.take(12).map {it.w to it.n}}"
             }
             report("ABBREVIATION PASSED: same initial from 5 through 128 keys, and full match for wozhebkan")
+            for(enabled in listOf(0,15)) {
+                SpellingAssist.correctionFlags=enabled
+                for((raw,expected) in listOf("zaim" to "在吗","nh" to "你好","nihao" to "你好")) {
+                    val keys=raw.map(Char::toString)
+                    var primary:List<Cand> = emptyList()
+                    val final=PinyinEngine.candidatesLive(keys,true,{true}) {primary=it}
+                    val expanded=FcitxEngine.candidates(keys) {true}
+                    for(page in listOf(primary,final,expanded)) {
+                        check(page.firstOrNull()?.let {it.w==expected && it.n==raw.length && !it.correction}==true) {
+                            "$raw with correction flags $enabled: ${page.take(8).map {it.w to it.n}}"
+                        }
+                    }
+                }
+            }
+            SpellingAssist.correctionFlags=0
+            for ((raw, expected) in listOf(
+                "nizaishuosm" to "你在说什么",
+                "shismyanse" to "是什么颜色",
+                "nizaishuosmyanse" to "你在说什么颜色"
+            )) {
+                val keys=raw.map(Char::toString)
+                var primary:List<Cand> = emptyList()
+                val started=android.os.SystemClock.elapsedRealtime()
+                var firstMs=-1L
+                val final=PinyinEngine.candidatesLive(keys,true,{true}) {
+                    primary=it
+                    firstMs=android.os.SystemClock.elapsedRealtime()-started
+                }
+                check(listOf(primary,final).all {it.first().w==expected && it.first().n==raw.length}) {
+                    "$raw: primary ${primary.take(5).map {it.w}}, final ${final.take(5).map {it.w}}"
+                }
+                report("$raw: primary ${firstMs} ms, final ${android.os.SystemClock.elapsedRealtime()-started} ms")
+            }
+            SpellingAssist.correctionFlags=15
+            Lexicon.fuzzyRules=setOf(Prefs.FUZZY_V_U)
+            val noisy="wozhenbduzdnijiaohusom"
+            val extended=PinyinEngine.candidates(noisy.map(Char::toString))
+            check(extended.first().w.startsWith("我真不知道你") &&
+                extended.first().n in noisy.indexOf("jiao") until noisy.length) {
+                "Noisy sentence lost its matched prefix: ${extended.take(6).map {it.w to it.n}}"
+            }
+            report("Common mixed phrases rank first in both live and final results; noisy long input keeps its matched prefix")
             report("INPUT COVERAGE PASSED: polyphones, rare and supplementary Han, full/grouped pinyin, independent v/u key substitution, native selection boundaries")
         } finally {Lexicon.fuzzyRules=oldRules;SpellingAssist.correctionFlags=oldFlags;FcitxEngine.clear()}
     }

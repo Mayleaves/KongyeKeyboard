@@ -264,38 +264,92 @@ object Lexicon {
         }
     }
 
-    /** Find a complete path across full syllables and abbreviated dictionary words. */
+    /** Match mixed spelling with real words. Keep the longest verified prefix if
+     * the remaining keys cannot yet form a word. */
     @Synchronized
     fun mixedSyllableCandidates(tokens:List<String>,current:()->Boolean):List<Cand> {
-        if(!ready || tokens.size<2 || tokens.none {it !in sylSet && isTypedInitial(it)} || tokens.none {it in sylSet} ||
-            tokens.any {it !in sylSet && !isTypedInitial(it)})return emptyList()
-        data class Path(val text:String,val reading:String,val score:Int)
+        if(ready && tokens.size==2 && tokens.any(::isTypedInitial)) {
+            val count=tokens.sumOf {it.length}
+            return initials[tokens.joinToString("") {it.take(1)}].orEmpty().asSequence()
+                .filter {entry ->
+                    if(!current())throw java.util.concurrent.CancellationException()
+                    tokens.indices.all {i ->
+                        entry.syl[i]==tokens[i] || isTypedInitial(tokens[i]) && entry.syl[i].startsWith(tokens[i])
+                    }
+                }
+                .map {entry -> Cand(entry.w,count,entry,entry.sc+boost(entry),abbr=true,py=entry.syl.joinToString(" "))}
+                .sortedByDescending {it.score}.distinctBy {it.w}.take(6).toList()
+        }
+        if(!ready || tokens.size<3 || tokens.all {it in sylSet} || tokens.none {it in sylSet})return emptyList()
+        data class Path(val text:String,val reading:String,val score:Float,val abbreviated:Boolean,val corrections:Int)
         val paths=Array(tokens.size+1) {emptyList<Path>()}
-        paths[0]=listOf(Path("","",0))
+        paths[0]=listOf(Path("","",0f,false,0))
         for(start in tokens.indices) {
             if(!current())throw java.util.concurrent.CancellationException()
             if(paths[start].isEmpty())continue
             for(end in start+1..min(tokens.size,start+6)) {
                 val segment=tokens.subList(start,end)
-                val hasInitial=segment.any {it !in sylSet}
-                if(hasInitial && end==start+1)continue
-                val entries=if(hasInitial)initials[segment.joinToString("") {it.take(1)}].orEmpty()
-                    else exact[segment.joinToString("")].orEmpty()
-                val matches=entries.asSequence().filter {entry->
-                    entry.syl.size==segment.size && segment.indices.all {i->
-                        segment[i]==entry.syl[i] || segment[i] !in sylSet && entry.syl[i].startsWith(segment[i])
+                val abbreviated=segment.any {it !in sylSet}
+                if(abbreviated && end==start+1)continue
+                val canCorrect=SpellingAssist.correctionFlags!=0 && abbreviated
+                val matches=ArrayList<Pair<Entry,Int>>()
+                fun lookup(parts:List<String>,skipped:Int=0) {
+                    // An exact syllable in the same word anchors a spelling repair.
+                    // Repairing one abbreviated sound to justify another is too speculative.
+                    val canRepair=canCorrect && parts.any {it.length>1 && it in sylSet}
+                    val entries=if(abbreviated)initials[parts.joinToString("") {it.take(1)}].orEmpty()
+                        else exact[parts.joinToString("")].orEmpty()
+                    if(entries.isEmpty())return
+                    var direct=0
+                    var repaired=0
+                    for(entry in entries) {
+                        if(!current())throw java.util.concurrent.CancellationException()
+                        if(entry.syl.size!=parts.size)continue
+                        var edits=skipped
+                        var valid=true
+                        for(i in parts.indices) {
+                            val typed=parts[i]
+                            val sound=entry.syl[i]
+                            if(typed==sound || sound.startsWith(typed) && (isTypedInitial(typed) ||
+                                    i==parts.lastIndex && end==tokens.size && typed !in sylSet))continue
+                            if(canRepair && edits==0 && typed.length>=2 && typed !in sylSet &&
+                                SpellingAssist.singleTokenCorrection(typed,sound)) {edits++;continue}
+                            valid=false
+                            break
+                        }
+                        if(valid) {
+                            if(edits>skipped && repaired>=4)continue
+                            matches.add(entry to edits)
+                            if(edits>skipped)repaired++ else if(++direct>=4)break
+                        }
                     }
-                }.take(4).toList()
+                }
+                lookup(segment)
+                if(matches.none {it.second==0} && canCorrect && SpellingAssist.correctionFlags and 4!=0 && segment.size>=4) {
+                    for(skip in 1 until segment.lastIndex) {
+                        if(segment[skip].length in 2..3)lookup(segment.filterIndexed {i,_->i!=skip},1)
+                    }
+                }
                 if(matches.isEmpty())continue
-                val next=paths[start].flatMap {path->matches.map {entry->
+                val next=paths[start].flatMap {path->matches.mapNotNull {(entry,edits)->
+                    val corrections=path.corrections+edits
+                    // Do not chain unrelated spelling repairs into an invented
+                    // sentence. The unverified suffix remains in composition.
+                    if(corrections>1)return@mapNotNull null
+                    // Center frequency per syllable so a longer but less common
+                    // reading cannot win solely by inserting extra characters.
                     Path(path.text+entry.w,(path.reading+" "+entry.syl.joinToString(" ")).trim(),
-                        path.score+entry.sc*entry.syl.size-14)
+                        path.score+(entry.sc+boost(entry)-72f)*entry.syl.size-24-24*edits,
+                        path.abbreviated || abbreviated,corrections)
                 }}
                 paths[end]=(paths[end]+next).sortedByDescending {it.score}.distinctBy {it.text}.take(4)
             }
         }
-        val count=tokens.sumOf {it.length}
-        return paths.last().map {Cand(it.text,count,null,it.score.toFloat(),abbr=true,py=it.reading)}
+        val end=(tokens.size downTo 2).firstOrNull {i->paths[i].any {it.abbreviated}} ?: return emptyList()
+        val count=tokens.take(end).sumOf {it.length}
+        return paths[end].filter {it.abbreviated}.map {
+            Cand(it.text,count,null,it.score,abbr=true,py=it.reading,correction=it.corrections>0)
+        }
     }
 
     /** 打开的模糊音规则（Prefs.FUZZY_RULES 的 id） */

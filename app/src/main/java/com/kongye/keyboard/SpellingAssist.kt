@@ -145,6 +145,9 @@ object SpellingAssist {
     }
 
     @Volatile var correctionFlags=15
+    internal fun singleTokenCorrection(typed:String,expected:String):Boolean =
+        correctionFlags!=0 && typed.firstOrNull()==expected.firstOrNull() && permittedDistance(typed,expected)==1
+
     fun configure(ctx:android.content.Context) {
         correctionFlags=if(!V3Prefs.enabled(ctx,V3Prefs.CORRECTION_ENABLED))0 else listOf(V3Prefs.CORRECT_NEAR,V3Prefs.CORRECT_SWAP,V3Prefs.CORRECT_EXTRA,V3Prefs.CORRECT_MISSING)
             .mapIndexed {index,key->if(V3Prefs.enabled(ctx,key)) 1 shl index else 0}.fold(0){a,b->a or b}
@@ -172,7 +175,7 @@ object SpellingAssist {
     }
 
     /** One edit only; native dictionaries still decide the words and ranking. */
-    fun repairs(raw:String):List<String> {
+    fun repairs(raw:String,current:()->Boolean={true}):List<String> {
         if(correctionFlags==0 || raw.length !in 3..32 || raw.any {it !in 'a'..'z'})return emptyList()
         val syllables=Lexicon.pinyinSyllables().toHashSet()
         fun score(word:String):Int {
@@ -199,7 +202,10 @@ object SpellingAssist {
         if(correctionFlags and 4!=0)for(i in raw.indices)variants.add(raw.removeRange(i,i+1))
         if(correctionFlags and 8!=0)for(i in 0..raw.length)for(c in 'a'..'z')variants.add(raw.substring(0,i)+c+raw.substring(i))
         if(correctionFlags and 2!=0)variants.addAll(transpositions(raw))
-        return variants.asSequence().filter {it!=raw}.map {it to score(it)}.filter {it.second<10000}.sortedBy {it.second}.take(12).map {it.first}.toList()
+        return variants.asSequence().filter {it!=raw}.map {
+            if(!current())throw java.util.concurrent.CancellationException()
+            it to score(it)
+        }.filter {it.second<10000}.sortedBy {it.second}.take(12).map {it.first}.toList()
     }
 
     private fun fuzzyEquivalent(input:String,target:String):Boolean {

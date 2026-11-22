@@ -1121,7 +1121,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         pinyinLens.skin=skin
         floatBar.invalidate()
-        val scale=a?.scale ?: if(floating)FloatingKeyboard.height(this) else Prefs.heightScale(this)
+        val userScale=a?.scale ?: if(floating)FloatingKeyboard.height(this) else Prefs.heightScale(this)
+        val config=resources.configuration
+        val scale=userScale*ResponsiveSize.keyboardScale(config.screenWidthDp.toFloat(),config.screenHeightDp.toFloat())
         keyboard.heightScale = scale
         keyboard.visibility=when {panel==Panel.NONE || panel==Panel.ADJUST -> View.VISIBLE;landscapeEdit()->View.GONE;else->View.INVISIBLE}
         panelHost.requestLayout()
@@ -1733,14 +1735,21 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                         updated.addAll(minOf(8,updated.size),english)
                     }
                 }
-                if(growing && cands.isNotEmpty() && SpellingAssist.correctionFlags==15) {
-                    // A temporarily unmatched suffix must not collapse the strip
-                    // to a lone literal. Never promote an older repaired word
-                    // over the native model's result for the current spelling.
-                    for(c in cands) if(updated.size<cands.size && updated.none {it.w==c.w} &&
-                        !c.correction && HanReadings.plain(c.py.orEmpty()).replace(" ","")==raw.take(c.n)) updated.add(c)
-                }
                 if(mixed.isNotEmpty())updated.addAll(0,mixed)
+                if(zh && growing) {
+                    val previous=cands.firstOrNull { !it.py.isNullOrBlank() && it.w.any {ch->ch in '一'..'鿿'} }
+                    val previousChars=previous?.w?.codePointCount(0,previous.w.length) ?: 0
+                    if(previous!=null && previousChars>=2 && previous.n<keys.count {it!="'"}) {
+                        // Only replace a matched phrase when the new candidate
+                        // covers at least as much text. The suffix stays editable.
+                        val index=updated.indexOfFirst { !it.py.isNullOrBlank() &&
+                            (!it.correction || it.abbr && it.nativeChoice==null) && it.n>=previous.n &&
+                            it.w.codePointCount(0,it.w.length)>=previousChars }
+                        val best=if(index>=0)updated.removeAt(index) else previous
+                        updated.removeAll {it.w==best.w && it.n==best.n}
+                        updated.add(0,best)
+                    }
+                }
                 val next=if(zh) EnglishInput.recognize(applicationContext,raw,updated) else updated
                 cands=if(panel==Panel.CANDS && originalOrder.isNotEmpty()) {
                     // Extend the original row in place when the full lookup arrives.
@@ -1821,7 +1830,9 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
             seq.toList(),cands,tabPresentationRaw,tabPresentation,flag(Prefs.ABBR),Lexicon.fuzzyRules.toSet(),panel==Panel.CANDS
         ) else null
         val fcitx=c.nativeChoice?.schema?.startsWith("fcitx/")==true
-        val consumed=if(fcitx && !resolvedLength) runCatching {FcitxEngine.consume(c,learnOn())}.getOrElse {
+        val fullSpelling=fcitx && !c.correction && c.n==letterCount() &&
+            c.py.orEmpty().replace(" ","")==seq.filter {it!="'"}.joinToString("")
+        val consumed=if(fcitx && !resolvedLength && !fullSpelling) runCatching {FcitxEngine.consume(c,learnOn())}.getOrElse {
             android.util.Log.e("KongyeFcitx","Selection failed",it);return
         } else c.n
         if (consumed <= 0 || consumed > letterCount()) return
@@ -1829,13 +1840,15 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if(statsAllowed())TypingStats.of(this).choiceFromReading(statsMode(),taken.count {it!="'"},statsChars(c.w),cands.indexOf(c)<=0,
             taken.joinToString(""),if(!zh && !c.w.lowercase().startsWith(taken.joinToString("").lowercase()))c.w else c.py)
         pyCaret = -1
-        val syl = c.e?.syl?.toList() ?: Lexicon.decode(taken.filter { it != "'" })
+        val syl = c.e?.syl?.toList() ?: c.py?.split(' ')?.takeIf {c.abbr && it.none(String::isBlank)}
+            ?: Lexicon.decode(taken.filter { it != "'" })
         picks.add(Pick(c.w, syl, taken, c.e == null, before))
         // Keep at most eight recent candidate pages; older picks still retain their original keys.
         if(picks.size>8) picks[picks.size-9].before=null
         if (learnOn()) {
-            if(fcitx && resolvedLength)candidateWorker.submit {runCatching {FcitxEngine.consume(c,true)}}
-            else if (c.nativeChoice != null) candidateWorker.submit { PinyinEngine.recordPick(c) }
+            if(fcitx) {
+                if(resolvedLength || fullSpelling)candidateWorker.submit {runCatching {FcitxEngine.consume(c,true)}}
+            } else if (c.nativeChoice != null) candidateWorker.submit { PinyinEngine.recordPick(c) }
             else if (c.sentence) Lexicon.learnPhrase(c.w, syl) else if (c.e != null) Lexicon.recordPick(c.e)
         }
         if (letterCount() == 0) { seq.clear(); finishPicks() } else refreshComposing()
@@ -1876,7 +1889,8 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         var guard = 0
         while (seq.isNotEmpty() && guard++ < 40) {
             if (letterCount() == 0) { seq.clear(); if (picks.isNotEmpty()) finishPicks(); return }
-            pick(if(zh) {val words=PinyinEngine.candidates(seq.toList(), flag(Prefs.ABBR));EnglishInput.recognize(this,seq.joinToString(""),EnglishInput.mixed(this,seq.joinToString(""),words)+words).first()}
+            val resolved=cands.firstOrNull().takeIf {resolvedKeys==seq && !candidatesPending}
+            pick(resolved ?: if(zh) {val words=PinyinEngine.candidates(seq.toList(), flag(Prefs.ABBR));EnglishInput.recognize(this,seq.joinToString(""),EnglishInput.mixed(this,seq.joinToString(""),words)+words).first()}
                 else EnglishInput.candidates(this,seq.joinToString("")).first())
         }
     }

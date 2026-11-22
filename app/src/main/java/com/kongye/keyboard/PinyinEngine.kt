@@ -226,7 +226,9 @@ object PinyinEngine {
         }
         checkCurrent()
         if(layout=="26" && !abbr && FcitxEngine.ready && (SpellingAssist.correctionFlags!=0 || Prefs.FUZZY_V_U in Lexicon.fuzzyRules)) {
-            for(c in FcitxEngine.primaryCandidates(keys,current).filter {(it.correction || Prefs.FUZZY_V_U in Lexicon.fuzzyRules) && it.n==keys.count {key->key!="'"}}) {
+            for(c in FcitxEngine.primaryCandidates(keys,current).filter {
+                (it.correction || !it.abbr && Prefs.FUZZY_V_U in Lexicon.fuzzyRules) && it.n==keys.count {key->key!="'"}
+            }) {
                 val old=output.indexOfFirst {it.w==c.w}
                 if(old>=0 && output[old].n<c.n)output[old]=c
                 else if(old<0)output.add(minOf(3,output.size),c)

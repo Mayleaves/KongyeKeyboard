@@ -23,23 +23,25 @@ class KeyboardAdjustmentPreview(context:Context):View(context) {
     private var keyboardScale=1f
     private val d get()=resources.displayMetrics.density
     fun configure(skin:Skin,layout:String,height:Float,left:Int,right:Int,bottom:Int,gap:Float,size:Float,split:Boolean,floating:Boolean=false,floatWidth:Float=1f) {
-        val next="$skin/$layout/$height/$left/$right/$bottom/$gap/$size/$split/$floating/$floatWidth/${Prefs.tools(context)}"
+        val config=resources.configuration
+        val adaptiveHeight=height*ResponsiveSize.keyboardScale(config.screenWidthDp.toFloat(),config.screenHeightDp.toFloat())
+        val next="$skin/$layout/$height/$left/$right/$bottom/$gap/$size/$split/$floating/$floatWidth/$adaptiveHeight/$d/${resources.displayMetrics.widthPixels}/${Prefs.tools(context)}"
         if(next==signature)return
-        signature=next;this.skin=skin;this.floating=floating;keyboardScale=height
+        signature=next;this.skin=skin;this.floating=floating;keyboardScale=adaptiveHeight
         sourceWidth=resources.displayMetrics.widthPixels
         leftPixels=if(floating)0 else (left*d).toInt()
         val keyWidth=if(floating)(sourceWidth*floatWidth).toInt().coerceAtLeast((90*d).toInt())
             else (sourceWidth-leftPixels-(right*d).toInt()).coerceAtLeast((90*d).toInt())
-        board.heightScale=height;board.splitLayout=split&&layout!="9";board.splitGap=gap;board.splitSize=size
+        board.heightScale=adaptiveHeight;board.splitLayout=split&&layout!="9";board.splitGap=gap;board.splitSize=size
         board.setup(skin,when(layout){"14"->if(board.splitLayout)Layouts.splitFourteen(context)else Layouts.fourteen(context);"9"->Layouts.nine();else->Layouts.letters(true,context)},if(layout=="9")Layouts.NINE_SIDE else null)
-        toolbar.skin=skin;toolbar.uiScale=height;toolbar.showTools(listOf("more")+Prefs.tools(context))
-        bottomStrip.skin=skin;bottomStrip.uiScale=height;bottomStrip.extra=if(floating)0 else (bottom*d).toInt()
+        toolbar.skin=skin;toolbar.uiScale=adaptiveHeight;toolbar.showTools(listOf("more")+Prefs.tools(context))
+        bottomStrip.skin=skin;bottomStrip.uiScale=adaptiveHeight;bottomStrip.extra=if(floating)0 else (bottom*d).toInt()
         fun measure(view:View,width:Int) {
             view.measure(MeasureSpec.makeMeasureSpec(width,MeasureSpec.EXACTLY),MeasureSpec.makeMeasureSpec(0,MeasureSpec.UNSPECIFIED))
             view.layout(0,0,width,view.measuredHeight)
         }
         measure(toolbar,keyWidth);measure(board,keyWidth);measure(bottomStrip,sourceWidth)
-        sourceHeight=toolbar.height+board.height+if(floating)((26*height+32)*d).toInt() else bottomStrip.height
+        sourceHeight=toolbar.height+board.height+if(floating)((26*adaptiveHeight+32)*d).toInt() else bottomStrip.height
         contentDescription=if(floating)"悬浮键盘实时预览：高度${(height*100).toInt()}%，宽度${(floatWidth*100).toInt()}%，分体间距${gap.toInt()}，按键尺寸${(size*100).toInt()}%，${if(split)"分体" else "完整"}"
             else "键盘实时预览：高度${(height*100).toInt()}%，左侧${left}，右侧${right}，底部${bottom}，分体间距${gap.toInt()}，按键尺寸${(size*100).toInt()}%，${if(split)"分体" else "完整"}"
         requestLayout();invalidate()

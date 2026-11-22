@@ -327,6 +327,9 @@ class SettingsActivity : ComponentActivity() {
     private val micRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick.intValue++ }
     private val smsRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> Prefs.of(this).edit().putBoolean(Prefs.SMS_CODE,granted).apply();tick.intValue++ }
     private val notificationRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick.intValue++ }
+    private val grammarPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) ResourcePacks.importGrammar(this, uri)
+    }
     private var checkingUpdate=false
     private val updateDialogVisible=mutableStateOf(false)
     private val downloadState=mutableStateOf("")
@@ -432,7 +435,14 @@ class SettingsActivity : ComponentActivity() {
         SmsCodeClipboard.schedule(this)
         Prefs.of(this).registerOnSharedPreferenceChangeListener(prefListener)
         if (intent?.getBooleanExtra("grant_mic", false) == true && !micGranted()) micRequest.launch(Manifest.permission.RECORD_AUDIO)
-        setContent { Screen(tick.intValue) }
+        setContent {
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                val systemDensity = LocalDensity.current
+                val scale = ResponsiveSize.settingsScale(maxWidth.value)
+                val density = androidx.compose.ui.unit.Density(systemDensity.density * scale, systemDensity.fontScale)
+                CompositionLocalProvider(LocalDensity provides density) { Screen(tick.intValue) }
+            }
+        }
         if(updateDialogVisible.value)checkUpdate(false)
         else if(System.currentTimeMillis()-Prefs.of(this).getLong(Prefs.UPDATE_CHECKED,0L)>6*60*60*1000L)checkUpdate(true)
     }
@@ -527,8 +537,11 @@ class SettingsActivity : ComponentActivity() {
         }
 
         Box(Modifier.fillMaxSize().background(pal.bg)) {
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+                horizontalAlignment=Alignment.CenterHorizontally) {
             AnimatedContent(
                 targetState=page,
+                modifier=Modifier.weight(1f).widthIn(max=600.dp).fillMaxWidth(),
                 transitionSpec={
                     if(backward) {
                         (androidx.compose.animation.EnterTransition.None togetherWith slideOutHorizontally(tween(110)) {it}).apply {targetContentZIndex=-1f}
@@ -540,7 +553,7 @@ class SettingsActivity : ComponentActivity() {
             pageStateHolder.SaveableStateProvider(shownPage.name) {
             if (shownPage == Page.MAIN) {
                 Column(
-                    Modifier.fillMaxSize().background(pal.bg).windowInsetsPadding(WindowInsets.safeDrawing)
+                    Modifier.fillMaxSize().background(pal.bg)
                         .verticalScroll(mainScroll).padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -550,7 +563,7 @@ class SettingsActivity : ComponentActivity() {
             } else {
                 val subScroll = androidx.compose.runtime.key(shownPage) { rememberScrollState() }
                 Column(
-                    Modifier.fillMaxSize().background(pal.bg).windowInsetsPadding(WindowInsets.safeDrawing),
+                    Modifier.fillMaxSize().background(pal.bg),
                 ) {
                     // 固定顶部返回栏
                     Row(
@@ -609,9 +622,10 @@ class SettingsActivity : ComponentActivity() {
 
             }
 
+            }
             if(!showSplash && !overlayShown.value) {
                 Box(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(bottom=12.dp)) {
-                    Row(Modifier.width(240.dp).clip(RoundedCornerShape(50)).background(pal.card.copy(alpha=.78f))
+                    Row(Modifier.width(240.dp).heightIn(min=54.dp).clip(RoundedCornerShape(50)).background(pal.card.copy(alpha=.78f))
                         .border(1.dp,pal.line,RoundedCornerShape(50)).clickable {
                             if(isCurrent())showKeyboardOverlay(pal) {focusManager.clearFocus(force=true)} else {navigateTo(Page.READY);android.widget.Toast.makeText(this@SettingsActivity,"请先启用并选择空叶键盘",android.widget.Toast.LENGTH_SHORT).show()}
                         }.padding(horizontal=24.dp,vertical=15.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center) {
@@ -638,14 +652,17 @@ class SettingsActivity : ComponentActivity() {
     private fun showKeyboardOverlay(pal:Pal,onClose:()->Unit) {
         if(keyboardOverlay?.isShowing==true)return
         val dialog=android.app.Dialog(this)
-        val d=resources.displayMetrics.density
+        val metrics=resources.displayMetrics
+        val scale=ResponsiveSize.settingsScale(window.decorView.width.takeIf {it>0}?.div(metrics.density)
+            ?: resources.configuration.screenWidthDp.toFloat())
+        val d=metrics.density*scale
         fun dp(v:Int)=(v*d).roundToInt()
         val root=android.widget.FrameLayout(this).apply {
             setBackgroundColor(android.graphics.Color.argb(185,android.graphics.Color.red(pal.bg.toArgb()),android.graphics.Color.green(pal.bg.toArgb()),android.graphics.Color.blue(pal.bg.toArgb())))
         }
         val inputArea=android.widget.FrameLayout(this)
         val edit=android.widget.EditText(this).apply {
-            textSize=27f;gravity=android.view.Gravity.CENTER
+            textSize=27f*scale;gravity=android.view.Gravity.CENTER
             setTextColor(pal.ink.toArgb());setHintTextColor(pal.text2.copy(alpha=.55f).toArgb())
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -656,7 +673,7 @@ class SettingsActivity : ComponentActivity() {
         }
         inputArea.addView(edit,android.widget.FrameLayout.LayoutParams(-1,-2,android.view.Gravity.CENTER))
         val close=android.widget.TextView(this).apply {
-            text="×";textSize=27f;contentDescription="收起键盘";gravity=android.view.Gravity.CENTER;setTextColor(pal.text2.toArgb())
+            text="×";textSize=27f*scale;contentDescription="收起键盘";gravity=android.view.Gravity.CENTER;setTextColor(pal.text2.toArgb())
             setOnClickListener {getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(edit.windowToken,0);dialog.dismiss()}
         }
         inputArea.addView(close,android.widget.FrameLayout.LayoutParams(dp(48),dp(48),android.view.Gravity.TOP or android.view.Gravity.END).apply {setMargins(dp(8),dp(8),dp(8),dp(8))})
@@ -757,8 +774,9 @@ class SettingsActivity : ComponentActivity() {
                 BasicText(pack.title,style=TextStyle(color=pal.ink,fontSize=17.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(top=12.dp))
                 BasicText(pack.summary,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=19.sp),modifier=Modifier.padding(top=6.dp))
                 val occupied=ResourcePacks.installedBytes(this@SettingsActivity,pack.id)
+                val bytes=if(ready)occupied else state.total.takeIf {it>0} ?: pack.bytes
                 Row(Modifier.fillMaxWidth().padding(top=6.dp,bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
-                    BasicText("约 ${"%.1f".format(pack.bytes/1000000.0)} MB · ${if(bundled)"已内置，离线可用" else if(ready)"已安装" else "未安装"}",
+                    BasicText("约 ${"%.1f".format(bytes/1000000.0)} MB · ${if(bundled)"已内置，离线可用" else if(ready)"已安装" else "未安装"}",
                         style=TextStyle(color=if(ready || bundled)pal.ok else pal.text2,fontSize=12.sp,lineHeight=18.sp),modifier=Modifier.weight(1f).padding(end=8.dp))
                     Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
                         when {
@@ -767,10 +785,13 @@ class SettingsActivity : ComponentActivity() {
                             state.busy->ResourceAction(pal,"取消") {ResourcePacks.cancel(pack.id)}
                             else->{
                                 if(occupied>0)ResourceAction(pal,"删除",if(pal==DARK)Color(0xFFE1A29A) else Color(0xFFAD5149)) {pendingRemoval=pack}
-                                if(!ready)ResourceAction(pal,if(state.message.isNotEmpty())"继续" else "下载",if(pal==DARK)Color(0xFF9ABFEA) else Color(0xFF356A9C)) {ResourcePacks.start(applicationContext,pack.id)}
+                                if(!ready)ResourceAction(pal,if(occupied>0)"继续" else "下载",if(pal==DARK)Color(0xFF9ABFEA) else Color(0xFF356A9C)) {ResourcePacks.start(applicationContext,pack.id)}
                             }
                         }
                     }
+                }
+                if(pack.id=="grammar" && !ready && !state.busy) {
+                    ResourceAction(pal,"从文件导入") { grammarPicker.launch(arrayOf("*/*")) }
                 }
                 if(state.busy) {
                     val fraction=if(state.total>0)(state.downloaded.toFloat()/state.total).coerceIn(0f,1f) else 0f
@@ -1391,8 +1412,8 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun MainPage(pal:Pal,tick:Int,expandedGroup:Page?,onExpand:(Page?)->Unit,query:String,onQueryChange:(String)->Unit,go:(Page)->Unit) {
         val version=remember {UpdateChecker.currentVersion(this)}
-        Row(Modifier.fillMaxWidth().padding(vertical=18.dp),verticalAlignment=Alignment.CenterVertically) {
-            Image(painterResource(R.drawable.ic_launcher_fg),null,Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFF141416)))
+        Row(Modifier.fillMaxWidth().padding(vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
+            Image(painterResource(R.drawable.ic_launcher_fg),null,Modifier.size(54.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF141416)))
             Column(Modifier.weight(1f).padding(start=12.dp)) {
                 BasicText("空叶键盘",style=TextStyle(color=pal.ink,fontSize=27.sp,fontWeight=FontWeight.Bold))
                 BasicText("v$version",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=4.dp))
@@ -1408,7 +1429,7 @@ class SettingsActivity : ComponentActivity() {
                 alignment=androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
                 trim=androidx.compose.ui.text.style.LineHeightStyle.Trim.None))
         val searchLineHeight=with(LocalDensity.current){24.sp.toDp()}
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(pal.card).padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(pal.card).padding(horizontal=16.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
             Image(painterResource(R.drawable.ic_search),null,Modifier.size(20.dp),colorFilter=ColorFilter.tint(pal.text2))
             Spacer(Modifier.width(10.dp))
             BasicTextField(value=query,onValueChange=onQueryChange,singleLine=true,
@@ -1440,7 +1461,7 @@ class SettingsActivity : ComponentActivity() {
                     Page.TOOLS->R.drawable.ic_grid
                     else->R.drawable.ic_leaf
                 }
-                Row(Modifier.fillMaxWidth().clickable {onExpand(group.first)}.padding(start=4.dp,top=22.dp,bottom=8.dp),verticalAlignment=Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().clickable {onExpand(group.first)}.padding(start=4.dp,top=16.dp,bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
                     Image(painterResource(icon),null,Modifier.size(23.dp),colorFilter=ColorFilter.tint(pal.ink))
                     BasicText(group.first.title,style=TextStyle(color=pal.ink,fontSize=18.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(start=10.dp))
                 }
