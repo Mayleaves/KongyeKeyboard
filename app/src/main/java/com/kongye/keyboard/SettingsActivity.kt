@@ -48,6 +48,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -67,6 +71,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -330,9 +335,11 @@ class SettingsActivity : ComponentActivity() {
     private val grammarPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) ResourcePacks.importGrammar(this, uri)
     }
-    private var checkingUpdate=false
+    private var checkingUpdate by mutableStateOf(false)
     private val updateDialogVisible=mutableStateOf(false)
     private val downloadState=mutableStateOf("")
+    private val downloadProgress=mutableStateOf<Float?>(null)
+    private val validatingUpdate=mutableStateOf(false)
     private val downloadedApk=mutableStateOf<java.io.File?>(null)
     private val downloading=mutableStateOf(false)
     @Volatile private var updateDownloadCancelled=false
@@ -357,7 +364,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun checkUpdate(silent: Boolean) {
-        if (checkingUpdate || downloading.value) return
+        if (checkingUpdate || downloading.value || AppUpdate.isInstalling()) return
         checkingUpdate=true
         if (!silent) updateState.value = "检查中…"
         Thread {
@@ -383,18 +390,22 @@ class SettingsActivity : ComponentActivity() {
 
     private fun openUpdateDialog() {
         updateDialogVisible.value=true
-        checkUpdate(false)
+        if(release.value==null && AppUpdate.installation.value==AppUpdate.Installation.Idle)checkUpdate(false)
     }
 
     private fun downloadUpdate(rel:UpdateChecker.Release) {
-        if(downloading.value) return
+        if(downloading.value || checkingUpdate || AppUpdate.isInstalling()) return
         downloading.value=true;downloadState.value="正在连接…";downloadedApk.value=null;updateDownloadCancelled=false
+        downloadProgress.value=null;validatingUpdate.value=false
         Thread {
-            val result=runCatching {AppUpdate.download(applicationContext,rel,{updateDownloadCancelled}) {bytes,total ->
-                runOnUiThread {downloadState.value=if(total>0) "下载中 ${bytes*100/total}%" else "已下载 ${bytes/1024/1024} MB"}
-            }}
+            val result=runCatching {AppUpdate.download(applicationContext,rel,{updateDownloadCancelled},progress={bytes,total ->
+                runOnUiThread {
+                    downloadProgress.value=if(total>0)(bytes.toFloat()/total).coerceIn(0f,1f) else null
+                    downloadState.value=if(total>0) "${bytes*100/total}%" else "已下载 ${bytes/1024/1024} MB"
+                }
+            },validating={runOnUiThread {validatingUpdate.value=true}})}
             runOnUiThread {
-                downloading.value=false
+                downloading.value=false;validatingUpdate.value=false
                 result.onSuccess {downloadedApk.value=it;downloadState.value="下载完成，已校验安装包"}
                     .onFailure {downloadState.value=when {
                         updateDownloadCancelled -> "下载已取消"
@@ -405,13 +416,14 @@ class SettingsActivity : ComponentActivity() {
             }
         }.start()
     }
-    private fun installUpdate() {
+    private fun installUpdate(rel:UpdateChecker.Release) {
         val file=downloadedApk.value ?: return
-        if(android.os.Build.VERSION.SDK_INT>=26 && !packageManager.canRequestPackageInstalls()) {
-            downloadState.value="请允许此应用安装更新，返回后点安装"
-            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:$packageName")));return
+        if(!packageManager.canRequestPackageInstalls()) {
+            runCatching {startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:$packageName")))}
+                .onFailure {downloadState.value="无法打开系统安装权限设置。"}
+            return
         }
-        runCatching {startActivity(AppUpdate.installer(this,file))}.onFailure {downloadState.value="无法打开系统安装器，请重试"}
+        AppUpdate.install(this,file,rel)
     }
 
     private fun openUrl(url: String) {
@@ -424,12 +436,15 @@ class SettingsActivity : ComponentActivity() {
         V3Prefs.migrate(this)
         backupOptions.value=AutoWebDavBackup.options(this)
         restoredActivity = savedInstanceState != null
-        updateDialogVisible.value=savedInstanceState?.getBoolean("update_dialog_visible",false)==true
+        AppUpdate.restoreInstallation(this)
+        updateDialogVisible.value=savedInstanceState?.getBoolean("update_dialog_visible",false)==true ||
+            AppUpdate.isInstalling() || AppUpdate.installation.value==AppUpdate.Installation.Complete
         Thread({
             Lexicon.load(applicationContext)
             PinyinEngine.initialize(applicationContext)
         }, "Kongye Rime preload").start()
         enableEdgeToEdge()
+        if(android.os.Build.VERSION.SDK_INT>=29)window.isNavigationBarContrastEnforced=false
         historyState.value=UpdateChecker.storedHistory(this)
         ClipStore.load(this)
         SmsCodeClipboard.schedule(this)
@@ -537,7 +552,9 @@ class SettingsActivity : ComponentActivity() {
         }
 
         Box(Modifier.fillMaxSize().background(pal.bg)) {
-            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+            val contentInsets=WindowInsets.safeDrawing.only(WindowInsetsSides.Top+WindowInsetsSides.Horizontal)
+                .union(WindowInsets.ime.only(WindowInsetsSides.Bottom))
+            Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets),
                 horizontalAlignment=Alignment.CenterHorizontally) {
             AnimatedContent(
                 targetState=page,
@@ -624,7 +641,7 @@ class SettingsActivity : ComponentActivity() {
 
             }
             if(!showSplash && !overlayShown.value) {
-                Box(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(bottom=12.dp)) {
+                Box(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(bottom=6.dp)) {
                     Row(Modifier.width(240.dp).heightIn(min=54.dp).clip(RoundedCornerShape(50)).background(pal.card.copy(alpha=.78f))
                         .border(1.dp,pal.line,RoundedCornerShape(50)).clickable {
                             if(isCurrent())showKeyboardOverlay(pal) {focusManager.clearFocus(force=true)} else {navigateTo(Page.READY);android.widget.Toast.makeText(this@SettingsActivity,"请先启用并选择空叶键盘",android.widget.Toast.LENGTH_SHORT).show()}
@@ -1569,7 +1586,8 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun StatusActionRow(pal:Pal,title:String,sub:String,icon:Int,complete:Boolean?,tag:String?=null,onClick:()->Unit) {
+    private fun StatusActionRow(pal:Pal,title:String,sub:String,icon:Int,complete:Boolean?,tag:String?=null,
+        statusLabel:String?=null,onClick:()->Unit) {
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(vertical=15.dp),verticalAlignment=Alignment.CenterVertically) {
             if(!LocalPlainMenu.current)Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(pal.tile),contentAlignment=Alignment.Center) {
                 Image(painterResource(icon),null,Modifier.size(23.dp),colorFilter=ColorFilter.tint(pal.text2))
@@ -1589,7 +1607,7 @@ class SettingsActivity : ComponentActivity() {
                 false -> "未设置" to pal.bad
                 null -> "去设置" to pal.text2
             }
-            BasicText(label,style=TextStyle(color=color,fontSize=13.sp,fontWeight=FontWeight.Medium))
+            BasicText(statusLabel ?: label,style=TextStyle(color=color,fontSize=13.sp,fontWeight=FontWeight.Medium))
             if(LocalPlainMenu.current)Image(painterResource(R.drawable.ic_chevron_right),null,Modifier.padding(start=10.dp).size(19.dp),colorFilter=ColorFilter.tint(pal.text2))
         }
     }
@@ -2287,9 +2305,21 @@ class SettingsActivity : ComponentActivity() {
                 if(p.getInt(V3Prefs.GLOSS,2)!=2)Card(pal) {ActionRow(pal,"翻译语言包","候选翻译需要中文翻译语言包，可在离线资源中下载或删除。","管理") {go(Page.RESOURCES)}}
             }
             Page.SMS -> {
+              val guide = remember { SmsSetupGuide.current() }
+              val xiaomi = guide == SmsSetupGuide.XIAOMI
+              val allowed = checkSelfPermission(Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
+              val clipboard = SmsSetupPermission.CLIPBOARD
+              val sms = SmsSetupPermission.NOTIFICATION_SMS
+              val clipboardStatus = remember(tick, guide) { clipboard.systemStatus(this, guide) }
+              var clipboardConfirmed by remember { mutableStateOf(clipboard.isConfirmed(this)) }
+              var smsConfirmed by remember { mutableStateOf(sms.isConfirmed(this)) }
+              var confirmPermission by rememberSaveable { mutableStateOf<SmsSetupPermission?>(null) }
+              fun openAppDetails() {
+                  val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                  runCatching { startActivity(details) }.onFailure { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+              }
               StatsHeading(pal,"自动复制")
               Card(pal) {
-                val allowed=checkSelfPermission(Manifest.permission.RECEIVE_SMS)==PackageManager.PERMISSION_GRANTED
                 ToggleRow(pal,"短信验证码自动复制","仅处理新短信，10 分钟后清除，不进入剪贴板历史",allowed&&p.getBoolean(Prefs.SMS_CODE,false)) {
                     if(it&&!allowed)smsRequest.launch(Manifest.permission.RECEIVE_SMS) else p.edit().putBoolean(Prefs.SMS_CODE,it).apply()
                 }
@@ -2297,36 +2327,51 @@ class SettingsActivity : ComponentActivity() {
             }
               StatsHeading(pal,"权限与设置")
               Card(pal) {
-                val allowed=checkSelfPermission(Manifest.permission.RECEIVE_SMS)==PackageManager.PERMISSION_GRANTED
-                fun openAppDetails() {
-                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName")))
-                }
-                StatusActionRow(pal,"短信权限","用于提取新短信中的验证码",R.drawable.ic_copy,allowed) {
-                    if(allowed)openAppDetails()
-                    else smsRequest.launch(Manifest.permission.RECEIVE_SMS)
-                }
-                Line(pal)
-                StatusActionRow(pal,"后台复制权限","在「权限管理」中打开「写入剪贴板」，选择「始终允许」（若系统提供此项）",R.drawable.ic_clip,complete=null) {
+                StatusActionRow(pal,"短信权限","允许接收新短信，用于提取验证码",R.drawable.ic_copy,allowed) {
                     openAppDetails()
                 }
+                Line(pal)
+                if(xiaomi) {
+                    StatusActionRow(pal,sms.title,"进入「权限管理 → 其他权限」。若有「通知类短信」，打开并选择「始终允许」。",
+                        R.drawable.ic_copy,complete=null,statusLabel=if(smsConfirmed) "已确认" else "查看") {
+                        confirmPermission = sms
+                    }
+                    Line(pal)
+                }
+                val clipboardPermission = if(xiaomi) "在「其他权限」中找到「写入剪贴板」。若有此项，选择「始终允许」。"
+                    else "在应用的「权限」或「权限管理」中查找「写入剪贴板」。若有此项，选择允许后台写入的选项。"
+                StatusActionRow(pal,clipboard.title,clipboardPermission,R.drawable.ic_clip,complete=clipboardStatus,
+                    statusLabel=if(clipboardStatus==null) if(clipboardConfirmed) "已确认" else "查看" else null) {
+                    if(clipboardStatus==null) confirmPermission = clipboard else openAppDetails()
+                }
               }
-              StatsHeading(pal,"仍无法复制时")
+              confirmPermission?.let { permission ->
+                  val confirmed = if(permission==sms) smsConfirmed else clipboardConfirmed
+                  SmsPermissionConfirmation(pal,permission,confirmed,{confirmPermission=null},::openAppDetails) {
+                      val next = !confirmed
+                      if(permission.setConfirmed(this,next)) {
+                          if(permission==sms) smsConfirmed=next else clipboardConfirmed=next
+                          confirmPermission=null
+                      }
+                  }
+              }
+              StatsHeading(pal,"自动复制设置流程")
               Card(pal) {
-                BasicText("自动复制设置流程",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=12.dp,bottom=8.dp))
-                BasicText("已允许「短信权限」并开启「自动复制」后，仍无法复制时检查系统短信设置。",style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=21.sp),modifier=Modifier.padding(bottom=12.dp))
-                BasicText("「短信」 → 「右上角三个点」 → 「设置」 → 「智能信息服务」 → 关闭「验证码安全保护」",style=TextStyle(color=pal.ink,fontSize=14.sp,lineHeight=23.sp),modifier=Modifier.padding(bottom=12.dp))
+                val path = if(xiaomi) "小米澎湃 OS 设置 → 应用设置 → 空叶键盘 → 权限管理 → 其他权限"
+                    else "系统设置 → 应用 → 空叶键盘 → 权限"
+                BasicText(path,style=TextStyle(color=pal.ink,fontSize=14.sp,lineHeight=22.sp),modifier=Modifier.padding(vertical=12.dp))
                 AndroidView(
                     factory = { SmsSetupGuideView(it) },
-                    update = { it.setPalette(pal.ink.toArgb(), pal.text2.toArgb(), pal.tile.toArgb(), pal.accent.toArgb(), pal.card.toArgb()) },
+                    update = { it.showGuide(guide, pal.ink.toArgb(), pal.text2.toArgb(), pal.tile.toArgb(), pal.accent.toArgb(), pal.card.toArgb()) },
                     onRelease = { it.destroy() },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                BasicText("部分手机需要此设置，名称和路径可能不同。关闭保护后，已获短信权限的应用可读取验证码。",style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=19.sp),modifier=Modifier.padding(top=10.dp,bottom=6.dp))
-                ActionRow(pal,"短信应用",null,"打开设置") {
-                    val pkg=android.provider.Telephony.Sms.getDefaultSmsPackage(this@SettingsActivity)
-                    val launch=pkg?.let {packageManager.getLaunchIntentForPackage(it)}
-                    if(launch!=null)startActivity(launch) else startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                }
+                BasicText("点击动画可暂停或继续",style=TextStyle(color=pal.text2,fontSize=12.sp),
+                    modifier=Modifier.padding(top=8.dp))
+                val detail = if(xiaomi) "按上方开启自动复制并允许短信权限。若系统有「通知类短信」，也请在其他权限中允许。"
+                    else "按上方开启自动复制并允许短信权限。菜单名称因系统而异，可在设置里搜索「空叶键盘」。"
+                BasicText(detail,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp),modifier=Modifier.padding(top=10.dp))
+                ActionRow(pal,"空叶键盘应用权限",null,"去设置",::openAppDetails)
               }
             }
             Page.TRANSLATION -> SettingsChoice(pal,"目标语言",Prefs.TRANS_TO,Translator.TARGETS,"auto",tick,showExample=false,inlineDropdown=true)
@@ -2877,6 +2922,33 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun SmsPermissionConfirmation(
+        pal: Pal,
+        permission: SmsSetupPermission,
+        confirmed: Boolean,
+        dismiss: () -> Unit,
+        openSettings: () -> Unit,
+        toggleConfirmation: () -> Unit,
+    ) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = dismiss) {
+            Column(
+                Modifier.widthIn(max = 420.dp).fillMaxWidth().clip(RoundedCornerShape(22.dp))
+                    .background(pal.card).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                BasicText(permission.title, style = TextStyle(color = pal.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold))
+                val message = if (confirmed) "你已在本机确认这项权限。可以打开系统设置重新查看。"
+                    else "请在系统设置中查看这项权限。若已允许，可在这里标记为已确认。"
+                BasicText(message, style = TextStyle(color = pal.text2, fontSize = 14.sp, lineHeight = 22.sp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    Pill(pal, "打开设置", false) { dismiss(); openSettings() }
+                    Pill(pal, if (confirmed) "取消确认" else "我已允许", !confirmed, toggleConfirmation)
+                }
+            }
+        }
+    }
+
+    @Composable
     private fun UpdateEntry(pal:Pal,sub:String) {
         val tag=release.value?.tag ?: Prefs.of(this).getString("latest_update_tag","").orEmpty()
         val newer=tag.isNotEmpty()&&UpdateChecker.newer(tag.trimStart('v','V'),UpdateChecker.currentVersion(this))
@@ -2891,60 +2963,166 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun UpdateDialog(pal:Pal,tick:Int,onHistory:()->Unit) {
-        val version=remember {UpdateChecker.currentVersion(this)}
-        val rel=release.value
-        val newer=rel!=null&&UpdateChecker.newer(rel.version,version)
-        val ready=newer&&downloadedApk.value?.isFile==true
-        val permission=remember(tick) {android.os.Build.VERSION.SDK_INT<26||packageManager.canRequestPackageInstalls()}
-        val status=when {
-            downloading.value->"正在下载安装包"
-            checkingUpdate->"正在检查更新"
-            rel==null->"检查失败，请稍后重试。"
-            !newer->"当前版本 v"+version+"，无需更新。"
-            ready&&permission->"可以直接安装"
-            ready->"需先允许安装"
-            rel.apkUrl==null->"暂无适配本机的安装包"
-            else->"需先下载安装包"
+    private fun UpdateDialog(pal: Pal, tick: Int, onHistory: () -> Unit) {
+        val version = remember { UpdateChecker.currentVersion(this) }
+        val rel = release.value
+        val newer = rel != null && UpdateChecker.newer(rel.version, version)
+        val ready = newer && downloadedApk.value?.isFile == true
+        val permission = remember(tick) { packageManager.canRequestPackageInstalls() }
+        val installation by AppUpdate.installation.collectAsState()
+        val session = installation as? AppUpdate.Installation.Installing
+        val preparation = installation as? AppUpdate.Installation.Preparing
+        val confirmation = installation as? AppUpdate.Installation.Confirm
+        val failure = installation as? AppUpdate.Installation.Failed
+        val complete = installation == AppUpdate.Installation.Complete
+        val busy = preparation != null || session != null || confirmation != null
+        val transferring = downloading.value || busy
+        var systemProgress by remember(session) { mutableStateOf<Float?>(null) }
+        LaunchedEffect(session) {
+            if (session != null) {
+                while (true) {
+                    systemProgress = AppUpdate.installationProgress(this@SettingsActivity, session.sessionId)
+                    delay(250)
+                }
+            }
         }
-        val detail=when {
-            ready&&permission->"安装包已通过校验，点击确认即可覆盖安装并保留设置。"
-            ready->"安装包已通过校验，点击确认允许安装，返回后继续安装。"
-            rel?.apkUrl==null->"请稍后重新检查。"
-            else->"点击确认下载更新，下载完成后可继续安装。"
+        LaunchedEffect(confirmation, tick) {
+            if (confirmation != null && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                AppUpdate.requestConfirmation(this@SettingsActivity, confirmation)
+            }
         }
-        androidx.compose.ui.window.Dialog(onDismissRequest={updateDialogVisible.value=false},
-            properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)) {
-            Column(Modifier.widthIn(max=420.dp).fillMaxWidth(.9f).heightIn(max=560.dp)
-                .clip(RoundedCornerShape(14.dp)).background(pal.card).padding(24.dp)) {
-                BasicText("检查更新",style=TextStyle(color=pal.ink,fontSize=19.sp,fontWeight=FontWeight.Bold))
-                Column(Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(top=20.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                    if(newer&&rel!=null)BasicText("发现新版本 "+rel.tag,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium))
-                    BasicText(status,style=TextStyle(color=if(ready&&permission)pal.ok else pal.text2,fontSize=15.sp,lineHeight=23.sp))
-                    if(downloading.value) {
-                        BasicText(downloadState.value,style=TextStyle(color=pal.text2,fontSize=13.sp))
-                        BasicText("取消下载",style=TextStyle(color=pal.accent,fontSize=13.sp),modifier=Modifier.clickable {updateDownloadCancelled=true}.padding(vertical=6.dp))
-                    } else if(newer&&!checkingUpdate) {
-                        BasicText(detail,style=TextStyle(color=pal.text2,fontSize=13.sp,lineHeight=20.sp))
-                        if(downloadState.value.isNotBlank())BasicText(downloadState.value,style=TextStyle(color=pal.text2,fontSize=12.sp))
-                        if(rel!=null&&rel.notes.isNotBlank())MarkdownBody(pal,rel.notes.take(480))
+        val dismiss = {
+            updateDialogVisible.value = false
+            AppUpdate.clearInstallationResult(this)
+        }
+        val title = when {
+            complete -> "更新已安装"
+            busy -> "安装更新"
+            downloading.value -> "下载更新"
+            newer -> "发现新版本"
+            else -> "软件更新"
+        }
+        val progress = when {
+            preparation != null -> preparation.percent?.div(100f)
+            session != null -> systemProgress?.takeIf { it > 0f && it < 1f }
+            validatingUpdate.value -> null
+            downloading.value -> downloadProgress.value
+            else -> null
+        }
+        val progressText = when {
+            preparation != null && preparation.percent == null -> "正在校验安装包"
+            preparation != null -> "正在准备安装"
+            confirmation != null -> "等待系统确认"
+            session != null -> "正在安装更新"
+            validatingUpdate.value -> "正在校验安装包"
+            downloading.value -> "正在下载安装包"
+            else -> "正在检查更新"
+        }
+        val progressValue = when {
+            progress != null -> "${(progress * 100).roundToInt()}%"
+            downloading.value && !validatingUpdate.value -> downloadState.value.takeIf { it.startsWith("已下载") }
+            else -> null
+        }
+        val detail = when {
+            complete -> "当前版本 v$version"
+            failure != null -> failure.message
+            checkingUpdate -> null
+            rel == null -> updateState.value.ifBlank { "暂时无法获取版本信息。" }
+            !newer -> "当前版本 v$version，已是最新版本。"
+            ready && !permission -> "请允许空叶键盘安装更新，返回后继续。"
+            ready -> "安装包已校验，覆盖安装会保留现有设置。"
+            rel.apkUrl == null -> "暂无适配本机的安装包。"
+            else -> "下载完成后即可安装。"
+        }
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = dismiss,
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Column(
+                Modifier.widthIn(max = 420.dp).fillMaxWidth(.9f).heightIn(max = 560.dp)
+                    .clip(RoundedCornerShape(24.dp)).background(pal.card).padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(pal.tile),
+                        contentAlignment = Alignment.Center) {
+                        Image(painterResource(R.drawable.ic_download), null, Modifier.size(22.dp),
+                            colorFilter = ColorFilter.tint(pal.accent))
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        BasicText(title, style = TextStyle(color = pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold))
+                        if (newer && rel != null && !complete) {
+                            BasicText("v$version → ${rel.tag}", style = TextStyle(color = pal.text2, fontSize = 13.sp))
+                        }
                     }
                 }
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-                    BasicText("更新历史",style=TextStyle(color=pal.accent,fontSize=14.sp),modifier=Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick=onHistory).padding(top=10.dp,bottom=10.dp,end=12.dp))
-                    Pill(pal,"确认",true) {
-                        when {
-                            downloading.value||checkingUpdate->updateDialogVisible.value=false
-                            ready->installUpdate()
-                            newer&&rel?.apkUrl!=null->downloadUpdate(rel)
-                            else->updateDialogVisible.value=false
+                if (transferring || checkingUpdate) {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(pal.tile).padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            BasicText(progressText, style = TextStyle(color = pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium))
+                            if (progressValue != null) BasicText(progressValue, style = TextStyle(color = pal.accent, fontSize = 13.sp))
                         }
+                        if (progress != null) {
+                            Box(Modifier.fillMaxWidth().height(5.dp).clip(CircleShape).background(pal.track)
+                                .semantics { progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(progress, 0f..1f) }) {
+                                Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(pal.accent))
+                            }
+                        } else {
+                            AndroidView(
+                                factory = { context ->
+                                    android.widget.ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal)
+                                        .apply { isIndeterminate = true }
+                                },
+                                update = { it.indeterminateTintList = android.content.res.ColorStateList.valueOf(pal.accent.toArgb()) },
+                                modifier = Modifier.fillMaxWidth().height(5.dp),
+                            )
+                        }
+                    }
+                } else {
+                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (detail != null) {
+                            BasicText(detail, style = TextStyle(
+                                color = if (failure != null) pal.bad else pal.text2, fontSize = 14.sp, lineHeight = 22.sp))
+                        }
+                        if (!complete && failure == null && downloadState.value.isNotBlank()) {
+                            BasicText(downloadState.value, style = TextStyle(color = pal.text2, fontSize = 13.sp))
+                        }
+                        if (newer && !complete && !ready && rel != null && rel.notes.isNotBlank()) {
+                            MarkdownBody(pal, rel.notes.take(480))
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    if (!transferring && !complete) {
+                        BasicText("更新历史", style = TextStyle(color = pal.text2, fontSize = 14.sp),
+                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable {
+                                dismiss()
+                                onHistory()
+                            }.padding(vertical = 10.dp))
+                    } else Spacer(Modifier.width(1.dp))
+                    when {
+                        downloading.value && !validatingUpdate.value -> Pill(pal, "取消下载", false) { updateDownloadCancelled = true }
+                        confirmation != null -> Pill(pal, "继续安装", true) { AppUpdate.requestConfirmation(this@SettingsActivity, confirmation) }
+                        transferring || complete || checkingUpdate -> Pill(pal, "关闭", complete, dismiss)
+                        ready && rel != null -> Pill(pal, if (permission) "安装更新" else "允许安装", true) { installUpdate(rel) }
+                        newer && rel != null && rel.apkUrl != null -> Pill(pal, "下载更新", true) {
+                            AppUpdate.clearInstallationResult(this@SettingsActivity)
+                            downloadUpdate(rel)
+                        }
+                        rel == null -> Pill(pal, "重新检查", true) {
+                            AppUpdate.clearInstallationResult(this@SettingsActivity)
+                            checkUpdate(false)
+                        }
+                        else -> Pill(pal, "关闭", false, dismiss)
                     }
                 }
             }
         }
     }
-
     @Composable
     private fun MarkdownBody(pal:Pal,source:String) {
         AndroidView(factory={ctx->MarkdownTextView(ctx)},update={it.render(source,pal.ink.toArgb(),pal.accent.toArgb())},modifier=Modifier.fillMaxWidth().padding(vertical=8.dp))

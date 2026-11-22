@@ -158,6 +158,7 @@ object SettingsNoticeRegression {
             report("Cross-page blocked layout prerequisite locates and highlights the actual layout picker")
             start();click("工具");click("短信验证码")
             click("自动复制设置流程")
+            check(!has("仍无法复制时"))
             waitFor("embedded SMS guide") { ui { views().any { it is SmsSetupGuideView } } }
             val guide = ui { views().filterIsInstance<SmsSetupGuideView>().first() }
             fun html(expression: String): String {
@@ -168,38 +169,40 @@ object SettingsNoticeRegression {
                 return result.orEmpty()
             }
             val preview = android.graphics.Rect()
-            waitFor("pure SVG guide ready") {html("document.querySelector('svg') !== null && typeof render === 'function'") == "true"}
+            waitFor("pure SVG guide ready") {html("document.querySelector('svg') !== null && typeof window.smsGuide?.render === 'function'") == "true"}
             check(html("document.querySelector('video, img, image, button, .progress, .step, #count') === null") == "true")
-            html("pause();render(100)")
-            check(html("Number(document.querySelector('#home-ripple').getAttribute('opacity')) === 0") == "true")
-            html("render(480)")
-            check(html("Number(document.querySelector('#home-ripple').getAttribute('opacity')) > 0 && Number(document.querySelector('#home-press').getAttribute('opacity')) > 0") == "true")
-            html("render(900)")
-            check(html("Number(document.querySelector('#home-ripple').getAttribute('opacity')) === 0") == "true")
-            html("render(2400)")
-            check(html("Number(document.querySelector('#more').getAttribute('opacity')) > 0 && Number(document.querySelector('#more').getAttribute('opacity')) < 1") == "true")
-            html("render(2700)")
-            check(html("Number(document.querySelector('#more').getAttribute('opacity')) === 1") == "true")
-            html("render(5480)")
-            check(html("document.querySelector('#service-press').getAttribute('width') === '624' && Number(document.querySelector('#service-press').getAttribute('opacity')) > 0") == "true")
-            check(html("Number(document.querySelector('#switch-track').getAttribute('y')) + Number(document.querySelector('#switch-track').getAttribute('height')) / 2 === Number(document.querySelector('#switch-knob').getAttribute('cy'))") == "true")
-            check(html("document.querySelector('#sms-icon rect').getAttribute('width') === '120' && document.querySelectorAll('#sms-icon path').length === 2 && document.querySelector('#sms-icon circle') === null") == "true")
-            html("render(7400)")
-            val before=html("document.querySelector('#switch-knob').getAttribute('cx')")
-            html("render(7800)")
-            check(before!=html("document.querySelector('#switch-knob').getAttribute('cx')"))
-            for((step,time) in listOf(480,2330,3570,5480,7370).withIndex()) {
-                html("render($time)")
+            html("smsGuide.pause();smsGuide.render(100)")
+            check(html("Number(document.querySelector('#current .ring').getAttribute('opacity')) === 0") == "true")
+            html("smsGuide.render(990)")
+            check(html("Number(document.querySelector('#current .ring').getAttribute('opacity')) > 0 && Number(document.querySelector('#current .press').getAttribute('opacity')) > 0") == "true")
+            html("smsGuide.render(1350)")
+            check(html("Number(document.querySelector('#current .ring').getAttribute('opacity')) === 0") == "true")
+            val beforeSlide=html("document.querySelector('#current').getAttribute('transform')")
+            html("smsGuide.render(1520)")
+            check(beforeSlide!=html("document.querySelector('#current').getAttribute('transform')"))
+            val xiaomi=html("document.querySelector('svg').dataset.guide") == "\"xiaomi\""
+            html("smsGuide.render(7200)")
+            check(html("document.querySelector('#current .label').textContent") == if(xiaomi) "\"通知类短信\"" else "\"允许\"")
+            html("smsGuide.render(8900)")
+            val before=html("document.querySelector('#current .selected').getAttribute('fill')")
+            html("smsGuide.render(9700)")
+            check(before!=html("document.querySelector('#current .selected').getAttribute('fill')"))
+            for((step,time) in listOf(990,2740,4490,6240,7990,9740).withIndex()) {
+                html("smsGuide.render($time)")
                 SystemClock.sleep(500)
                 ui {guide.getGlobalVisibleRect(preview)}
                 if(preview.height()>0)shot("sms-animation-$step")
             }
-            val beforeSlide=html("document.querySelector('#home').getAttribute('transform')")
-            html("render(1200)")
-            check(beforeSlide!=html("document.querySelector('#home').getAttribute('transform')"))
-            html("resume()")
-            waitFor("SVG animation running") {html("running && position > 1200") == "true"}
-            report("Pure SVG walkthrough renders five vector stages, sliding pages, hand taps, and moving switch; no video, bitmap or playback controls")
+            html("smsGuide.resume()")
+            val animation="document.querySelector('svg')"
+            html("$animation.dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+            check(html("$animation.getAttribute('aria-label')") == "\"继续设置流程动画\"")
+            val paused=html("position")
+            SystemClock.sleep(250)
+            check(html("position")==paused)
+            html("$animation.dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+            waitFor("SVG tap to resume") {html("position")!=paused}
+            report("Offline SVG permission walkthrough shows the device-specific path, sliding pages, tap feedback and permission selection")
             start();click("工具");click("备份与恢复")
             val beforeCancel=p.all.toMap()
             click("重置全部设置")

@@ -2,6 +2,7 @@ package com.kongye.keyboard
 
 import android.app.Instrumentation
 import android.content.Intent
+import android.os.SystemClock
 import java.io.File
 import java.security.MessageDigest
 
@@ -34,11 +35,48 @@ object UpdateRegression {
             AppUpdate.validate(context,apk,UpdateChecker.currentVersion(context),digest)
             check(fails {AppUpdate.validate(context,apk,"99.99.99",digest)})
             check(fails {AppUpdate.validate(context,apk,UpdateChecker.currentVersion(context),"0".repeat(64))})
-            val installer=AppUpdate.installer(context,apk)
-            check(installer.action==Intent.ACTION_VIEW && installer.data?.scheme=="content" && installer.type=="application/vnd.android.package-archive")
-            check(installer.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION!=0)
             check(fails {AppUpdate.download(context,UpdateChecker.Release("v99","","https://example.com/evil.apk",""),{false},{_,_->})})
         } finally {apk.delete()}
+    }
+
+    @JvmStatic fun testInstallation(inst: Instrumentation) {
+        check(android.os.Build.MODEL.startsWith("sdk_"))
+        val context = inst.targetContext
+        check(context.packageManager.canRequestPackageInstalls()) { "Allow installation from this app on the test emulator" }
+        val file = File(context.applicationInfo.sourceDir)
+        val version = UpdateChecker.currentVersion(context)
+        val release = UpdateChecker.Release("v$version", "", null, "")
+        val activity = inst.startActivitySync(Intent(context, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+
+        fun waitFor(label: String, condition: () -> Boolean) {
+            val until = SystemClock.uptimeMillis() + 30_000
+            while (!condition() && SystemClock.uptimeMillis() < until) SystemClock.sleep(50)
+            check(condition()) { "$label: ${AppUpdate.installation.value}" }
+        }
+        try {
+            inst.runOnMainSync {
+                AppUpdate.clearInstallationResult(context)
+                AppUpdate.install(context, file, release)
+                check(AppUpdate.installation.value is AppUpdate.Installation.Preparing)
+            }
+            waitFor("System confirmation callback") { AppUpdate.installation.value is AppUpdate.Installation.Confirm }
+            val confirmation = AppUpdate.installation.value as AppUpdate.Installation.Confirm
+            check((AppUpdate.installationProgress(context, confirmation.sessionId) ?: 0f) > 0f)
+            inst.runOnMainSync { AppUpdate.requestConfirmation(activity, confirmation) }
+            waitFor("System installer in foreground") {
+                inst.uiAutomation.rootInActiveWindow?.packageName?.toString()?.let { it != context.packageName } == true
+            }
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                inst.uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
+            ).use { it.readBytes() }
+            waitFor("Cancellation callback") { AppUpdate.installation.value is AppUpdate.Installation.Failed }
+            check((AppUpdate.installation.value as AppUpdate.Installation.Failed).message == "已取消安装。")
+        } finally {
+            inst.runOnMainSync {
+                AppUpdate.clearInstallationResult(context)
+                activity.finish()
+            }
+        }
     }
     @JvmStatic fun download(inst:Instrumentation) {
         val original=inst.targetContext
@@ -47,12 +85,12 @@ object UpdateRegression {
         val release=UpdateChecker.Release("v2.0.1","","https://github.com/Mayleaves/KongyeKeyboard/releases/download/v2.0.1/KongyeKeyboard-2.0.1-arm64.apk","","824090afac96ff73388815c1bc1e388e0e17bfda0da927e162148e4f05c1cf48","https://api.github.com/repos/Mayleaves/KongyeKeyboard/releases/assets/731126983")
         val started=android.os.SystemClock.elapsedRealtime()
         var reported=0L
-        val file=AppUpdate.download(context,release,{android.os.SystemClock.elapsedRealtime()-started>180000}) {bytes,total ->
+        val file=AppUpdate.download(context,release,{android.os.SystemClock.elapsedRealtime()-started>180000},progress={bytes,total ->
             if(bytes-reported>5*1024*1024) {
                 reported=bytes
                 inst.sendStatus(0,android.os.Bundle().apply {putString("stream","APK download ${bytes/1024/1024} MB / ${total/1024/1024} MB\n")})
             }
-        }
+        })
         check(file.length()==78363144L)
         file.delete();File(file.parentFile,"update.apk.part").delete()
     }

@@ -70,6 +70,7 @@
             <intent-filter><action android:name="android.provider.Telephony.SMS_RECEIVED" /></intent-filter>
         </receiver>
         <receiver android:name=".SmsCodeExpiryReceiver" android:exported="false" />
+        <receiver android:name=".UpdateInstallReceiver" android:exported="false" />
 
         <!-- 剪贴板里的图片上屏时用 content:// 地址交给对方应用 -->
         <provider

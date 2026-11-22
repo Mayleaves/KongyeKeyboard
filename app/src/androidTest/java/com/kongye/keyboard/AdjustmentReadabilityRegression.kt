@@ -138,7 +138,7 @@ object AdjustmentReadabilityRegression {
             start();click("工具");click("打字统计");scrollTo("记录打字统计");check(ui {views().filterIsInstance<SettingExampleView>().none {it.key==V3Prefs.STATS_ENABLED}})
             report("Clipboard limits, retention, target language and statistics recording retain controls without diagrams")
             start();click("工具");click("短信验证码")
-            check(has("自动复制设置流程"));scrollTo("「短信」 → 「右上角三个点」 → 「设置」 → 「智能信息服务」 → 关闭「验证码安全保护」");picture("05-sms-guide")
+            check(has("自动复制设置流程"));scrollTo("空叶键盘应用权限");picture("05-sms-guide")
             ui {
                 val d=ctx.resources.displayMetrics.density
                 for(on in listOf(false,true)) {

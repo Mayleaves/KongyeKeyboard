@@ -197,7 +197,7 @@ object SettingsOrganizationRegression {
             walk("07-appearance",listOf("主题与外观"),listOf("当前效果","背景效果","明暗模式","配色方案"),"配色方案")
             walk("08-numeric",listOf("数字键盘"),listOf("数字键盘","当前编辑：「6 右边」按键","选择功能或符号"),"设为该键")
             walk("09-display",listOf("拼音与候选显示"),listOf("输入中的拼音","候选词辅助信息"),"候选翻译")
-            walk("10-sms",listOf("短信验证码"),listOf("自动复制","权限与设置","仍无法复制时"),"自动复制设置流程")
+            walk("10-sms",listOf("短信验证码"),listOf("自动复制","权限与设置","自动复制设置流程"),"空叶键盘应用权限")
             val afterWalk=p.all.toMap()
             val changed=(before.keys+afterWalk.keys).filter {before[it]!=afterWalk[it]}
             check(changed.isEmpty()) {"Opening reorganized pages changed saved keys: $changed"}

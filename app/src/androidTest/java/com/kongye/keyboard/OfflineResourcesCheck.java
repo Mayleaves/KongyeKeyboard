@@ -52,6 +52,7 @@ public final class OfflineResourcesCheck extends Instrumentation {
             Context ctx = getTargetContext();
             if ("resource-policy".equals(mode)) {ResourcePolicyRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("review306".equals(mode)) {Review306Regression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("update-install".equals(mode)) {UpdateRegression.testInstallation(this);report("INSTALLATION SESSION, PROGRESS AND CANCELLATION PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
             if ("handwriting-components".equals(mode)) {HandwritingComponentRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("home-search-back".equals(mode)) {HomeSearchBackRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("input-coverage".equals(mode)) {InputCoverageRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}

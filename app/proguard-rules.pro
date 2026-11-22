@@ -42,6 +42,7 @@
 -keep class com.kongye.keyboard.ClipboardPanel { *; }
 -keep class com.kongye.keyboard.RemoteInputHistory { *; }
 -keep class com.kongye.keyboard.AppUpdate { *; }
+-keep class com.kongye.keyboard.AppUpdate$Installation** { *; }
 -keep class com.kongye.keyboard.UpdateChecker** { *; }
 -keep class com.kongye.keyboard.NativeMotion { *; }
 -keep class com.kongye.keyboard.EditPanelView { *; }
@@ -142,12 +143,14 @@
 
 # Production updater dialog state coverage (no installer interaction).
 -keepclassmembers class com.kongye.keyboard.SettingsActivity {
-    private boolean checkingUpdate;
+    private *** checkingUpdate$delegate;
     private *** release;
     private *** downloadedApk;
     private *** downloading;
     private *** updateState;
     private *** downloadState;
+    private *** downloadProgress;
+    private *** validatingUpdate;
 }
 -keep class com.kongye.keyboard.SettingAvailability** { *; }
 -keep class com.kongye.keyboard.KeyboardBackup** { *; }
