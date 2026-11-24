@@ -14,7 +14,7 @@ class KeyboardSilhouette(private val ctx:Context) {
         val sourceWidth=(if(landscape)maxOf(metrics.widthPixels,metrics.heightPixels) else metrics.widthPixels)*(if(oneHand==0)1f else .8f)
         val w=(sourceWidthOverride ?: if(split)maxOf(sourceWidth,700*metrics.density) else sourceWidth).toInt().coerceAtLeast(1)
         val skin=Prefs.theme(ctx).pick(Prefs.night(ctx)).styled(1f,p.getBoolean(Prefs.GLASS,false))
-        val gap=gapOverride ?: p.getInt(V3Prefs.SPLIT_GAP,72).toFloat();val size=sizeOverride ?: p.getFloat(V3Prefs.SPLIT_SIZE,1f)
+        val gap=gapOverride ?: FloatingKeyboard.intValue(ctx,V3Prefs.SPLIT_GAP,72).toFloat();val size=sizeOverride ?: FloatingKeyboard.floatValue(ctx,V3Prefs.SPLIT_SIZE,1f)
         val next="$layout/$w/$split/$scale/$gap/$size/${skin.keyGap}/${skin.keyH}/${skin.rowGap}/${skin.padH}"
         if(signature!=next) {
             board.heightScale=scale;board.splitLayout=split&&layout!="9";board.splitGap=gap;board.splitSize=size

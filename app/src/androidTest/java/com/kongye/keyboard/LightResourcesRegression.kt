@@ -29,6 +29,17 @@ object LightResourcesRegression {
         }
         i.sendStatus(0,Bundle().apply {putString("stream","PINNED MODEL DOWNLOAD / VALIDATION PASSED: $id\n")})
     }
+    fun importLocalGrammar(i:Instrumentation) {
+        val ctx=i.targetContext
+        val file=File(ctx.getExternalFilesDir(null),"test-grammar.gram")
+        check(file.isFile)
+        ResourcePacks.importGrammar(ctx,android.net.Uri.fromFile(file))
+        val deadline=android.os.SystemClock.uptimeMillis()+120000
+        while(ResourcePacks.state("grammar").busy && android.os.SystemClock.uptimeMillis()<deadline)Thread.sleep(100)
+        check(ResourcePacks.ready(ctx,"grammar")) {ResourcePacks.state("grammar").message}
+        file.delete()
+        i.sendStatus(0,Bundle().apply {putString("stream","LOCAL VERIFIED GRAMMAR IMPORT PASSED\n")})
+    }
     fun grammar(i:Instrumentation) {
         val ctx=i.targetContext
         Lexicon.load(ctx);PinyinEngine.initialize(ctx);check(PinyinEngine.ready)

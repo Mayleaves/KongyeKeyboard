@@ -52,7 +52,8 @@ object EditorDeletion {
             // paragraph boundaries (including boundaries absent from context).
             val notes=packageName in setOf("com.coloros.note","com.oplus.note","com.oneplus.note")
             val boundary=!before.isNullOrEmpty() && before.last() in "\r\n\u2028\u2029"
-            if(notes || selected.isNullOrEmpty() && before.isNullOrEmpty())tap(c,KeyEvent.KEYCODE_DEL)
+            val launcher=packageName?.contains("launcher")==true || packageName=="com.miui.home"
+            if(notes || launcher || selected.isNullOrEmpty() && before.isNullOrEmpty())tap(c,KeyEvent.KEYCODE_DEL)
             else if(selected.isNullOrEmpty() && boundary) {
                 // A line separator has a known UTF-16 width. Use the widely
                 // supported text-edit API: some landscape dialog connections
@@ -61,7 +62,11 @@ object EditorDeletion {
                 if(!c.deleteSurroundingText(count,0))tap(c,KeyEvent.KEYCODE_DEL)
             } else if (!selected.isNullOrEmpty()) {
                 if(!c.commitText("",1))tap(c,KeyEvent.KEYCODE_DEL)
-            } else if (!c.deleteSurroundingTextInCodePoints(1, 0)) tap(c, KeyEvent.KEYCODE_DEL)
+            } else if (!c.deleteSurroundingTextInCodePoints(1, 0)) {
+                val text=before.toString()
+                val count=if(text.length>=2 && Character.isSurrogatePair(text[text.length-2],text.last()))2 else 1
+                if(!c.deleteSurroundingText(count,0))tap(c,KeyEvent.KEYCODE_DEL)
+            }
         }
     }
 

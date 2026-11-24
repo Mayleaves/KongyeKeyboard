@@ -11,7 +11,8 @@ import android.widget.TextView
 
 /** Actual independent editor + real IME window. No saved documents or credentials. */
 object LiveInteraction240Regression {
-    fun run(inst:Instrumentation) {
+    @JvmOverloads
+    fun run(inst:Instrumentation, pinyinOnly: Boolean = false) {
         val ctx=inst.targetContext;val auto=inst.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         auto.serviceInfo=auto.serviceInfo.apply {flags=flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS}
         fun report(s:String)=inst.sendStatus(0,Bundle().apply {putString("stream",s+"\n")})
@@ -33,11 +34,14 @@ object LiveInteraction240Regression {
         fun clear() {val e=editor() ?: error("Isolated field missing");check(e.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply {putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"")}));Thread.sleep(200)}
         fun text()=editor()?.text?.toString().orEmpty().takeUnless {it=="只使用虚构测试内容"}.orEmpty()
         val p=Prefs.of(ctx)
-        val keys=listOf(Prefs.GLIDE,Prefs.ZH,Prefs.LAYOUT,Prefs.VAULT,Prefs.COUNT_TODAY,Prefs.COUNT_DATE,Prefs.SPACE_LONG,V3Prefs.GLIDE_ZH,V3Prefs.GLIDE_EN,V3Prefs.EN_SPACE,V3Prefs.CAPS)
-        val backup=keys.associateWith {p.all[it]}
+        val keys=listOf(Prefs.GLIDE,Prefs.ZH,Prefs.LAYOUT,Prefs.VAULT,Prefs.COUNT_TODAY,Prefs.COUNT_DATE,Prefs.SPACE_LONG,V3Prefs.GLIDE_ZH,V3Prefs.GLIDE_EN,V3Prefs.EN_SPACE,V3Prefs.CAPS,V3Prefs.PINYIN_POSITION)
+        val repairKeys = listOf(Prefs.ABBR, V3Prefs.CORRECTION_ENABLED, V3Prefs.CORRECT_NEAR, V3Prefs.CORRECT_EXTRA, V3Prefs.CORRECT_SWAP, V3Prefs.FEEDBACK, Prefs.LEARN)
+        val backup=(keys + repairKeys).associateWith {p.all[it]}
+        var savedLearning: String? = null
         try {
-            ui {p.edit().putBoolean(Prefs.GLIDE,true).putBoolean(Prefs.ZH,true).putString(Prefs.LAYOUT,"26").putBoolean(Prefs.VAULT,false).putInt(Prefs.SPACE_LONG,0).putBoolean(V3Prefs.GLIDE_ZH,true).putBoolean(V3Prefs.GLIDE_EN,true).putBoolean(V3Prefs.EN_SPACE,false).putBoolean(V3Prefs.CAPS,false).commit()}
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(auto.executeShellCommand("am start -W -f 0x10008000 -n com.kongye.keyboard.test/com.kongye.keyboard.TypingFormActivity --ez bottom true")).use {it.readBytes()}
+            if (pinyinOnly) p.edit().also { e -> repairKeys.forEach { e.putBoolean(it, true) } }.commit()
+            ui {p.edit().putInt(V3Prefs.PINYIN_POSITION,0).putBoolean(Prefs.GLIDE,true).putBoolean(Prefs.ZH,true).putString(Prefs.LAYOUT,"26").putBoolean(Prefs.VAULT,false).putInt(Prefs.SPACE_LONG,0).putBoolean(V3Prefs.GLIDE_ZH,true).putBoolean(V3Prefs.GLIDE_EN,true).putBoolean(V3Prefs.EN_SPACE,false).putBoolean(V3Prefs.CAPS,false).commit()}
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(auto.executeShellCommand("am start -W -f 0x10008000 -n com.kongye.keyboard.test/com.kongye.keyboard.TypingFormActivity --ez bottom true --ez learning $pinyinOnly")).use {it.readBytes()}
             waitFor("isolated editor") {editor()!=null}
             editor()!!.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             val inputBounds=Rect();editor()!!.getBoundsInScreen(inputBounds)
@@ -46,9 +50,16 @@ object LiveInteraction240Regression {
             event(1,inputBounds.centerX().toFloat(),inputBounds.centerY().toFloat(),focusTime)
             waitFor("keyboard window") {ui {keyboard()!=null}}
             val k=ui {keyboard()!!};val ime=k.listener as KongyeIME
-            fun type(raw:String) {for(ch in raw){ui {ime.onKey(Key(Kind.LETTER,ch.toString()))};Thread.sleep(20)}}
+            fun type(raw:String) {for(ch in raw){ui {ime.onKey(Key(Kind.LETTER,ch.toString()))};if(!pinyinOnly)Thread.sleep(20)}}
             val raw="woxiwangmingtiandajiakeyiyiqiqugongyuanwanranhouzaizheliyiqichidunfan"
             clear();type(raw)
+            if (pinyinOnly) {
+                val resolved=KongyeIME::class.java.getDeclaredField("resolvedKeys").apply {isAccessible=true}
+                val pending=KongyeIME::class.java.getDeclaredField("candidatesPending").apply {isAccessible=true}
+                waitFor("all fast keystrokes decoded") {
+                    ui {resolved.get(ime)==raw.map(Char::toString) && !pending.getBoolean(ime)}
+                }
+            }
             lateinit var bubble:TextView
             waitFor("typing overflow preview") {ui {views().filterIsInstance<TextView>().firstOrNull {it.isShown && it.contentDescription?.toString()=="完整候选，点击输入"}?.also {bubble=it}!=null}}
             ui {
@@ -66,6 +77,75 @@ object LiveInteraction240Regression {
             val wanted=ui {bubble.text.toString()}
             tap(bubble);waitFor("bubble selected text") {text()==wanted}
             report("Touching the expanded-page bubble committed the full candidate")
+            if (pinyinOnly) {
+                savedLearning=Lexicon.backupText()
+                clear()
+                type("nihao")
+                waitFor("pinyin visible") {ui {views().filterIsInstance<PinyinTab>().any {it.isShown}}}
+                val spelling=ui {views().filterIsInstance<PinyinTab>().first {it.isShown}}
+                tap(spelling)
+                waitFor("enlarged pinyin") {ui {spelling.expanded}}
+                ui {ime.onKey(Key(Kind.SPACE))}
+                waitFor("text committed") {text()=="你好"}
+                type("xianzai")
+                waitFor("new pinyin compact and correctly segmented") {
+                    ui {spelling.isShown && !spelling.expanded && spelling.contentDescription=="拼音：xian'zai"}
+                }
+                ui {ime.onKey(Key(Kind.RESET))}
+                clear()
+                type("huangg")
+                val mixedKeys = "huangg".map(Char::toString)
+                val settledKeys = KongyeIME::class.java.getDeclaredField("resolvedKeys").apply { isAccessible = true }
+                val updating = KongyeIME::class.java.getDeclaredField("candidatesPending").apply { isAccessible = true }
+                waitFor("huangg candidates settled") { ui { settledKeys.get(ime) == mixedKeys && !updating.getBoolean(ime) } }
+                ui { ime.onKey(Key(Kind.SPACE)) }
+                waitFor("mixed spelling commits the toolbar first choice") { text() == "黄瓜" }
+                report("huangg + space committed 黄瓜 after the final refresh")
+                for ((rawKeys, expected) in mapOf("dvshih" to "的时候", "buyaifangda" to "不要放大",
+                    "xusnfuqiu" to "悬浮球", "jeude" to "觉得", "woianu" to "我爱你", "wsmdakuaile" to "为什么打快了")) {
+                    clear()
+                    // Wait for each candidate page so prefix retention is also exercised.
+                    for (end in 1..rawKeys.length) {
+                        type(rawKeys.substring(end - 1, end))
+                        waitFor("settled " + rawKeys.take(end)) { ui {
+                            settledKeys.get(ime) == rawKeys.take(end).map(Char::toString) && !updating.getBoolean(ime)
+                        } }
+                    }
+                    val field = KongyeIME::class.java.getDeclaredField("cands").apply { isAccessible = true }
+                    report("$rawKeys toolbar=" + ui { (field.get(ime) as List<*>).take(4).map { (it as Cand).w } })
+                    if (rawKeys == "woianu") {
+                        val errorField = PinyinTab::class.java.getDeclaredField("errors").apply { isAccessible = true }
+                        val swapField = PinyinTab::class.java.getDeclaredField("swaps").apply { isAccessible = true }
+                        check(ui {
+                            val bubble = views().filterIsInstance<PinyinTab>().first { it.isShown }
+                            (errorField.get(bubble) as BooleanArray).any {it} && (swapField.get(bubble) as List<*>).isNotEmpty()
+                        }) { "Corrected word lost spelling marks" }
+                        report("woianu displayed both swap and typo marks on the actual spelling bubble")
+                    }
+                    val learningBefore=Lexicon.backupText()
+                    ui { ime.onKey(Key(Kind.SPACE)) }
+                    waitFor("commit " + expected) { text() == expected }
+                    check(Lexicon.backupText()==learningBefore) {"Automatic first candidate trained the learning dictionary"}
+                    report("$rawKeys + space committed $expected without automatic learning")
+                }
+                clear();type("nihao")
+                waitFor("manual learning candidates") {ui {settledKeys.get(ime)=="nihao".map(Char::toString) && !updating.getBoolean(ime)}}
+                val candidateField=KongyeIME::class.java.getDeclaredField("cands").apply {isAccessible=true}
+                val options=ui {(candidateField.get(ime) as List<*>).map {it as Cand}}
+                val chosenIndex=options.indexOfFirst {it.w!="你好" && it.py=="ni hao" && it.n==5}
+                check(chosenIndex>0) {"No non-first homophone available"}
+                val chosen=options[chosenIndex]
+                ui {ime.onCandidate(chosenIndex)}
+                waitFor("manually chosen word") {text()==chosen.w}
+                check(Lexicon.backupText().lineSequence().any {it.startsWith("P\t${chosen.w}\tni'hao\t")})
+                clear();type("nihao")
+                waitFor("learned candidate becomes first") {ui {
+                    !updating.getBoolean(ime) && (candidateField.get(ime) as List<*>).firstOrNull().let {(it as? Cand)?.w==chosen.w}
+                }}
+                report("Manual non-first selection learned its canonical reading and became first")
+                report("PINYIN LIVE 4.0 PASSED: fast long sentence, expanded candidate commit, enlarged spelling resets on commit, xian/zai boundaries")
+                return
+            }
             clear();type("woianu")
             waitFor("grouped typo tab") {ui {views().filterIsInstance<PinyinTab>().any {it.isShown && it.contentDescription?.toString()?.contains("wo'ia'nu")==true}}}
             val tab=ui {views().filterIsInstance<PinyinTab>().first {it.isShown}}
@@ -198,6 +278,7 @@ object LiveInteraction240Regression {
                 report("Visible image loaded asynchronously at bounded resolution; detached thumbnail released")
             } finally {ui {try {if(thumbnail.parent!=null)(thumbnail.parent as ViewGroup).removeView(thumbnail)} catch(_:UninitializedPropertyAccessException) {}};fixture.delete()}
         } finally {
+            savedLearning?.let {Lexicon.restoreBackupText(ctx,it)}
             ui {
                 val e=p.edit()
                 for((key,value) in backup)when(value){null->e.remove(key);is Boolean->e.putBoolean(key,value);is String->e.putString(key,value);is Int->e.putInt(key,value)}

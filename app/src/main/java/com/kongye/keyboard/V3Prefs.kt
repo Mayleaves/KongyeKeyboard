@@ -76,6 +76,7 @@ object V3Prefs {
     fun migrate(ctx:Context) {
         val p=Prefs.of(ctx)
         if (p.contains("v3_remote_float")) p.edit().remove("v3_remote_float").apply()
+        if(p.getBoolean(ORIENTATION_LAYOUT,false))p.edit().also {FloatingKeyboard.rememberLandscape(ctx,it)}.apply()
         if (p.getBoolean(ORIENTATION_LAYOUT, false) &&
             (!p.contains(LANDSCAPE_FLOAT) || !p.contains(LANDSCAPE_SPLIT) || !p.contains(LAYOUT_LANDSCAPE))) {
             setSeparateLayouts(ctx, true)
@@ -136,6 +137,7 @@ object V3Prefs {
         val prefs = Prefs.of(ctx)
         val editor = prefs.edit().putBoolean(ORIENTATION_LAYOUT, separate)
         if (separate) {
+            FloatingKeyboard.rememberLandscape(ctx,editor)
             rememberLandscapeForm(prefs, editor)
             if (!prefs.contains(LAYOUT_LANDSCAPE)) editor.putString(LAYOUT_LANDSCAPE, prefs.getString(Prefs.LAYOUT, "26"))
         }

@@ -92,7 +92,10 @@ object Prefs {
         FUZZY_V_U to "v = u",
     )
 
-    fun fuzzy(ctx: Context): Set<String> = if(of(ctx).getBoolean(V3Prefs.FUZZY_ENABLED,true)) fuzzySelection(ctx) else emptySet()
+    fun fuzzyEnabled(ctx: Context): Boolean =
+        of(ctx).getBoolean(V3Prefs.FUZZY_ENABLED, fuzzySelection(ctx).isNotEmpty())
+
+    fun fuzzy(ctx: Context): Set<String> = if(fuzzyEnabled(ctx)) fuzzySelection(ctx) else emptySet()
 
     fun fuzzySelection(ctx: Context): Set<String> =
         of(ctx).getString(FUZZY, "")!!.split(',').filter { id -> FUZZY_RULES.any { it.first == id } }.toSet()
@@ -152,7 +155,7 @@ object Prefs {
         of(ctx).edit().putString(TOOLS, tools.joinToString(",")).putString(MENU, menu.joinToString(",")).apply()
     }
 
-    fun heightScale(ctx: Context) = of(ctx).getFloat(HEIGHT_SCALE, 1f).coerceIn(0.7f, 1.5f)
+    fun heightScale(ctx: Context) = FloatingKeyboard.floatValue(ctx,HEIGHT_SCALE,1f).coerceIn(0.7f, 1.5f)
 
     fun layout(ctx: Context) = V3Prefs.layout(ctx)
 

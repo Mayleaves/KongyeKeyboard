@@ -10,6 +10,20 @@ import android.view.View
 
 /** Illustrative settings examples: no user text, decoding or network on draw. */
 class SettingExampleView(private val ctx:Context):View(ctx) {
+    @androidx.annotation.Keep
+    companion object {
+        fun comparisonHeightDp(key: String): Int = when (key) {
+            V3Prefs.DELETE_DIRECT -> 190
+            FloatingKeyboard.SPLIT -> 154
+            V3Prefs.CLEAR_SCOPE -> 152
+            V3Prefs.PUNCT_CONFIRM, V3Prefs.READINGS, V3Prefs.GLOSS -> 148
+            V3Prefs.COMPOSE_RESTORE, V3Prefs.COMPOSE_HOLD_CLEAR -> 144
+            V3Prefs.GLIDE_ZH, V3Prefs.GLIDE_EN, V3Prefs.GLIDE_LIVE, V3Prefs.GLIDE_TRACE -> 140
+            Prefs.SPACE_LONG, V3Prefs.BOTTOM_CURSOR -> 128
+            V3Prefs.PINYIN_POSITION -> 116
+            else -> 110
+        }
+    }
     var exampleActive=true
     var choiceOnly=false
     var layoutLandscape:Boolean?=null
@@ -112,8 +126,8 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
         val p = Prefs.of(ctx)
         silhouette.draw(c, board, layout, background, keyColor, modifierColor, split = drawSplit, landscape = landscape,
             scale = if (floating) FloatingKeyboard.height(ctx) else Prefs.heightScale(ctx),
-            gapOverride = p.getInt(if (floating) FloatingKeyboard.GAP else V3Prefs.SPLIT_GAP, 72).toFloat(),
-            sizeOverride = p.getFloat(if (floating) FloatingKeyboard.SIZE else V3Prefs.SPLIT_SIZE, 1f),
+            gapOverride = FloatingKeyboard.intValue(ctx,if (floating) FloatingKeyboard.GAP else V3Prefs.SPLIT_GAP,72).toFloat(),
+            sizeOverride = FloatingKeyboard.floatValue(ctx,if (floating) FloatingKeyboard.SIZE else V3Prefs.SPLIT_SIZE,1f),
             sourceWidthOverride = if (floating) width*.74f else width.toFloat())
     }
 
@@ -304,7 +318,7 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
             val mode=(value as Number).toInt()
             val reading=key==V3Prefs.READINGS
             for(index in 0..1) {
-                val top=(30+index*52)*d
+                val top=(if(choiceOnly)8+index*44 else 30+index*52)*d
                 val prompt=if(reading)if(index==0)"输入 nihao" else "输入 nuhao" else if(index==0)"短词 hello" else "长词 afternoon"
                 text(c,prompt,x+7*d,top+7*d,w-14*d,9f,muted)
                 val shown=mode==1 || mode==0&&if(reading)index==1 else index==0
@@ -319,7 +333,7 @@ class SettingExampleView(private val ctx:Context):View(ctx) {
             }
             val caption=if(reading)when(mode){0->"仅输错时显示读音";1->"都显示读音";else->"不显示读音"}
                 else when(mode){0->"短词显示翻译";1->"都显示翻译";else->"不显示翻译"}
-            text(c,caption,x+7*d,143*d,w-14*d,9f,muted)
+            text(c,caption,x+7*d,(if(choiceOnly)114 else 143)*d,w-14*d,9f,muted)
             return true
         }
         if(key==V3Prefs.CAPS_LOCK) {

@@ -41,17 +41,10 @@ object SpellingAssist {
     }
     fun transpositions(raw:String):List<String> {
         if(raw.length !in 4..40 || raw.any {it !in 'a'..'z'}) return emptyList()
-        val broken=IntArray(raw.length+1) {1000};broken[0]=0
-        for(i in raw.indices) {
-            broken[i+1]=min(broken[i+1],broken[i]+if(raw[i] in "bpmfdtnlgkhjqxrzcsyw") 0 else 1)
-            for(s in Lexicon.pinyinSyllables()) if(raw.startsWith(s,i)) broken[i+s.length]=min(broken[i+s.length],broken[i])
-        }
-        if(broken.last()==0) return emptyList()
         val old=quality(raw)
-        if(old<2.3f) return emptyList()
         return (0 until raw.lastIndex).filter {raw[it]!=raw[it+1]}.map {i ->
             raw.substring(0,i)+raw[i+1]+raw[i]+raw.substring(i+2)
-        }.distinct().map {it to quality(it)}.filter {it.second+.9f<old}
+        }.distinct().map {it to quality(it)}.filter {it.second+.05f<old}
             .sortedBy {it.second}.take(2).map {it.first}
     }
     private fun plain(s:String)=s.lowercase().replace("ü","v").filter {it in 'a'..'z'}
@@ -145,6 +138,41 @@ object SpellingAssist {
     }
 
     @Volatile var correctionFlags=15
+
+    /** Probe one edit at an unresolved interior syllable. Leave the other
+     * syllables intact, including any valid initials in the same sentence. */
+    fun sentenceVariants(raw: String, parts: List<String>, current: () -> Boolean): List<String> {
+        if (correctionFlags == 0 || raw.length !in 5..32 || parts.size < 3 ||
+            parts.joinToString("") != raw || raw.any { it !in 'a'..'z' }) return emptyList()
+        val sounds = Lexicon.pinyinSyllables().toHashSet()
+        val broken = parts.filter { it !in sounds }
+        if (broken.size !in 1..3 || parts.dropLast(1).none { it !in sounds }) return emptyList()
+        val rows = listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
+        val variants = linkedSetOf<String>()
+        var pos = 0
+        for (part in parts.dropLast(1)) {
+            if (part.length == 1 && part !in sounds) {
+                val key = raw[pos]
+                val row = rows.indexOfFirst { key in it }
+                val x = rows[row].indexOf(key) + row * 0.5
+                if (correctionFlags and 1 != 0) for ((r, keys) in rows.withIndex()) {
+                    if (abs(row - r) > 1) continue
+                    for ((col, near) in keys.withIndex()) if (near != key && abs(col + r * 0.5 - x) <= 1.5)
+                        variants.add(raw.replaceRange(pos, pos + 1, near.toString()))
+                }
+                if (correctionFlags and 4 != 0) variants.add(raw.removeRange(pos, pos + 1))
+            }
+            pos += part.length
+        }
+        fun penalty(tokens: List<String>) = tokens.fold(0) { total, t ->
+            total + when { t in sounds -> 1; t.length == 1 && t[0] in "bpmfdtnlgkhjqxrzcsyw" -> 12; else -> 48 }
+        }
+        val original = penalty(parts)
+        return variants.map { spelling ->
+            if (!current()) throw java.util.concurrent.CancellationException()
+            spelling to penalty(PinyinSegmentation.display(spelling, sounds).split('\''))
+        }.filter { it.second < original }.sortedBy { it.second }.take(6).map { it.first }
+    }
     internal fun singleTokenCorrection(typed:String,expected:String):Boolean =
         correctionFlags!=0 && typed.firstOrNull()==expected.firstOrNull() && permittedDistance(typed,expected)==1
 
@@ -187,18 +215,20 @@ object SpellingAssist {
             return dp.last()
         }
         val variants=LinkedHashSet<String>()
-        if(correctionFlags and 1!=0) {
+        fun neighbors(input: String) {
             val positions=buildMap<Char,Pair<Float,Int>> {
                 listOf("qwertyuiop","asdfghjkl","zxcvbnm").forEachIndexed {row,keys->
                     keys.forEachIndexed {col,c->put(c,(col+when(row){1->.5f;2->1.5f;else->0f}) to row)}
                 }
             }
-            for(i in raw.indices)for((c,target) in positions) {
-                val source=positions.getValue(raw[i])
-                if(c!=raw[i] && abs(source.first-target.first)<=1.25f && abs(source.second-target.second)<=1)
-                    variants.add(raw.substring(0,i)+c+raw.substring(i+1))
+            for(i in input.indices)for((c,target) in positions) {
+                val source=positions.getValue(input[i])
+                if(c!=input[i] && abs(source.first-target.first)<=1.25f && abs(source.second-target.second)<=1)
+                    variants.add(input.substring(0,i)+c+input.substring(i+1))
             }
         }
+        if(correctionFlags and 1!=0) neighbors(raw)
+        if(correctionFlags and 3==3) transpositions(raw).forEach(::neighbors)
         if(correctionFlags and 4!=0)for(i in raw.indices)variants.add(raw.removeRange(i,i+1))
         if(correctionFlags and 8!=0)for(i in 0..raw.length)for(c in 'a'..'z')variants.add(raw.substring(0,i)+c+raw.substring(i))
         if(correctionFlags and 2!=0)variants.addAll(transpositions(raw))
@@ -247,17 +277,24 @@ object SpellingAssist {
     }
 
     /** Full spelling, abbreviations, unfinished suffixes and configured fuzzy spellings are valid input. */
-    fun matchesTypedReading(raw: String, reading: String): Boolean {
+    fun matchesTypedReading(raw: String, reading: String): Boolean = matchesReading(raw,reading,false)
+
+    /** Personal words must consume every syllable, including fuzzy spellings. */
+    fun matchesCompleteReading(raw:String,reading:String):Boolean = matchesReading(raw,reading,true)
+
+    private fun matchesReading(raw: String, reading: String, complete: Boolean): Boolean {
         val input = plain(raw)
         val syllables = reading.split(' ', '\'').map(::plain).filter { it.isNotEmpty() }
-        if (input.isEmpty() || syllables.isEmpty() || input == syllables.joinToString("")) return true
+        if (input.isEmpty() || syllables.isEmpty()) return !complete
+        if(input == syllables.joinToString(""))return true
         var positions = setOf(0)
-        for (syllable in syllables) {
+        for ((index,syllable) in syllables.withIndex()) {
             positions = buildSet {
                 for (start in positions) {
+                    if(start>=input.length)continue
                     if (input.startsWith(syllable, start)) add(start + syllable.length)
                     if (input[start] == syllable.first()) add(start + 1)
-                    if (syllable.startsWith(input.substring(start))) add(input.length)
+                    if ((!complete || index==syllables.lastIndex) && syllable.startsWith(input.substring(start))) add(input.length)
                     if (syllable.startsWith("zh") || syllable.startsWith("ch") || syllable.startsWith("sh")) {
                         if (input.startsWith(syllable.take(2), start)) add(start + 2)
                     }
@@ -268,13 +305,22 @@ object SpellingAssist {
                     }
                 }
             }
-            if (input.length in positions) return true
+            if (input.length in positions && (!complete || index==syllables.lastIndex)) return true
             if (positions.isEmpty()) return false
         }
         return false
     }
 
     fun presentation(raw:String,reading:String,fallback:String):String {
+        val exact = reading.split(' ', '\'').filter { it.isNotEmpty() }
+        if (exact.isNotEmpty() && exact.joinToString("") == raw.replace("'", "")) {
+            val boundaries = exact.runningFold(0) { at, syllable -> at + syllable.length }.toSet()
+            var letters = 0
+            if (raw.all { ch -> if (ch == '\'') letters in boundaries else { letters++; true } }) {
+                return exact.joinToString("'") + if (raw.endsWith("'")) "'" else ""
+            }
+            return fallback
+        }
         val groups=align(raw,reading) ?: return fallback
         if(groups.all {it.typed==it.expected || it.typed==it.expected.take(1) ||
             (it.typed in listOf("zh","ch","sh") && it.expected.startsWith(it.typed))}) return fallback

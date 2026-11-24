@@ -32,6 +32,9 @@ class Cand(
     val correction: Boolean = false,
 ) {
     val fix get() = mask != null
+    val verifiedSentenceRepair get() = correction && nativeChoice?.let {
+        (it.schema == "kongye_26" || it.schema.startsWith("fcitx/")) && it.raw != it.source
+    } == true
 }
 
 /**
@@ -65,7 +68,6 @@ object Lexicon {
     }
     private val exact = HashMap<String, ArrayList<Entry>>()
     private val initials = HashMap<String, ArrayList<Entry>>()
-    private var syllablePrefixes: Set<String> = emptySet()
     private val byHead = HashMap<Char, ArrayList<Entry>>()
     private var nativeOnly = false
     private val associationWords = HashMap<Char, List<String>>()
@@ -77,8 +79,22 @@ object Lexicon {
         if (nativeOnly) return
         byHead.forEach { (head, entries) -> associationWords[head] = entries.filterNot { it.user }.map { it.w } }
         val single = exact.values.flatMap { entries -> entries.asSequence().filter { it.syl.size == 1 }.take(4).toList() }
+        // A common word within one mixed spelling can fall below the global
+        // frequency cutoff. Keep the first page for each full syllable + initial.
+        val tailWords = HashSet<Entry>()
+        for (bucket in initials.values) {
+            val counts = HashMap<String, Int>()
+            for (entry in bucket) {
+                if (entry.syl.size != 2) continue
+                val first = entry.syl[0]
+                val kept = counts[first] ?: 0
+                if (kept >= 6) continue
+                counts[first] = kept + 1
+                tailWords.add(entry)
+            }
+        }
         val phrases = sorted.filter { entry ->
-            entry.user || entry.syl.size in 2..6 && entry.sc >= 49 || isReduplication(entry)
+            entry.user || entry.syl.size in 2..6 && entry.sc >= 49 || entry in tailWords || isReduplication(entry)
         }
         exact.clear()
         initials.clear()
@@ -95,15 +111,20 @@ object Lexicon {
     private val phrasePy = HashMap<String,String>()
     /** 所有词，分词用 */
     private val words = HashSet<String>()
+    @Synchronized fun knownWord(text: String) = text in words
     private var syllables: List<String> = emptyList()
     private var sylSet: Set<String> = emptySet()
     internal fun pinyinSyllables():List<String> = syllables
+    @Volatile var learningEnabled = true
+        set(value) { synchronized(this) { if(field!=value){field=value;candidateCache.clear()} } }
+    private val lastSelected = LinkedHashMap<String, Long>()
     private val userFreq = HashMap<String, Int>()
     private val userWords = ArrayList<Entry>()
     private var dirty = false
     private var userFile: File? = null
 
     fun load(ctx: Context) {
+        learningEnabled=Prefs.of(ctx).getBoolean(Prefs.LEARN,true)
         if (ready) return
         loadFrom(ctx.assets.open("lexicon.txt"), File(ctx.filesDir, "user_lexicon.txt"))
     }
@@ -117,11 +138,13 @@ object Lexicon {
 
     /** Keep previously learned personal phrases when upgrading to Rime. */
     @Synchronized fun userCandidates(keys: List<String>, abbr: Boolean): List<Cand> {
+        if(!learningEnabled)return emptyList()
         val (sets, marks) = split(keys)
         return userWords.filter { e ->
             (e.p.length == sets.size && fitsSets(e.p, sets, sets.size) && fitsMarks(e, sets.size, marks)) ||
-                (abbr && marks.isEmpty() && e.ini.length == sets.size && fitsSets(e.ini, sets, sets.size))
-        }.sortedByDescending { userFreq[it.key] ?: 0 }.take(4).map { e ->
+                (abbr && marks.isEmpty() && e.ini.length == sets.size && fitsSets(e.ini, sets, sets.size)) ||
+                (keys.all {it.length==1} && marks.isEmpty() && SpellingAssist.matchesCompleteReading(keys.joinToString(""),e.syl.joinToString(" ")))
+        }.filter {it.key in userFreq}.sortedWith(compareByDescending<Entry> {userFreq[it.key] ?: 0}.thenByDescending {lastSelected[it.key] ?: 0}).take(4).map { e ->
             Cand(e.w, sets.size, e, 100f, py = e.syl.joinToString(" "))
         }
     }
@@ -135,7 +158,6 @@ object Lexicon {
             input.bufferedReader().use { br ->
                 syllables = br.readLine().split(' ').filter { it.isNotEmpty() }
                 sylSet = HashSet(syllables)
-                syllablePrefixes = syllables.flatMap {sound->(1..sound.length).map(sound::take)}.toSet()
                 br.forEachLine { line ->
                     val a = line.indexOf(' ')
                     val b = line.indexOf(' ', a + 1)
@@ -157,8 +179,10 @@ object Lexicon {
                             userWords.add(e)
                             list.add(e)
                             userFreq[e.key] = cnt
+                            lastSelected[e.key]=f.getOrNull(4)?.toLongOrNull() ?: 0L
                         } else {
                             userFreq["${f[1]}\t${f[2]}"] = cnt
+                            lastSelected["${f[1]}\t${f[2]}"]=f.getOrNull(4)?.toLongOrNull() ?: 0L
                         }
                     }
                 }
@@ -195,6 +219,7 @@ object Lexicon {
     }
 
     private fun boost(e: Entry): Float {
+        if(!learningEnabled)return 0f
         val c = userFreq[e.key] ?: return 0f
         return min(28f, 7f * log2(1f + c))
     }
@@ -264,8 +289,30 @@ object Lexicon {
         }
     }
 
-    /** Match mixed spelling with real words. Keep the longest verified prefix if
-     * the remaining keys cannot yet form a word. */
+    /** Match a two-syllable word while its second syllable is still being typed. */
+    @Synchronized
+    fun trailingSyllableCandidates(raw: String): List<Cand> {
+        val letters = raw.replace("'", "")
+        if (letters.length !in 2..11 || raw.count { it == '\'' } > 1) return emptyList()
+        val candidates = ArrayList<Cand>()
+        for (split in minOf(6, letters.lastIndex) downTo 1) {
+            if ('\'' in raw && raw.indexOf('\'') != split) continue
+            val first = letters.substring(0, split)
+            val tail = letters.substring(split)
+            if (first !in sylSet || !isTypedInitial(tail.take(1))) continue
+            val bucket = initials[first.take(1) + tail.take(1)].orEmpty()
+            for (entry in bucket) {
+                if (entry.syl.size != 2 || entry.syl[0] != first) continue
+                val last = entry.syl[1]
+                if (last.length <= tail.length || !last.startsWith(tail)) continue
+                candidates.add(Cand(entry.w, letters.length, entry, entry.sc + boost(entry),
+                    abbr = true, py = entry.syl.joinToString(" ")))
+            }
+        }
+        return candidates.sortedByDescending { it.score }.distinctBy { it.w }.take(6)
+    }
+
+    /** Keep the longest verified prefix when the remaining keys cannot yet form a word. */
     @Synchronized
     fun mixedSyllableCandidates(tokens:List<String>,current:()->Boolean):List<Cand> {
         if(ready && tokens.size==2 && tokens.any(::isTypedInitial)) {
@@ -640,24 +687,10 @@ object Lexicon {
         return if (keys.lastOrNull() == "'") "$text'" else text
     }
 
-    /** Streaming display: appending a letter never inserts/removes a separator
-     * between earlier letters. Candidate completion cannot resegment this line. */
+    /** Re-evaluate ambiguous boundaries as letters arrive, preserving the literal keys. */
     fun streamingDisplay(keys: List<String>): String {
         if (keys.any { it.length != 1 }) return display(keys,null)
-        val out=StringBuilder()
-        var syllable=""
-        for (key in keys) {
-            if (key=="'") {
-                if (out.isNotEmpty() && out.last()!='\'') out.append('\'')
-                syllable="";continue
-            }
-            val next=syllable+key
-            if (syllable.isNotEmpty() && next !in syllablePrefixes) {
-                out.append('\'');syllable=key
-            } else syllable=next
-            out.append(key)
-        }
-        return out.toString()
+        return PinyinSegmentation.display(keys.joinToString(""), sylSet)
     }
 
     fun display(raw: String, top: Cand?): String = display(raw.map { it.toString() }, top)
@@ -750,20 +783,25 @@ object Lexicon {
     @Synchronized
     fun recordPick(e: Entry) {
         candidateCache.clear()
-        userFreq[e.key] = (userFreq[e.key] ?: 0) + 1
+        userFreq[e.key] = ((userFreq[e.key] ?: 0) + 1).coerceAtMost(1000000)
+        lastSelected[e.key]=System.currentTimeMillis()
+        while(userFreq.size>4096) {
+            val oldest=userFreq.keys.minByOrNull {lastSelected[it] ?: 0L} ?: break
+            userFreq.remove(oldest);lastSelected.remove(oldest);userWords.removeAll {it.key==oldest}
+        }
         dirty = true
     }
 
     /** 分几次选出来的一整句，记成一个新词 */
     @Synchronized
     fun learnPhrase(w: String, syl: List<String>) {
-        if (!ready || w.length < 2 || w.length > 8 || syl.size != w.length) return
+        if (!ready || w.isEmpty() || w.codePointCount(0,w.length)>64 || syl.size != w.codePointCount(0,w.length)) return
         val p = syl.joinToString("")
         if (nativeOnly) {
             val existing = userWords.firstOrNull { it.p == p && it.w == w }
             if (existing != null) { recordPick(existing); return }
             val entry = Entry(syl.toTypedArray(), w, 40, user = true)
-            userWords.add(entry); words.add(w); userFreq[entry.key] = 1; dirty = true
+            userWords.add(entry); words.add(w); recordPick(entry)
             return
         }
         exact[p]?.firstOrNull { it.w == w }?.let { recordPick(it); return }
@@ -778,22 +816,14 @@ object Lexicon {
         rangeExtras.add(e)
         corrector?.learn(p)
         candidateCache.clear()
-        userFreq[e.key] = 1
-        dirty = true
+        recordPick(e)
     }
 
     @Synchronized fun save() {
         val f = userFile ?: return
         if (!dirty) return
         dirty = false
-        val sb = StringBuilder()
-        val phraseKeys = HashSet<String>()
-        for (e in userWords) {
-            phraseKeys.add(e.key)
-            sb.append("P\t").append(e.w).append('\t').append(e.syl.joinToString("'")).append('\t').append(userFreq[e.key] ?: 1).append('\n')
-        }
-        for ((k, v) in userFreq) if (k !in phraseKeys) sb.append("F\t").append(k).append('\t').append(v).append('\n')
-        val text = sb.toString()
+        val text = backupText()
         userWriter.execute {runCatching {
             val atomic=android.util.AtomicFile(f);val out=atomic.startWrite()
             try {out.write(text.toByteArray());atomic.finishWrite(out)}catch(t:Throwable){atomic.failWrite(out);throw t}
@@ -804,19 +834,21 @@ object Lexicon {
     @Synchronized fun flushUserWrites(){userWriter.submit {}.get(5,java.util.concurrent.TimeUnit.SECONDS)}
     @Synchronized fun backupText():String=buildString {
         val phrases=HashSet<String>()
-        for(e in userWords){phrases.add(e.key);append("P\t").append(e.w).append('\t').append(e.syl.joinToString("'")).append('\t').append(userFreq[e.key] ?: 1).append('\n')}
-        for((key,value) in userFreq)if(key !in phrases)append("F\t").append(key).append('\t').append(value).append('\n')
+        for(e in userWords){phrases.add(e.key);append("P\t").append(e.w).append('\t').append(e.syl.joinToString("'")).append('\t').append(userFreq[e.key] ?: 1).append('\t').append(lastSelected[e.key] ?: 0L).append('\n')}
+        for((key,value) in userFreq)if(key !in phrases)append("F\t").append(key).append('\t').append(value).append('\t').append(lastSelected[key] ?: 0L).append('\n')
     }
     @Synchronized fun restoreBackupText(ctx:Context,text:String) {
         userWriter.submit {}.get(5,java.util.concurrent.TimeUnit.SECONDS)
         clearUser(ctx)
         for(line in text.lineSequence()) {
-            val f=line.split('\t');if(f.size!=4)continue
+            val f=line.split('\t');if(f.size !in 4..5)continue
             val count=f[3].toIntOrNull()?.coerceIn(1,100000000) ?: continue
             if(f[0]=="P") {
                 val syllables=f[2].split("'");if(syllables.any {it.isEmpty()})continue
                 learnPhrase(f[1],syllables);userFreq[f[1]+"\t"+syllables.joinToString("")]=count
             } else if(f[0]=="F")userFreq[f[1]+"\t"+f[2]]=count
+            val code=if(f[0]=="P")f[2].replace("'","") else f[2]
+            lastSelected[f[1]+"\t"+code]=f.getOrNull(4)?.toLongOrNull() ?: 0L
         }
         userFile=File(ctx.filesDir,"user_lexicon.txt");dirty=true;save()
         userWriter.submit {}.get(5,java.util.concurrent.TimeUnit.SECONDS)
@@ -838,7 +870,7 @@ object Lexicon {
                 if (!nativeOnly) rebuildRanges()
             }
             userWords.clear()
-            userFreq.clear()
+            userFreq.clear();lastSelected.clear()
             dirty = false
         }
         File(ctx.filesDir, "user_lexicon.txt").delete()

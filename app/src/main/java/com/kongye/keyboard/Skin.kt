@@ -8,7 +8,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/** KONGYE：叶形圆角、红色回车；FLAT：圆角矩形的通用键盘（晴空、墨夜和各套配色） */
+/** KONGYE：叶形圆角、红色回车；FLAT：圆角矩形的通用键盘（晴空湛蓝、墨夜深灰和各套配色） */
 enum class SkinStyle { KONGYE, FLAT }
 
 data class Skin(
@@ -45,7 +45,7 @@ data class Skin(
     val keyGap: Float = 6f,
     val padH: Float = 4f,
     val letterSize: Float = 22f,
-    /** 回车和 123 用功能键的颜色（晴空、墨夜） */
+    /** 回车和 123 用功能键的颜色（晴空湛蓝、墨夜深灰） */
     val enterMod: Boolean = false,
     /** 键盘底色渐变的下端颜色，0 表示纯色 */
     val bg2: Int = 0,
@@ -120,7 +120,7 @@ object Skins {
     )
 
     val SKY = Skin(
-        "sky", "晴空", SkinStyle.FLAT, dark = false,
+        "sky", "晴空湛蓝", SkinStyle.FLAT, dark = false,
         kbBg = c("#E8EEF5"), barFg = c("#444746"), candFg = c("#1F1F1F"), candHi = c("#0B57D0"),
         keyBg = c("#FFFFFF"), keyFg = c("#1F1F1F"), keyDown = c("#DCE3EB"), keyShadow = 0,
         modBg = c("#D3E3FD"), modFg = c("#1F1F1F"), accBg = c("#7DC8FC"), accFg = c("#0B2B47"),
@@ -129,7 +129,7 @@ object Skins {
     )
 
     val DUSK = Skin(
-        "dusk", "墨夜", SkinStyle.FLAT, dark = true,
+        "dusk", "墨夜深灰", SkinStyle.FLAT, dark = true,
         kbBg = c("#1B1B1C"), barFg = c("#C4C7C5"), candFg = c("#E3E3E3"), candHi = c("#C2E7FF"),
         keyBg = c("#3A3B3D"), keyFg = c("#E3E3E3"), keyDown = c("#4E5053"), keyShadow = 0,
         modBg = c("#55575B"), modFg = c("#E3E3E3"), accBg = c("#E8E9EB"), accFg = c("#1B1B1C"),
@@ -198,13 +198,12 @@ object Themes {
     }
 
     private val FIXED = listOf(
-        // 晴空、墨夜各补一个反色版本：晴空的夜间、墨夜的白天
-        Theme("sky", "晴空", c("#0B57D0"), Skins.SKY, Skins.darkOf("sky_d", "晴空", c("#0B57D0"))),
-        Theme("dusk", "墨夜", c("#5F6368"), Skins.lightOf("dusk_l", "墨夜", c("#5F6368")), Skins.DUSK),
+        // 两套手工配色各补齐浅色和深色版本；石墨的浅色重复项已合并到墨夜。
+        Theme("sky", "晴空湛蓝", c("#0B57D0"), Skins.SKY, Skins.darkOf("sky_d", "晴空湛蓝", c("#0B57D0"))),
+        Theme("dusk", "墨夜深灰", c("#5F6368"), Skins.lightOf("dusk_l", "墨夜深灰", c("#5F6368")), Skins.DUSK),
         dual("lavender", "薰衣草紫", "#7E57C2"),
         dual("ocean", "海洋蔚蓝", "#1E66D0"),
         dual("sunset", "落日橙光", "#E8590C"),
-        dual("graphite", "沉稳石墨", "#5F6368"),
         dual("rose", "浪漫玫瑰", "#B0185A"),
         dual("teal", "青碧如水", "#00796B"),
         pastel("sakura", "樱花粉黛", "#E8336D"),
@@ -228,5 +227,9 @@ object Themes {
         return listOf(kongye, dynamic) + FIXED
     }
 
-    fun byId(ctx: Context, id: String?): Theme = all(ctx).let { list -> list.firstOrNull { it.id == id } ?: list[0] }
+    fun byId(ctx: Context, id: String?): Theme {
+        // 兼容已有设置和旧备份，移除重复项后仍保留用户原来的灰色配色。
+        val resolvedId = if (id == "graphite") "dusk" else id
+        return all(ctx).let { list -> list.firstOrNull { it.id == resolvedId } ?: list[0] }
+    }
 }

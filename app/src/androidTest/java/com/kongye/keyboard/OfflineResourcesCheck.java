@@ -50,6 +50,10 @@ public final class OfflineResourcesCheck extends Instrumentation {
         JSONObject result = new JSONObject();
         try {
             Context ctx = getTargetContext();
+            if ("pinyin-live-400".equals(mode)) {LiveInteraction240Regression.INSTANCE.run(this,true);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("learning-400".equals(mode)) {FcitxRegression.INSTANCE.learning(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("layout-400".equals(mode)) {Layout400Regression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("pinyin-400".equals(mode)) {Pinyin400Regression.INSTANCE.run(this);report("PINYIN 4.0 COVERAGE PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
             if ("resource-policy".equals(mode)) {ResourcePolicyRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("review306".equals(mode)) {Review306Regression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("update-install".equals(mode)) {UpdateRegression.testInstallation(this);report("INSTALLATION SESSION, PROGRESS AND CANCELLATION PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
@@ -62,6 +66,8 @@ public final class OfflineResourcesCheck extends Instrumentation {
             if ("layout-backup-ui".equals(mode)) {SettingsLayoutBackupRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
 
             if ("orientation-keyboard".equals(mode)) {OrientationKeyboardRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("floating-layout-400".equals(mode)) {FloatingLayout400Regression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("floating-layout-live-400".equals(mode)) {FloatingLayout400Regression.INSTANCE.live(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("floating-mode".equals(mode)) {FloatingModeRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("factory-reset".equals(mode)) {FactoryResetRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("factory-defaults".equals(mode)) {FactoryDefaultsRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
@@ -84,6 +90,7 @@ public final class OfflineResourcesCheck extends Instrumentation {
             if ("settings-nov17".equals(mode)) {SettingsNov17Regression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if (mode.startsWith("light-pack-")) {LightResourcesRegression.INSTANCE.pack(this,mode.substring(11));finish(Activity.RESULT_OK,new Bundle());return;}
             if ("settings-preview".equals(mode)) {SettingsPreviewRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("local-grammar".equals(mode)) {LightResourcesRegression.INSTANCE.importLocalGrammar(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("light-grammar".equals(mode)) {LightResourcesRegression.INSTANCE.grammar(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("note-delete".equals(mode)) {NoteDeletionRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("light-resources".equals(mode) || "light-download".equals(mode)) {LightResourcesRegression.INSTANCE.run(this,"light-download".equals(mode));finish(Activity.RESULT_OK,new Bundle());return;}
@@ -116,6 +123,12 @@ public final class OfflineResourcesCheck extends Instrumentation {
             }
             if ("fcitx".equals(mode)) {
                 FcitxRegression.INSTANCE.run(this);report("ALL OFFICIAL FCITX ENGINE CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("mixed-tail".equals(mode)) {
+                FcitxRegression.INSTANCE.mixedTail(this);finish(Activity.RESULT_OK,new Bundle());return;
+            }
+            if ("sentence-repairs".equals(mode)) {
+                FcitxRegression.INSTANCE.sentenceRepairs(this);finish(Activity.RESULT_OK,new Bundle());return;
             }
             if ("rime".equals(mode)) {
                 RimeRegression.INSTANCE.run(this);report("ALL NATIVE RIME DECODER CHECKS PASSED");finish(Activity.RESULT_OK,new Bundle());return;

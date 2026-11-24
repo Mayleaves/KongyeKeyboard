@@ -12,7 +12,7 @@ public final class TypingFormActivity extends android.app.Activity {
         android.widget.EditText field = new android.widget.EditText(this);
         field.setId(300); field.setHint("只使用虚构测试内容"); field.setContentDescription("独立输入测试框");
         field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        field.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
+        field.setImeOptions(getIntent().getBooleanExtra("learning",false) ? 0 : android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
         field.setGravity(android.view.Gravity.TOP); field.setTextSize(22); field.setSaveEnabled(false);
         field.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO);
         if (getIntent().getBooleanExtra("bottom", false)) {

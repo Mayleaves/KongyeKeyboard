@@ -47,8 +47,10 @@ class CandidateBar(context: Context) : View(context) {
     enum class Mode { TOOLS, CANDS, ASSOC, MESSAGE, CLIP_SUGGEST, ACTIONS, SMS_CODE }
 
     var onVisibleWords:(List<String>)->Unit = {}
-    var inputSpelling=""
+    var reserveSpelling=false
         set(value) {if(field!=value){field=value;requestLayout();invalidate()}}
+    var inputSpelling=""
+        set(value) {if(field!=value){val resize=!reserveSpelling && field.isEmpty()!=value.isEmpty();field=value;if(resize)requestLayout();invalidate()}}
     var onLongCandidate: (String?) -> Unit = {}
     var listener: Listener? = null
     var skin: Skin = Skins.KONGYE
@@ -198,7 +200,7 @@ class CandidateBar(context: Context) : View(context) {
     private fun maxScroll() = max(0f, contentW - (width - expandW))
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), ((if(mode==Mode.SMS_CODE)64 else 44+if(inputSpelling.isNotEmpty())16 else 0) * d).toInt())
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), ((if(mode==Mode.SMS_CODE)64 else 44+if(reserveSpelling || inputSpelling.isNotEmpty())16 else 0) * d).toInt())
     }
 
     override fun onDraw(c: Canvas) {

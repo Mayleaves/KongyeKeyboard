@@ -459,12 +459,7 @@ class SettingsActivity : ComponentActivity() {
         Prefs.of(this).registerOnSharedPreferenceChangeListener(prefListener)
         if (intent?.getBooleanExtra("grant_mic", false) == true && !micGranted()) micRequest.launch(Manifest.permission.RECORD_AUDIO)
         setContent {
-            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
-                val systemDensity = LocalDensity.current
-                val scale = ResponsiveSize.settingsScale(maxWidth.value)
-                val density = androidx.compose.ui.unit.Density(systemDensity.density * scale, systemDensity.fontScale)
-                CompositionLocalProvider(LocalDensity provides density) { Screen(tick.intValue) }
-            }
+            Screen(tick.intValue)
         }
         if(updateDialogVisible.value)checkUpdate(false)
         else if(System.currentTimeMillis()-Prefs.of(this).getLong(Prefs.UPDATE_CHECKED,0L)>6*60*60*1000L)checkUpdate(true)
@@ -678,16 +673,14 @@ class SettingsActivity : ComponentActivity() {
         if(keyboardOverlay?.isShowing==true)return
         val dialog=android.app.Dialog(this)
         val metrics=resources.displayMetrics
-        val scale=ResponsiveSize.settingsScale(window.decorView.width.takeIf {it>0}?.div(metrics.density)
-            ?: resources.configuration.screenWidthDp.toFloat())
-        val d=metrics.density*scale
+        val d=metrics.density
         fun dp(v:Int)=(v*d).roundToInt()
         val root=android.widget.FrameLayout(this).apply {
             setBackgroundColor(android.graphics.Color.argb(185,android.graphics.Color.red(pal.bg.toArgb()),android.graphics.Color.green(pal.bg.toArgb()),android.graphics.Color.blue(pal.bg.toArgb())))
         }
         val inputArea=android.widget.FrameLayout(this)
         val edit=android.widget.EditText(this).apply {
-            textSize=27f*scale;gravity=android.view.Gravity.CENTER
+            textSize=27f;gravity=android.view.Gravity.CENTER
             setTextColor(pal.ink.toArgb());setHintTextColor(pal.text2.copy(alpha=.55f).toArgb())
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -698,7 +691,7 @@ class SettingsActivity : ComponentActivity() {
         }
         inputArea.addView(edit,android.widget.FrameLayout.LayoutParams(-1,-2,android.view.Gravity.CENTER))
         val close=android.widget.TextView(this).apply {
-            text="×";textSize=27f*scale;contentDescription="收起键盘";gravity=android.view.Gravity.CENTER;setTextColor(pal.text2.toArgb())
+            text="×";textSize=27f;contentDescription="收起键盘";gravity=android.view.Gravity.CENTER;setTextColor(pal.text2.toArgb())
             setOnClickListener {getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(edit.windowToken,0);dialog.dismiss()}
         }
         inputArea.addView(close,android.widget.FrameLayout.LayoutParams(dp(48),dp(48),android.view.Gravity.TOP or android.view.Gravity.END).apply {setMargins(dp(8),dp(8),dp(8),dp(8))})
@@ -757,17 +750,7 @@ class SettingsActivity : ComponentActivity() {
     private fun SettingComparison(pal:Pal,title:String,key:String,current:Any,compareChoices:List<Pair<Any,String>> = emptyList(),label:(Any)->String) {
         val before=remember(key) {current}
         val previewLandscape = LocalLayoutPreviewLandscape.current
-        val height = when (key) {
-            V3Prefs.DELETE_DIRECT -> 190.dp
-            FloatingKeyboard.SPLIT -> 154.dp
-            V3Prefs.CLEAR_SCOPE -> 152.dp
-            V3Prefs.PUNCT_CONFIRM, V3Prefs.READINGS, V3Prefs.GLOSS -> 148.dp
-            V3Prefs.COMPOSE_RESTORE, V3Prefs.COMPOSE_HOLD_CLEAR -> 144.dp
-            V3Prefs.GLIDE_ZH, V3Prefs.GLIDE_EN, V3Prefs.GLIDE_LIVE, V3Prefs.GLIDE_TRACE -> 140.dp
-            Prefs.SPACE_LONG, V3Prefs.BOTTOM_CURSOR -> 124.dp
-            V3Prefs.PINYIN_POSITION -> 116.dp
-            else -> 110.dp
-        }
+        val height = SettingExampleView.comparisonHeightDp(key).dp
         AndroidView(factory={ctx->SettingExampleView(ctx)},update={
             it.ink=pal.ink.toArgb();it.muted=pal.text2.toArgb();it.tile=pal.tile.toArgb();it.accent=pal.accent.toArgb()
             it.layoutLandscape = previewLandscape
@@ -1548,7 +1531,7 @@ class SettingsActivity : ComponentActivity() {
             Page.SMS->Triple(Prefs.SMS_CODE,false,R.drawable.ic_copy)
             Page.STATS->Triple(V3Prefs.STATS_ENABLED,true,R.drawable.ic_stats)
             Page.CORRECTION->Triple(V3Prefs.CORRECTION_ENABLED,true,R.drawable.ic_edit)
-            Page.FUZZY->Triple(V3Prefs.FUZZY_ENABLED,true,R.drawable.ic_kbd)
+            Page.FUZZY->Triple(V3Prefs.FUZZY_ENABLED,Prefs.fuzzySelection(this).isNotEmpty(),R.drawable.ic_kbd)
             Page.FLICKS->Triple(Prefs.SWIPE,true,R.drawable.ic_kbd)
             Page.POLISH->Triple(V3Prefs.VOICE_POLISH,false,R.drawable.ic_edit)
             else->null
@@ -1639,7 +1622,7 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun <T:Any> VisualChoice(
         pal: Pal, title: String, key: String, options: List<Pair<T,String>>, default: T, tick: Int,
-        accessibilityTitle: String = title, onSelect: ((T) -> Unit)? = null,
+        accessibilityTitle: String = title, onChanged: () -> Unit = {}, onSelect: ((T) -> Unit)? = null,
     ) {
         val p = Prefs.of(this)
         val selected = if (onSelect != null) default else remember(tick, key, default) { p.all[key] ?: default }
@@ -1661,13 +1644,14 @@ class SettingsActivity : ComponentActivity() {
                                     is String -> editor.putString(key,value)
                                 }
                                 editor.apply()
+                                onChanged()
                             }
                         }.semantics {contentDescription="$accessibilityTitle：${option.second}"},horizontalAlignment=Alignment.CenterHorizontally) {
                         AndroidView(factory={SettingExampleView(it)},update={
                             it.ink=pal.ink.toArgb();it.muted=pal.text2.toArgb();it.tile=pal.tile.toArgb();it.accent=pal.accent.toArgb();it.choiceOnly=true;it.exampleActive=active
                             it.layoutLandscape = previewLandscape
                             it.submit(key,title,option.first,option.first,"","")
-                        },modifier=Modifier.fillMaxWidth().padding(5.dp).height(90.dp))
+                        },modifier=Modifier.fillMaxWidth().padding(5.dp).height(if(key==V3Prefs.READINGS || key==V3Prefs.GLOSS)120.dp else 90.dp))
                         BasicText("${if(active)"●" else "○"} ${option.second}",style=TextStyle(color=if(active)pal.accent else pal.text2,fontSize=12.sp,fontWeight=if(active)FontWeight.Bold else FontWeight.Normal),modifier=Modifier.padding(bottom=10.dp))
                     }
                 }
@@ -1935,6 +1919,10 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun <T:Any> SettingsChoice(pal:Pal,title:String,key:String,options:List<Pair<T,String>>,default:T,tick:Int,showExample:Boolean=true,inCard:Boolean=true,inlineDropdown:Boolean=false,onChanged:()->Unit={}) {
+        if (showExample && options.size==3 && !inlineDropdown && inCard) {
+            VisualChoice(pal,title,key,options,default,tick,onChanged=onChanged)
+            return
+        }
         val p=Prefs.of(this)
         val selected=remember(tick,key) {p.all[key] ?: default}
         var showOptions by rememberSaveable(key) {mutableStateOf(false)}
@@ -2161,7 +2149,7 @@ class SettingsActivity : ComponentActivity() {
 
                 StatsHeading(pal,"词库与学习")
                 Card(pal) {ActionRow(pal,"整句增强词库",if(ResourcePacks.ready(this@SettingsActivity,"grammar")) "已下载；基础词库已可用" else "基础拼音已可用，可下载整句增强词库","管理") {go(Page.RESOURCES)}}
-                SettingsToggle(pal,"记住选词",Prefs.LEARN,true,tick,"将常用选择排在前面",showExample=false)
+                SettingsToggle(pal,"记住选词",Prefs.LEARN,true,tick,"记住主动选择的非首选词；最多保留最近 4096 条记录",showExample=false)
                 var forgetHint by remember {mutableStateOf("")}
                 Card(pal) {ActionRow(pal,"清除选词记录",forgetHint.ifEmpty {"清除本机学习的选词与自造词"},"清除") {
                     if(confirmed("forget")) {
@@ -2175,7 +2163,7 @@ class SettingsActivity : ComponentActivity() {
             }
             Page.FUZZY -> {
                 val active=Prefs.fuzzySelection(this)
-                val fuzzyOn=remember(tick){p.getBoolean(V3Prefs.FUZZY_ENABLED,true)}
+                val fuzzyOn=remember(tick){Prefs.fuzzyEnabled(this)}
                 Card(pal) {Tip(pal,"近似读音匹配",if(!fuzzyOn)"模糊音已关闭，规则已保留。可返回「中文与拼音」，在「模糊音」入口开启。" else if(active.isEmpty())"当前严格区分各组拼音；可按自己的发音习惯开启。" else active.joinToString(" · ") {it.replace("-"," ↔ ")})}
                 listOf("声母" to Prefs.FUZZY_RULES.take(6),"韵母" to Prefs.FUZZY_RULES.drop(6)).forEach {group->
                     StatsHeading(pal,group.first)
@@ -2415,7 +2403,7 @@ class SettingsActivity : ComponentActivity() {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Card(pal, Modifier.noticeAttention(pal, V3Prefs.ORIENTATION_LAYOUT)) {
-                    ToggleRow(pal, "横竖屏分别记住布局", "分别设置中文键位与键盘形态", separate) {
+                    ToggleRow(pal, "横竖屏分别记住布局", "分别记住键位、键盘形态、高度、边距和分体尺寸", separate) {
                         V3Prefs.setSeparateLayouts(this@SettingsActivity, it)
                     }
                 }
@@ -2485,7 +2473,7 @@ class SettingsActivity : ComponentActivity() {
             Box(previewBoxMod) {
                 AndroidView(
                     factory = { ctx ->
-                        LinearLayout(ctx).apply {
+                        KeyboardPreviewLayout(ctx).apply {
                             orientation = LinearLayout.VERTICAL
                             addView(CandidateBar(ctx))
                             addView(KeyboardView(ctx).apply { preview = true })
@@ -2495,9 +2483,9 @@ class SettingsActivity : ComponentActivity() {
                         ll.alpha=Prefs.opacity(this@SettingsActivity)
                         ll.background = if (skin.bg2 != 0) android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(skin.kbBg, skin.bg2))
                         else android.graphics.drawable.ColorDrawable(skin.kbBg)
-                        (ll.getChildAt(0) as CandidateBar).apply { this.skin = skin;uiScale=scaleOverride ?: Prefs.heightScale(this@SettingsActivity); showTools(listOf("more") + Prefs.tools(this@SettingsActivity)) }
+                        (ll.getChildAt(0) as CandidateBar).apply { this.skin = skin;uiScale=scaleOverride ?: (Prefs.heightScale(this@SettingsActivity)*ResponsiveSize.keyboardScale(resources.configuration.screenWidthDp.toFloat(),resources.configuration.screenHeightDp.toFloat())); showTools(listOf("more") + Prefs.tools(this@SettingsActivity)) }
                         (ll.getChildAt(1) as KeyboardView).apply {
-                            heightScale = scaleOverride ?: Prefs.heightScale(this@SettingsActivity)
+                            heightScale = scaleOverride ?: (Prefs.heightScale(this@SettingsActivity)*ResponsiveSize.keyboardScale(resources.configuration.screenWidthDp.toFloat(),resources.configuration.screenHeightDp.toFloat()))
                             zh = true
                             val rows = when (layout) { "14" -> Layouts.fourteen(this@SettingsActivity); "9" -> Layouts.nine(); else -> Layouts.letters(true,this@SettingsActivity) }
                             setup(skin, rows, if (layout == "9") Layouts.NINE_SIDE else null)

@@ -44,7 +44,7 @@ object PinyinEngine {
                 }
                 File(data, ".complete").writeText("Rime 1.17.0 / Rime Ice 99662ba / Wanxiang grammar")
             }
-            val user = File(root, "user").apply { mkdirs() }
+            val user = File(root, "base-user").apply { mkdirs() }
             core = RimeBridge(data.absolutePath, user.absolutePath)
             version = core!!.version
             // Force native dictionary/model mapping off the keyboard UI thread.
@@ -93,18 +93,110 @@ object PinyinEngine {
     }
 
     fun candidates(keys: List<String>, abbr: Boolean = true): List<Cand> {
-        if(FcitxEngine.ready && layout(keys)=="26" && abbr) return FcitxEngine.primaryCandidates(keys) {true}.let {PinyinExpressions.insert(it,keys)}
+        if(FcitxEngine.ready && layout(keys)=="26" && abbr) return nativeCandidates(keys, {true}, false, null)
         if (!ready) return Lexicon.candidates(keys, abbr)
         return queryReady(keys, abbr, { true }, {})
     }
 
     fun candidatesLive(keys: List<String>, abbr: Boolean, current: () -> Boolean, onPrimary: (List<Cand>) -> Unit): List<Cand> {
         if(FcitxEngine.ready && layout(keys)=="26" && abbr) {
-            val result=FcitxEngine.candidatesLive(keys,current) {onPrimary(PinyinExpressions.insert(it,keys))}.let {PinyinExpressions.insert(it,keys)}
-            return result
+            return nativeCandidates(keys,current,false,onPrimary)
         }
         if (!ready) return Lexicon.candidates(keys, abbr)
         return queryReady(keys, abbr, current, onPrimary)
+    }
+
+    fun expandedCandidates(keys: List<String>, current: () -> Boolean) =
+        nativeCandidates(keys, current, true, null)
+
+    private fun nativeCandidates(keys: List<String>, current: () -> Boolean, expanded: Boolean,
+                                 onPrimary: ((List<Cand>) -> Unit)?): List<Cand> {
+        var repairs = emptyList<Cand>()
+        fun merge(words: List<Cand>): List<Cand> {
+            val first = words.firstOrNull()
+            val keepFirst = first != null && first.n == keys.size &&
+                (first.py?.replace(" ", "") == keys.joinToString("") &&
+                    (repairs.firstOrNull()?.correction != false || Lexicon.knownWord(first.w)) ||
+                    first.abbr && !first.correction && first.e != null ||
+                    first.correction && first.nativeChoice?.raw==first.py?.replace(" ", "") &&
+                    SpellingAssist.edits(keys.joinToString(""),first.py.orEmpty()).let {edits->edits.isNotEmpty() && edits.all {it.kind==3}})
+            val ranked = if (repairs.isEmpty()) words else
+                ((if (keepFirst) words.take(1) else emptyList()) + repairs + words).distinctBy { it.w to it.n }
+            return PinyinExpressions.insert((Lexicon.userCandidates(keys,true)+ranked).distinctBy {it.w to it.n}, keys)
+        }
+        val words = when {
+            expanded -> FcitxEngine.candidates(keys,current)
+            onPrimary == null -> FcitxEngine.primaryCandidates(keys,current)
+            else -> FcitxEngine.candidatesLive(keys,current) { onPrimary(merge(it)) }
+        }
+        repairs = sentenceRepairs(keys, current, words.firstOrNull())
+        return merge(words)
+    }
+
+    @Synchronized private fun sentenceRepairs(keys: List<String>, current: () -> Boolean, nativeFirst: Cand?): List<Cand> {
+        val rime = core ?: return emptyList()
+        if (keys.size !in 5..32 || "'" in keys) return emptyList()
+        val raw = keys.joinToString("")
+        val display = Lexicon.streamingDisplay(keys)
+        val parts = display.split('\'')
+        if (parts.size < 3) return emptyList()
+        val variants = (SpellingAssist.sentenceVariants(raw, parts, current) +
+            if(nativeFirst?.n!=keys.size && SpellingAssist.correctionFlags and 3==3 && SpellingAssist.transpositions(raw).isNotEmpty())
+                SpellingAssist.repairs(raw,current) else emptyList()).distinct()
+        val full = parts.all { it in Lexicon.pinyinSyllables() }
+        val schema = "kongye_26"
+        fun query(input: String): List<RimeBridge.Candidate> {
+            if (!current()) throw java.util.concurrent.CancellationException()
+            return rime.query(schema, input).candidates.toList()
+        }
+        val original = query(raw)
+        val initials = parts.takeWhile { it.length==1 && it[0] in "bpmfdtnlgkhjqxrzcsyw" || it in listOf("zh","ch","sh") }
+        for (size in minOf(initials.size,6) downTo 2) {
+            if(parts.drop(size).count {it.length>=2}<2) continue
+            val prefixLength=initials.take(size).sumOf {it.length}
+            val prefix=query(raw.take(prefixLength)).firstOrNull {it.type in listOf("phrase","user_phrase") &&
+                it.end==prefixLength && it.pinyin.split(' ').size==size && nativeFirst?.w?.startsWith(it.text)==true}
+                ?: continue
+            val expanded=prefix.pinyin.replace(" ","")+raw.drop(prefixLength)
+            val resolved=query(expanded).firstOrNull {it.end==expanded.length && it.text.startsWith(prefix.text) &&
+                it.pinyin.replace(" ","")==expanded && SpellingAssist.matchesTypedReading(raw,it.pinyin)}
+            if(resolved!=null) return listOf(Cand(resolved.text,keys.size,null,resolved.quality.toFloat(),
+                abbr=true,py=resolved.pinyin,inputDisplay=display,nativeChoice=RimeChoice(schema,expanded,raw)))
+        }
+        if (variants.isEmpty() && !full) return emptyList()
+        if (full) {
+            val hit = original.firstOrNull() ?: return emptyList()
+            if (hit.end == raw.length && hit.type == "phrase" && hit.pinyin.replace(" ", "") == raw &&
+                hit.quality >= 0.8 && !Lexicon.knownWord(hit.text) &&
+                original.drop(1).none { it.end == raw.length && it.quality >= hit.quality - 0.00001 })
+                return listOfNotNull(convert(hit,schema,raw,"26",false))
+            return emptyList()
+        }
+        if (original.any { it.type == "phrase" && it.end == raw.length && it.quality > 0.5 }) return emptyList()
+        val found = ArrayList<Cand>()
+        val phraseScores = HashMap<String, Double>()
+        for (variant in variants) {
+            for (word in query(variant).take(8)) {
+                if (word.type != "phrase" || word.end != variant.length || word.quality < 0.5 ||
+                    word.pinyin.split(' ').size < 3 || word.text.any { it.code < 128 }) continue
+                val typed = word.preedit.split(' ', '\'').filter { it.isNotEmpty() }
+                val sounds = word.pinyin.split(' ')
+                if (typed.joinToString("") != variant || typed.size != sounds.size || !typed.indices.all { i ->
+                        typed[i] == sounds[i] || sounds[i].startsWith(typed[i]) &&
+                            (typed[i].length == 1 || typed[i] in listOf("zh","ch","sh"))
+                    }) continue
+                // For near-tied abbreviated readings, prefer fewer inferred letters.
+                val spelling = sounds.joinToString("")
+                val quality = phraseScores.getOrPut(word.text+"/"+spelling) {
+                    query(spelling).firstOrNull {it.text==word.text && it.end==spelling.length && it.type=="phrase"}?.quality ?: word.quality
+                }
+                val inferred = spelling.length - raw.length
+                val score = quality.toFloat() - inferred * 0.012f
+                found.add(Cand(word.text,keys.size,null,score,py=word.pinyin,inputDisplay=display,
+                    correction=true,nativeChoice=RimeChoice(schema,variant,raw)))
+            }
+        }
+        return found.sortedByDescending { it.score }.distinctBy { it.w }.take(4)
     }
 
     @Synchronized private fun queryReady(keys: List<String>, abbr: Boolean, current: () -> Boolean, onPrimary: (List<Cand>) -> Unit): List<Cand> {
@@ -112,7 +204,7 @@ object PinyinEngine {
         checkCurrent()
         val rime = core
         if (!ready || rime == null) return Lexicon.candidates(keys, abbr)
-        val cacheKey = keys.joinToString(",") + "/$abbr/${SpellingAssist.correctionFlags}/" + Lexicon.fuzzyRules.sorted().joinToString(",")
+        val cacheKey = keys.joinToString(",") + "/$abbr/${Lexicon.learningEnabled}/${SpellingAssist.correctionFlags}/" + Lexicon.fuzzyRules.sorted().joinToString(",")
         cache[cacheKey]?.let { onPrimary(it); checkCurrent(); return it }
         val layout = layout(keys)
         val raw = encode(keys, layout)

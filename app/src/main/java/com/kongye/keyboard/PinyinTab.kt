@@ -22,6 +22,8 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
     data class Preview(val line: String, val caret: Int, val x: Float, val y: Float)
     var onPreview: (Preview?) -> Unit = {}
     var onExpanded: () -> Unit = {}
+    var widthLimit=0
+        set(value){if(field!=value){field=value;requestLayout();invalidate()}}
     var uiScale = 1f
         set(value) { if (field != value) { field=value; requestLayout(); invalidate() } }
     private val d get() = resources.displayMetrics.density * uiScale
@@ -109,7 +111,7 @@ class PinyinTab(context: Context, private val onCaret: (Int) -> Unit) : View(con
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val limit=if(MeasureSpec.getMode(widthMeasureSpec)==MeasureSpec.UNSPECIFIED) resources.displayMetrics.widthPixels else MeasureSpec.getSize(widthMeasureSpec)
         textPaint.textSize=size
-        val maxWidth=max(1,limit-(16*d).toInt())
+        val maxWidth=max(1,min(limit-(16*d).toInt(),widthLimit.takeIf {it>0} ?: Int.MAX_VALUE))
         val cap=if(expanded) maxWidth else min(maxWidth,(176*d).toInt())
         val want=ceil(textPaint.measureText(text)+2*pad+(if(expanded) 15 else 2)*d).toInt().coerceIn(min((if(expanded) 62*d else 32*d).toInt(),cap),cap)
         if(expanded) {

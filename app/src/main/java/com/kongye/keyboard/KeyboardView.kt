@@ -908,14 +908,9 @@ class KeyboardView(context: Context) : View(context) {
             invalidate()
         }
         if (p.swipe != 0 || k.kind == Kind.DEL || k.repeat) return
-        val k2 = findKey(x, y) ?: return
-        if (k2 === k || abs(dx) < abs(dy)) return
-        val slidable = { q: Key -> q.kind == Kind.LETTER || q.kind == Kind.CHAR }
-        if (slidable(k) && slidable(k2) && !(glideEnabled && k.kind==Kind.LETTER)) {
-            p.key = k2
-            scheduleLong(p)
-            invalidate()
-        }
+        // Ordinary taps keep the key captured on DOWN. Swipes and glides
+        // are resolved above, so release drift cannot select a neighbour.
+
     }
 
     private fun release(p: Press, fire: Boolean) {

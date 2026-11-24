@@ -281,13 +281,17 @@ class ThemeGridView(
     context: Context,
     private val themes: List<Theme>,
     var selected: String,
-    private val labelFg: Int,
-    private val hiFg: Int,
-    private val lineColor: Int,
+    private var labelFg: Int,
+    private var hiFg: Int,
+    private var lineColor: Int,
     private val columns: Int = 3,
     private val topPadDp: Float = 12f,
     private val onPick: (Theme) -> Unit,
 ) : View(context) {
+    fun updateAppearance(skin:Skin,selected:String) {
+        this.selected=selected;labelFg=skin.candFg;hiFg=skin.candHi;lineColor=withAlpha(skin.candFg,40)
+        invalidate()
+    }
     private val d = resources.displayMetrics.density
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
@@ -459,13 +463,19 @@ class SkinPanel(
     themes: List<Theme>,
     selected: String,
     mode: Int,
-    onMode: (Int) -> Unit,
+    private val onMode: (Int) -> Unit,
     onPick: (Theme) -> Unit,
     glass: Boolean = false,
-    onGlass: (Boolean) -> Unit = {},
+    private val onGlass: (Boolean) -> Unit = {},
+    initialScrollY: Int = 0,
 ) : LinearLayout(context) {
-    init {
-        orientation = VERTICAL
+    private val themeScroll=ScrollView(context)
+    val scrollPosition get()=themeScroll.scrollY
+    private val headScroller=android.widget.HorizontalScrollView(context).apply {
+        isFillViewport=true;isHorizontalScrollBarEnabled=false
+    }
+    private val grid=ThemeGridView(context,themes,selected,skin.candFg,skin.candHi,withAlpha(skin.candFg,40),3,topPadDp=7f,onPick=onPick)
+    private fun header(skin:Skin,mode:Int,glass:Boolean):View {
         val headRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -496,16 +506,21 @@ class SkinPanel(
         }
         headRow.addView(glassBox, lp(WRAP, WRAP))
 
-        // 常规宽度下左右两端对齐；悬浮极窄宽度下可横滑防折行
-        val headScroller = android.widget.HorizontalScrollView(context).apply {
-            isFillViewport = true
-            isHorizontalScrollBarEnabled = false
-            addView(headRow, FrameLayout.LayoutParams(MATCH, WRAP))
-        }
-        addView(headScroller, lp(MATCH, WRAP))
-
-        val grid = ThemeGridView(context, themes, selected, skin.candFg, skin.candHi, withAlpha(skin.candFg, 40), 3, topPadDp = 7f, onPick = onPick)
-        addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(grid) }, lp(MATCH, 0, 1f))
+        return headRow
+    }
+    fun updateAppearance(skin:Skin,selected:String,mode:Int,glass:Boolean) {
+        val x=headScroller.scrollX
+        headScroller.removeAllViews()
+        headScroller.addView(header(skin,mode,glass),FrameLayout.LayoutParams(MATCH,WRAP))
+        headScroller.post {headScroller.scrollTo(x,0)}
+        grid.updateAppearance(skin,selected)
+    }
+    init {
+        orientation=VERTICAL
+        headScroller.addView(header(skin,mode,glass),FrameLayout.LayoutParams(MATCH,WRAP))
+        addView(headScroller,lp(MATCH,WRAP))
+        addView(themeScroll.apply {isVerticalScrollBarEnabled=false;addView(grid)},lp(MATCH,0,1f))
+        themeScroll.post {themeScroll.scrollTo(0,initialScrollY)}
     }
 }
 

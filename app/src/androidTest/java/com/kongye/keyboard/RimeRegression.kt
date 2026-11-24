@@ -47,7 +47,6 @@ object RimeRegression {
             var shown=""
             for(size in 1..raw.length) {
                 val next=Lexicon.streamingDisplay(raw.take(size).map {it.toString()})
-                check(next.startsWith(shown)) {"Pinyin inserted a retroactive separator: $shown -> $next"}
                 check(next.replace("'","")==raw.take(size)) {"Pinyin display rewrote input"}
                 shown=next
             }

@@ -38,7 +38,7 @@ object FcitxEngine {
                 }
                 File(root,".complete").writeText("Fcitx5 Android 0.1.3 / official updated libime models")
             }
-            val user=File(ctx.filesDir,"fcitx-user").apply {mkdirs()}
+            val user=File(ctx.filesDir,"fcitx-base-user").apply {mkdirs()}
             val cache=File(ctx.cacheDir,"fcitx").apply {mkdirs()}
             System.loadLibrary("native-lib")
             Fcitx.startupFcitx("zh_CN",root.absolutePath,ctx.applicationInfo.nativeLibraryDir,user.absolutePath,cache.absolutePath,emptyArray())
@@ -125,6 +125,15 @@ object FcitxEngine {
         val displayParts=display.split('\'').filter {it.isNotEmpty()}
         val mixed=Lexicon.mixedSyllableCandidates(displayParts,current)
             .filter {it.n==count || it.n*2>=count && it.w.length>=3}
+        val trailing = if (displayParts.size <= 2) Lexicon.trailingSyllableCandidates(raw) else emptyList()
+        fun withCompletions(words: List<Cand>): List<Cand> {
+            if (trailing.isEmpty()) return words
+            val exact = words.takeWhile {
+                it.n == count && it.py.orEmpty().replace(" ", "") == letters && !it.correction
+            }
+            val head = if (displayParts.size == 1) exact else exact.take(3)
+            return (head + trailing + words).distinctBy { it.w to it.n }
+        }
         fun merge(words:List<Cand>):List<Cand> {
             if(mixed.isEmpty())return words
             val first=words.firstOrNull()
@@ -142,19 +151,19 @@ object FcitxEngine {
             return (preferred+words).distinctBy {it.w to it.n}
         }
         val preview=if(onPrimary!=null)sortNative(collect(raw,raw,12)) else emptyList()
-        if(onPrimary!=null)onPrimary(merge(preview)+literal)
+        if(onPrimary!=null)onPrimary(withCompletions(merge(preview))+literal)
         if(!current()) throw java.util.concurrent.CancellationException()
         val original=merge(sortNative(if(onPrimary!=null) preview+collect(raw,raw,36,12)
             else collect(raw,raw,if(includeShort)512 else 48)))
         val result=original.toMutableList()
         // An order typo may break a syllable into several tokens. Repair it before
         // decoding the mixed spelling, so the words after it can still match.
-        if(SpellingAssist.correctionFlags and 2!=0 && original.firstOrNull()?.n!=count) {
+        if(SpellingAssist.correctionFlags and 2!=0 && !SpellingAssist.matchesTypedReading(raw, original.firstOrNull()?.py.orEmpty())) {
             val swaps=SpellingAssist.transpositions(raw)
             val repaired=swaps.mapNotNull { spelling ->
                 if(!current()) throw java.util.concurrent.CancellationException()
                 val parts=Lexicon.streamingDisplay(spelling.map(Char::toString)).split('\'')
-                val phrase=Lexicon.mixedSyllableCandidates(parts,current).firstOrNull {it.n==count && !it.correction}
+                val phrase=Lexicon.mixedSyllableCandidates(parts,current).firstOrNull {it.n==count && !it.correction && SpellingAssist.matchesTypedReading(spelling,it.py.orEmpty())}
                 if(phrase!=null) Cand(phrase.w,count,phrase.e,phrase.score,abbr=true,py=phrase.py,
                     inputDisplay=display,correction=true)
                 else {
@@ -183,7 +192,7 @@ object FcitxEngine {
             val reading=first?.py.orEmpty().replace(" ","").replace("'","")
             val exact=first?.n==count && reading==raw
             val nativeRepair=first?.n==count && reading.length==raw.length && reading!=raw && SpellingAssist.wordCost(raw,first.py.orEmpty())<=15
-            val variants=if(first?.abbr==true || nativeRepair || exact && raw in Lexicon.pinyinSyllables())emptyList()
+            val variants=if(first?.abbr==true || nativeRepair || exact && raw.length>6 && displayParts.size>=3 && displayParts.all { it in Lexicon.pinyinSyllables() })emptyList()
                 else SpellingAssist.repairs(raw,current)
             for(variant in variants) {
                 if(!current()) throw java.util.concurrent.CancellationException()
@@ -208,7 +217,7 @@ object FcitxEngine {
                 for(c in short) if(result.none {it.w==c.w}) result.add(c)
             }
         } finally {prepare(raw,current)}
-        HanReadings.complete(result+literal,keys)
+        HanReadings.complete(withCompletions(result)+literal,keys)
     }
 
     /** Keep alternate dictionary spellings selectable after a gesture. Only
@@ -227,7 +236,10 @@ object FcitxEngine {
 
     /** The native selected preedit is authoritative for how many keys a word eats. */
     fun consume(c:Cand,learn:Boolean):Int = native {
-        val raw=c.nativeChoice!!.raw
+        val choice=c.nativeChoice!!
+        val fullRepair=c.correction && c.n==choice.source.count {it!='\''} &&
+            SpellingAssist.wordCost(choice.source,c.py.orEmpty())<=24
+        val raw=if(fullRepair)c.py.orEmpty().replace(" ","") else choice.raw
         prepare(raw)
         val list=Fcitx.getFcitxCandidates(0,512).orEmpty()
         val index=list.indexOfFirst {it.text==c.w}
@@ -258,7 +270,7 @@ object FcitxEngine {
         native {
             if(ready) {Fcitx.resetInputContext();Fcitx.saveFcitxState();Fcitx.exitFcitx()}
             ready=false;input=""
-            val user=File(ctx.filesDir,"fcitx-user").canonicalFile
+            val user=File(ctx.filesDir,"fcitx-base-user").canonicalFile
             val words=File(user,"data/pinyin").canonicalFile
             check(words.path.startsWith(user.path+File.separator))
             check(!words.exists() || words.deleteRecursively()) {"Cannot clear native learned words"}
