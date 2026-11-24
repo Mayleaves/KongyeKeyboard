@@ -1,0 +1,13 @@
+<svg width="76" height="76" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg" >
+            <rect x="6" y="6" width="76" height="76" rx="8" stroke="var(--r-stamp)" stroke-width="1.35"/>
+            <rect x="10.2" y="10.2" width="67.6" height="67.6" rx="5" stroke="var(--r-stamp)" stroke-width="0.6" stroke-opacity="0.75"/>
+            <line x1="44" y1="13" x2="44" y2="75" stroke="var(--r-stamp)" stroke-width="0.55" stroke-opacity="0.55"/>
+            <line x1="13" y1="44" x2="75" y2="44" stroke="var(--r-stamp)" stroke-width="0.55" stroke-opacity="0.55"/>
+            <path d="M41 10.2C42.5 6.8 45.5 6.8 47 10.2" stroke="var(--r-stamp)" stroke-width="0.75"/>
+            <g fill="var(--r-stamp)" style="font-family:'Noto Serif SC','Songti SC',serif;font-weight:600;font-size:19px;">
+              <text x="59" y="34.5" text-anchor="middle">笔</text>
+              <text x="59" y="65.5" text-anchor="middle">耕</text>
+              <text x="29" y="34.5" text-anchor="middle">不</text>
+              <text x="29" y="65.5" text-anchor="middle">辍</text>
+            </g>
+          </svg>

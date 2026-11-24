@@ -97,6 +97,7 @@ public final class OfflineResourcesCheck extends Instrumentation {
             if ("polish-offline".equals(mode)) {VoicePolishRegression.INSTANCE.run(this,true);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("polish-online".equals(mode)) {VoicePolishRegression.INSTANCE.run(this,false);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("typing-stats".equals(mode)) {TypingStatsRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("stats-report-ui".equals(mode)) {StatsReportUiRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("v3".equals(mode)) {V3Regression.INSTANCE.run(this);report("V3 INPUT AND SETTINGS BEHAVIOR PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
             if ("partial-delete".equals(mode)) {PartialSelectionDeleteRegression.INSTANCE.run(this);report("PARTIAL SELECTION PINYIN RESTORE PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
             if ("candidate-mode".equals(mode)) {CandidateModeRegression.INSTANCE.run(this);report("CANDIDATE WORD/CHARACTER MODE PASSED");finish(Activity.RESULT_OK,new Bundle());return;}

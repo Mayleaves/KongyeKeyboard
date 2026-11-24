@@ -45,7 +45,13 @@ object TypingStatsRegression {
             val options=android.graphics.BitmapFactory.Options().apply {inJustDecodeBounds=true}
             android.graphics.BitmapFactory.decodeFile(image.absolutePath,options)
             check(options.outWidth==1080 && options.outHeight>=4000)
-            val uri=androidx.core.content.FileProvider.getUriForFile(ctx,"com.kongye.keyboard.files",image)
+            android.graphics.BitmapFactory.decodeFile(image.absolutePath).also { bitmap ->
+                fun alpha(x:Int,y:Int)=android.graphics.Color.alpha(bitmap.getPixel(x,y))
+                check(alpha(2,3)<20 && alpha(15,7)>230) {"Receipt top edge has no visible teeth"}
+                check(alpha(2,bitmap.height-3)<20 && alpha(15,bitmap.height-7)>230) {"Receipt bottom edge has no visible teeth"}
+                bitmap.recycle()
+            }
+            val uri=android.net.Uri.parse("content://com.kongye.keyboard.files/stats/"+image.name)
             check(uri.scheme=="content");ctx.contentResolver.openInputStream(uri)!!.use {check(it.read()==137)}
             image.copyTo(File(ctx.getExternalFilesDir(null),"qa-statistics-export.png"),overwrite=true)
             image.delete()

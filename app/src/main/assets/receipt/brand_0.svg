@@ -1,0 +1,11 @@
+<svg width="224" height="94" viewBox="0 0 224 94" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-bottom:8px;">
+              <g transform="translate(91 0)"><rect x="5" y="3" width="32" height="30" rx="6.5" stroke="var(--r-text)" stroke-width="1.1"/>
+              <rect x="8.5" y="5.8" width="25" height="22.5" rx="4.2" stroke="var(--r-sub)" stroke-width="0.65" stroke-opacity="0.55"/>
+              <line x1="6.8" y1="31.2" x2="9.6" y2="27.5" stroke="var(--r-sub)" stroke-width="0.6" stroke-opacity="0.45"/>
+              <line x1="35.2" y1="31.2" x2="32.4" y2="27.5" stroke="var(--r-sub)" stroke-width="0.6" stroke-opacity="0.45"/>
+              <path d="M15.5 22.2C16.2 15.8 20.6 11.6 26.8 10.8C26.2 17.2 22.1 21.6 15.5 22.2Z" stroke="var(--r-text)" stroke-width="1.0" stroke-linejoin="round"/>
+              <path d="M14.2 23.5C17.6 20.1 20.8 16.9 24.1 13.8" stroke="var(--r-accent)" stroke-width="0.85" stroke-linecap="round"/>
+            </g><text x="112" y="67" text-anchor="middle" fill="var(--r-text)" style="font-family:serif;font-size:21px;font-weight:500;letter-spacing:0.38em;">空叶</text>
+<line x1="30" y1="83" x2="44" y2="83" stroke="var(--r-sub)" stroke-width="0.75" stroke-opacity="0.45"/>
+<text x="112" y="86" text-anchor="middle" fill="var(--r-sub)" style="font-size:8.5px;letter-spacing:0.24em;">KONGYE KEYBOARD</text>
+<line x1="180" y1="83" x2="194" y2="83" stroke="var(--r-sub)" stroke-width="0.75" stroke-opacity="0.45"/></svg>

@@ -1,0 +1,23 @@
+<svg width="178" height="60" viewBox="0 0 178 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <g stroke="var(--r-text)" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M58 7.5L59.8 11.2"/>
+                <path d="M45.5 12.2H72.5V16.6"/>
+                <path d="M45.5 12.2V16.6"/>
+                <path d="M54.2 16.5C52.1 19.6 49.2 21.8 45.8 23.2"/>
+                <path d="M63.8 16.5C66.2 19.3 69.2 21.4 72.4 22.8"/>
+                <path d="M50.2 23.8H67.8"/>
+                <path d="M59 23.8V33.2"/>
+                <path d="M45.2 33.2H72.8"/>
+              </g>
+              <g stroke-linecap="round" stroke-linejoin="round">
+                <rect x="85.5" y="14.2" width="9.8" height="12.2" rx="1" stroke="var(--r-text)" stroke-width="1.15"/>
+                <path d="M99.2 20.2H121.5" stroke="var(--r-text)" stroke-width="1.15"/>
+                <path d="M109.6 8.5V34.5" stroke="var(--r-text)" stroke-width="1.15"/>
+                <path d="M112.5 17.5C116.5 12.2 122.2 10.2 127.8 10.8C125.6 15.6 120.5 18.2 112.5 17.5Z" stroke="var(--r-accent)" stroke-width="0.95"/>
+              </g>
+              <line x1="25" y1="45.5" x2="25" y2="50.5" stroke="var(--r-sub)" stroke-width="0.75" stroke-opacity="0.65"/>
+              <line x1="25" y1="48" x2="36" y2="48" stroke="var(--r-sub)" stroke-width="0.65" stroke-opacity="0.5"/>
+              <text x="89" y="50.8" text-anchor="middle" fill="var(--r-sub)" style="font-family:'Inter',sans-serif;font-size:8.2px;letter-spacing:0.24em;">KONGYE KEYBOARD</text>
+              <line x1="142" y1="48" x2="153" y2="48" stroke="var(--r-sub)" stroke-width="0.65" stroke-opacity="0.5"/>
+              <line x1="153" y1="45.5" x2="153" y2="50.5" stroke="var(--r-sub)" stroke-width="0.75" stroke-opacity="0.65"/>
+            </svg>

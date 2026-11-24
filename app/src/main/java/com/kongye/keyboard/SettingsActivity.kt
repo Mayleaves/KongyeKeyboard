@@ -1706,8 +1706,6 @@ class SettingsActivity : ComponentActivity() {
         var year by rememberSaveable {mutableStateOf(false)}
         var selectedDay by remember(year) {mutableStateOf<String?>(null)}
         var selectedHour by remember {mutableStateOf<Int?>(null)}
-        var sharing by remember {mutableStateOf(false)}
-        var shareState by remember {mutableStateOf("")}
         var resetHint by remember {mutableStateOf("")}
         val daily=remember(stats,year) {stats.days(year)}
         fun number(n:Int?)=n?.toString() ?: "—"
@@ -1786,22 +1784,7 @@ class SettingsActivity : ComponentActivity() {
                 Box(Modifier.fillMaxWidth().padding(top=6.dp).height(4.dp).background(pal.line,RoundedCornerShape(3.dp))) {if(m.chars>0)Box(Modifier.fillMaxWidth((m.chars.toFloat()/peak).coerceIn(.005f,1f)).height(4.dp).background(pal.ink,RoundedCornerShape(3.dp)))}
             }
             BasicText("速度按连续输入时间计算，语音和粘贴不计速度。",style=TextStyle(color=pal.text2,fontSize=12.sp),modifier=Modifier.padding(top=16.dp))
-            Row(Modifier.fillMaxWidth().padding(vertical=12.dp),horizontalArrangement=Arrangement.End) {
-                Pill(pal,"分享文字",false) {startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,StatsReport.text(stats,year)),"分享打字统计"))}
-                Spacer(Modifier.width(10.dp))
-                Pill(pal,if(sharing)"生成中…" else "分享图片",false) {
-                    if(!sharing){sharing=true;shareState="";Thread {
-                        val result=runCatching {StatsReport.image(this@SettingsActivity,stats,year)}
-                        runOnUiThread {sharing=false;result.onSuccess {file->
-                            val uri=androidx.core.content.FileProvider.getUriForFile(this@SettingsActivity,"com.kongye.keyboard.files",file)
-                            val intent=Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM,uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            intent.clipData=android.content.ClipData.newRawUri("打字统计",uri)
-                            if(!isFinishing && !isDestroyed)startActivity(Intent.createChooser(intent,"分享统计图片"))
-                        }.onFailure {shareState="图片生成失败，请重试"}}
-                    }.start()}
-                }
-            }
-            if(shareState.isNotEmpty())BasicText(shareState,style=TextStyle(color=pal.bad,fontSize=12.sp))
+
         }
         StatsHeading(pal,"纠错")
         Card(pal) {
@@ -1814,8 +1797,19 @@ class SettingsActivity : ComponentActivity() {
         StatsHeading(pal,"累计")
         Card(pal) {StatsRow(pal,"按键次数",statsNumber(stats.keys));StatsRow(pal,"输入时长",StatsReport.duration(stats.activeMs));StatsRow(pal,"折合800字作文","${statsNumber(stats.total/800)} 篇")}
         BasicText("记录起始 ${stats.since}。旧版未保存的历史指标从新版开始累计；仅保存计数，不保存输入内容。",style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=18.sp))
-        Card(pal) {ActionRow(pal,"清空统计",resetHint.ifEmpty {"删除本机统计记录"},"清空") {if(confirmed("stats-reset")){TypingStats.of(this).clear();Prefs.of(this).edit().putInt(Prefs.COUNT_TODAY,0).apply();revision++;resetHint="已清空"}else resetHint="再点一次确认清空"}}
+        StatsHeading(pal,"统计管理")
         SettingsToggle(pal,"记录打字统计",V3Prefs.STATS_ENABLED,true,tick,"关闭后停止记录，已有数据保留",showExample=false)
+        Card(pal) {
+            ActionRow(pal,"生成小票报告","纸张、头图、印章与落款，预览后保存或分享","查看报告") {
+                startActivity(Intent(this@SettingsActivity,StatsReportActivity::class.java).putExtra("year",year))
+            }
+            Line(pal)
+            ActionRow(pal,"分享文字","分享当前统计摘要与明细","分享") {
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,StatsReport.text(stats,year)),"分享打字统计"))
+            }
+        }
+        Card(pal) {ActionRow(pal,"清空统计",resetHint.ifEmpty {"删除本机统计记录"},"清空") {if(confirmed("stats-reset")){TypingStats.of(this).clear();Prefs.of(this).edit().putInt(Prefs.COUNT_TODAY,0).apply();revision++;resetHint="已清空"}else resetHint="再点一次确认清空"}}
+
     }
 
     @Composable
