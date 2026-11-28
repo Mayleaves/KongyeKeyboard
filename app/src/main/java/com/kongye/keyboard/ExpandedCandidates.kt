@@ -23,13 +23,15 @@ class ExpandedCandidates(
     private val style:Style = Style.PINYIN,
     literals:List<String> = emptyList(),
     private val onLiteral:(String)->Unit = {},
+    private val pinyinSelection:CandidatePinyinSelection = CandidatePinyinSelection(),
+    private val onPinyinSelection:()->Unit = {},
 ) : LinearLayout(context) {
     enum class Style { PINYIN, ENGLISH, HANDWRITING }
     private var all=items
     private var readings=labels
     private var phonetics=spellings
     private var literalOptions=literals
-    private var selectedPinyin:String?=null
+    private var lastSelectedPinyin=emptyList<String>()
     private val pinyinStrip=ScrollView(context)
     private val pinyinButtons=LinearLayout(context)
     private val tools=LinearLayout(context)
@@ -76,7 +78,10 @@ class ExpandedCandidates(
             setOnClickListener {filter=1-filter;onMode(filter);refresh()}
         }
         if(style==Style.PINYIN)addTool(modeButton,"词/字")
-        addTool(IconButton(context,R.drawable.ic_del,skin.modFg,22f,onDelete).apply {repeatOnHold(onDelete)},"删除")
+        val deleteAction:()->Unit = {
+            if(style==Style.PINYIN && pinyinSelection.undo()) {refresh();onPinyinSelection()} else onDelete()
+        }
+        addTool(IconButton(context,R.drawable.ic_del,skin.modFg,22f,deleteAction).apply {repeatOnHold(deleteAction)},"删除")
         addTool(pageUp.apply {repeatOnHold {page(-1)}},"向上翻页")
         addTool(pageDown.apply {repeatOnHold {page(1)}},"向下翻页")
         addTool(IconButton(context,R.drawable.ic_back,skin.modFg,22f,onBack),"返回",0)
@@ -90,7 +95,7 @@ class ExpandedCandidates(
     }
     fun submit(items:List<String>,labels:List<String?> = emptyList(),spellings:List<String?> = phonetics,
                literals:List<String> = literalOptions) {
-        if(all==items && readings==labels && phonetics==spellings && literalOptions==literals) return
+        if(all==items && readings==labels && phonetics==spellings && literalOptions==literals && lastSelectedPinyin==pinyinSelection.selected) return
         val sameWords=all==items
         val position=scroll.scrollY
         all=items;readings=labels;phonetics=spellings;literalOptions=literals;refresh()
@@ -135,9 +140,7 @@ class ExpandedCandidates(
         }
         super.onMeasure(widthMeasureSpec,heightMeasureSpec)
     }
-    private fun syllable(index:Int)=phonetics.getOrNull(index)?.let {HanReadings.plain(it).split(' ', '\'').firstOrNull {s->s.isNotEmpty()}}
     private fun updatePinyin(sounds:List<String>) {
-        if(selectedPinyin !in sounds)selectedPinyin=null
         val visibility=if(sounds.isEmpty())View.GONE else View.VISIBLE
         pinyinStrip.visibility=visibility
         divider.visibility=visibility
@@ -151,23 +154,23 @@ class ExpandedCandidates(
                 contentDescription=if(style==Style.ENGLISH)"输入 $sound" else "选择拼音 $sound"
                 setOnClickListener {
                     if(style==Style.ENGLISH)onLiteral(sound)
-                    else {selectedPinyin=if(selectedPinyin==sound)null else sound;refresh()}
+                    else if(pinyinSelection.choose(sound,phonetics)) {refresh();onPinyinSelection()}
                 }
             },lp(MATCH,pinyinRowHeight))
         }
         for((index,sound) in sounds.withIndex()) {
             val option=pinyinButtons.getChildAt(index) as TextView
-            option.isSelected=sound==selectedPinyin
-            option.typeface=if(option.isSelected)Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            option.setTextColor(if(option.isSelected)skin.candHi else skin.candFg)
+            option.isSelected=false
+            option.typeface=Typeface.DEFAULT
+            option.setTextColor(skin.candFg)
         }
     }
     private fun refresh() {
-        val syllables=if(style==Style.PINYIN)all.indices.map(::syllable) else emptyList()
-        updatePinyin(if(style==Style.ENGLISH)literalOptions else syllables.filterNotNull().distinct())
+        lastSelectedPinyin=pinyinSelection.selected
+        updatePinyin(if(style==Style.ENGLISH)literalOptions else if(style==Style.PINYIN)pinyinSelection.options(phonetics) else emptyList())
         indexes=all.indices.filter {i ->
             (filter==0 || all[i].codePointCount(0,all[i].length)==1) &&
-                (selectedPinyin==null || syllables[i]==selectedPinyin)
+                (style!=Style.PINYIN || pinyinSelection.matches(phonetics.getOrNull(i)))
         }
         val selected=if(filter==0) 0 else 2
         modeButton.text=SpannableString("词/字").apply {

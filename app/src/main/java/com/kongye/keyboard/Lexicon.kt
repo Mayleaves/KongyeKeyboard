@@ -272,6 +272,8 @@ object Lexicon {
     private fun isTypedInitial(token:String) =
         token.length==1 && token[0] in "bpmfdtnlgkhjqxrzcsyw" || token in listOf("zh","ch","sh")
 
+    internal fun isCompleteSyllable(token:String) = token in sylSet && !isTypedInitial(token)
+
     private fun isReduplication(entry:Entry) =
         entry.syl.size in 2..8 && entry.w.length == entry.syl.size &&
             entry.w.all { it == entry.w[0] } && entry.syl.all { it == entry.syl[0] }
@@ -327,7 +329,7 @@ object Lexicon {
                 .map {entry -> Cand(entry.w,count,entry,entry.sc+boost(entry),abbr=true,py=entry.syl.joinToString(" "))}
                 .sortedByDescending {it.score}.distinctBy {it.w}.take(6).toList()
         }
-        if(!ready || tokens.size<3 || tokens.all {it in sylSet} || tokens.none {it in sylSet})return emptyList()
+        if(!ready || tokens.size<3 || tokens.all(::isCompleteSyllable) || tokens.none(::isCompleteSyllable))return emptyList()
         data class Path(val text:String,val reading:String,val score:Float,val abbreviated:Boolean,val corrections:Int)
         val paths=Array(tokens.size+1) {emptyList<Path>()}
         paths[0]=listOf(Path("","",0f,false,0))
@@ -336,7 +338,7 @@ object Lexicon {
             if(paths[start].isEmpty())continue
             for(end in start+1..min(tokens.size,start+6)) {
                 val segment=tokens.subList(start,end)
-                val abbreviated=segment.any {it !in sylSet}
+                val abbreviated=segment.any {!isCompleteSyllable(it)}
                 if(abbreviated && end==start+1)continue
                 val canCorrect=SpellingAssist.correctionFlags!=0 && abbreviated
                 val matches=ArrayList<Pair<Entry,Int>>()

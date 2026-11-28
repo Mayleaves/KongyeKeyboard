@@ -16,6 +16,15 @@ public final class TypingFormActivity extends android.app.Activity {
         field.setGravity(android.view.Gravity.TOP); field.setTextSize(22); field.setSaveEnabled(false);
         field.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO);
         if (getIntent().getBooleanExtra("bottom", false)) {
+            // Modern edge-to-edge activities receive IME insets instead of an automatic resize.
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                root.setOnApplyWindowInsetsListener((view, insets) -> {
+                    int bottom = Math.max(insets.getInsets(android.view.WindowInsets.Type.ime()).bottom,
+                            insets.getInsets(android.view.WindowInsets.Type.systemBars()).bottom);
+                    view.setPadding(30, 70, 30, 20 + bottom);
+                    return insets;
+                });
+            }
             root.addView(new android.view.View(this), new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
             root.addView(field, new android.widget.LinearLayout.LayoutParams(-1, 180));
         } else root.addView(field, new android.widget.LinearLayout.LayoutParams(-1, 600));

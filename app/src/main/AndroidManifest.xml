@@ -55,6 +55,7 @@
 
         <activity android:name=".StatsReportActivity" android:exported="false" />
         <activity android:name=".ReceiptStyleActivity" android:exported="false" />
+        <activity android:name=".TouchCalibrationActivity" android:exported="false" />
 
         <service
             android:name=".KongyeIME"

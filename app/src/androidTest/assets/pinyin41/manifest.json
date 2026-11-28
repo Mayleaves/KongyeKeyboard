@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "targetVersion": "4.1.0",
+  "authoredDate": "2026-11-26",
+  "provenance": "Manually authored synthetic development corpus; not a public benchmark or private typing history.",
+  "splits": {
+    "train": {
+      "cases": 105,
+      "families": 25,
+      "sha256": "5d92a8a3a4173bc0bb78e2cfc83cabe9fe95f41e04c0bd29837e29288b138f2b"
+    },
+    "validation": {
+      "cases": 71,
+      "families": 16,
+      "sha256": "e837dc2d444ec356f1c24209603f0c89b306db0b98ee4e728744fc75be9455f5"
+    },
+    "test": {
+      "cases": 75,
+      "families": 17,
+      "sha256": "e577f3e23040d95a067cbca1fcdd5333593f6ffae7666a623c5373201cc55c0a"
+    }
+  }
+}

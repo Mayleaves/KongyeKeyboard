@@ -62,7 +62,8 @@ object PartialSelectionDeleteRegression {
             val pages=ArrayList<List<String>>()
             fun tabView()=imeViews().filterIsInstance<PinyinTab>().first {it.isShown}
             fun candidateWords():List<String> {
-                val bar=imeViews().filterIsInstance<CandidateBar>().first {it.isShown}
+                // Expanded candidates hide the toolbar, but keep its current candidate data.
+                val bar=imeViews().filterIsInstance<CandidateBar>().first()
                 @Suppress("UNCHECKED_CAST") val items=CandidateBar::class.java.getDeclaredField("items").apply {isAccessible=true}.get(bar) as List<CandItem>
                 return items.map {it.w}
             }
@@ -76,7 +77,7 @@ object PartialSelectionDeleteRegression {
             fun pick(word:String) {
                 var index=-1
                 waitFor("candidate $word") {ui {
-                    val bar=imeViews().filterIsInstance<CandidateBar>().firstOrNull {it.isShown} ?: return@ui false
+                    val bar=imeViews().filterIsInstance<CandidateBar>().firstOrNull() ?: return@ui false
                     @Suppress("UNCHECKED_CAST") val items=CandidateBar::class.java.getDeclaredField("items").apply {isAccessible=true}.get(bar) as List<CandItem>
                     index=items.indexOfFirst {it.w==word};index>=0
                 }}
@@ -145,6 +146,9 @@ object PartialSelectionDeleteRegression {
             waitFor("disabled restore deletes one letter and keeps the selected word") {compact(tab())=="你haozhonggu"}
             val preserved=editorText()
             ui {live.onKey(Key(Kind.RESET));prefs.edit().putBoolean(V3Prefs.COMPOSE_RESTORE,true).commit()}
+            // Physical keyboard gestures require returning from the expanded candidate panel.
+            ui {if(imeViews().filterIsInstance<ExpandedCandidates>().any {it.isShown})live.onExpand()}
+            waitFor("letter keyboard before hold") {ui {liveKeyboard.isShown}}
             fun holdDelete() {
                 val point=ui {
                     @Suppress("UNCHECKED_CAST") val rows=KeyboardView::class.java.getDeclaredField("rows").apply {isAccessible=true}.get(liveKeyboard) as List<Row>
@@ -154,7 +158,8 @@ object PartialSelectionDeleteRegression {
                 }
                 val down=SystemClock.uptimeMillis()
                 fun touch(action:Int) {val e=android.view.MotionEvent.obtain(down,SystemClock.uptimeMillis(),action,point[0],point[1],0);e.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;try {check(auto.injectInputEvent(e,true))}finally {e.recycle()}}
-                touch(0);SystemClock.sleep(470);touch(1)
+                // Repeat starts at 420 ms, then every 55 ms; exercise several repeats.
+                touch(0);SystemClock.sleep(620);touch(1)
             }
             ui {prefs.edit().putBoolean(V3Prefs.COMPOSE_HOLD_CLEAR,false).commit()}
             type("nihaozhongguo");waitFor("hold clear disabled"){ui {!liveKeyboard.clearCompositionOnHold}}

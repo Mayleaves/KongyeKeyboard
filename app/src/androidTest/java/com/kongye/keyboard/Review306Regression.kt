@@ -85,9 +85,11 @@ object Review306Regression {
                     val e=MotionEvent.obtain(time,time,type,box.centerX(),box.centerY(),0);pad.onTouchEvent(e);e.recycle()
                 }
             }
-            val bottom=(0..1).map {actionRect.invoke(pad,it) as android.graphics.RectF}
+            val history=(0..1).map {actionRect.invoke(pad,it) as android.graphics.RectF}
             val right=(2..4).map {actionRect.invoke(pad,it) as android.graphics.RectF}
-            check(bottom.all {it.top>=pad.writingBounds().bottom})
+            check(history.all {it.left>=pad.writingBounds().right})
+            check(history[0].bottom<=history[1].top)
+            check(pad.writingBounds().contains(actionRect.invoke(pad,5) as android.graphics.RectF))
             check(right.all {kotlin.math.abs(it.width()-right.first().width())<1f && kotlin.math.abs(it.height()-right.first().height())<1f})
             check(kotlin.math.abs(right.first().top-pad.writingBounds().top)<=1f)
             tap(0);check(pad.inkStrokes().size==15 && pad.canRedo)

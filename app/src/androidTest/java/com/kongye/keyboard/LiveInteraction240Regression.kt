@@ -147,8 +147,11 @@ object LiveInteraction240Regression {
                 return
             }
             clear();type("woianu")
-            waitFor("grouped typo tab") {ui {views().filterIsInstance<PinyinTab>().any {it.isShown && it.contentDescription?.toString()?.contains("wo'ia'nu")==true}}}
+            waitFor("literal typo tab") {ui {views().filterIsInstance<PinyinTab>().any {
+                it.isShown && it.contentDescription?.toString()?.removePrefix("拼音：")?.replace("'","")=="woianu"
+            }}}
             val tab=ui {views().filterIsInstance<PinyinTab>().first {it.isShown}}
+            report("Typo display preserves raw letters: "+ui {tab.contentDescription.toString()})
             val height=ui {tab.height}
             check(editor()!=null)
             auto.takeScreenshot()?.also {shot->java.io.File(ctx.getExternalFilesDir(null),"review-243-pinyin.png").outputStream().use {shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle()}

@@ -1668,7 +1668,7 @@ class SettingsActivity : ComponentActivity() {
         Page.GLIDE->"中英文滑行、轨迹与回删"
         Page.VOICE->"识别语言、声音处理与听写方式"
         Page.HAND->"手写识别与读音显示"
-        Page.LOOK->"皮肤、日夜模式与液态玻璃"
+        Page.LOOK->"皮肤、日夜模式与半透明效果"
         Page.LAYOUT->"布局、单手模式与分体键盘"
         Page.HEIGHT->"高度、宽度、底部留白与分体间距"
         Page.NUMPAD->"符号列与快捷按键"
@@ -2203,6 +2203,11 @@ class SettingsActivity : ComponentActivity() {
                 SettingsToggle(pal,"推荐符号",V3Prefs.SYMBOLS,true,tick)
             }
             Page.KEYS -> {
+                StatsHeading(pal,"触控识别")
+                Card(pal) {
+                    NavigationSwitchRow(pal,"触控校准","按提示点击，调整边缘识别偏移",R.drawable.ic_adjust,null,
+                        onOpen={startActivity(Intent(this@SettingsActivity,TouchCalibrationActivity::class.java))},onToggle={})
+                }
                 StatsHeading(pal,"按键反馈")
                 VibrationMode(pal,tick)
                 VibrationStrength(pal,tick)
@@ -2502,7 +2507,7 @@ class SettingsActivity : ComponentActivity() {
         Preview(pal, tick)
         StatsHeading(pal,"背景效果")
         Card(pal) {
-            ToggleRow(pal, "液态玻璃", null, glass) { p.edit().putBoolean(Prefs.GLASS, it).apply() }
+            ToggleRow(pal, "半透明效果", null, glass) { p.edit().putBoolean(Prefs.GLASS, it).apply() }
             Line(pal)
             BasicText("键盘透明度", style = TextStyle(color = pal.ink, fontSize = 16.sp), modifier = Modifier.padding(top = 12.dp))
             Slider(pal, opacity, 0.3f, 1f, { opacity = it }, format = { "${(it * 100).roundToInt()}%" }) {

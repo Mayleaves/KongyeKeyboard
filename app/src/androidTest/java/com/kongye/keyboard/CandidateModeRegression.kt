@@ -27,12 +27,13 @@ object CandidateModeRegression {
         var mode=0;var picked=-1;var pickMode=-1
         val words=listOf("你觉得这个工作怎么样","你觉得","你好","你","好")
         lateinit var expanded:ExpandedCandidates
+        val phoneticSelection=CandidatePinyinSelection()
         try {
             i.runOnMainSync {
                 expanded=ExpandedCandidates(activity,Skins.KONGYE,words,mode,{mode=it},{
                     picked=it;pickMode=mode
                     expanded.submit(listOf("好的","好"))
-                },{}, {})
+                },{}, {},pinyinSelection=phoneticSelection)
                 val root=FrameLayout(activity)
                 root.setBackgroundColor(Skins.KONGYE.kbBg)
                 root.addView(expanded,FrameLayout.LayoutParams(-1,(280*ctx.resources.displayMetrics.density).toInt(),Gravity.BOTTOM))
@@ -119,6 +120,8 @@ object CandidateModeRegression {
             i.runOnMainSync {tools.getChildAt(3).performClick()};i.waitForIdleSync();check(scroll.scrollY==scroll.height)
             i.runOnMainSync {tools.getChildAt(2).performClick()};i.waitForIdleSync();check(scroll.scrollY==0)
             i.runOnMainSync {
+                // This fixture starts a new composition, rather than refining the previous one.
+                phoneticSelection.reset()
                 expanded.submit(listOf("艺","一","1️⃣","以","易","宜","已","逸","衣","义","燚","翼","依","亦","医","咦"),
                     spellings=listOf("yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi","yi"))
             }

@@ -456,7 +456,7 @@ fun segmented(
     return row
 }
 
-/** 换皮肤面板：单行顶栏（左：跟随系统/浅色/深色分段胶囊，右：液态玻璃开关）+ 配色网格 */
+/** 换皮肤面板：单行顶栏（左：跟随系统/浅色/深色分段胶囊，右：半透明效果开关）+ 配色网格 */
 class SkinPanel(
     context: Context,
     skin: Skin,
@@ -489,10 +489,10 @@ class SkinPanel(
         )
         headRow.addView(View(context).apply { minimumWidth = context.dp(10f).toInt() }, lp(0, 1, 1f))
 
-        // 右侧：液态玻璃标签 + 开关（整组可点击，与右侧卡片边缘对齐）
+        // 右侧：半透明效果标签 + 开关（整组可点击，与右侧卡片边缘对齐）
         val toggle = ToggleView(context, skin, glass, onGlass)
         val glassLabel = TextView(context).apply {
-            text = "液态玻璃"
+            text = "半透明效果"
             textSize = 13f
             setTextColor(if (glass) skin.candHi else skin.candFg)
             typeface = if (glass) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
@@ -803,6 +803,22 @@ fun optionList(context: Context, skin: Skin, opts: List<Opt>): ScrollView {
 
 /** 键盘最下面一条：左边切换输入法，右边剪贴板（照截图 1 的红框） */
 class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private val onClip: () -> Unit) : View(context) {
+    var floating=false
+        set(value) {if(field!=value){field=value;cancelCursorGesture();floatPointer=MotionEvent.INVALID_POINTER_ID;requestLayout();invalidate()}}
+    var onFloatMove:(Float,Float)->Unit={_,_->}
+    var onFloatEnd:()->Unit={}
+    var onFloatStart:()->Unit={}
+    var onFloatReset:()->Unit={}
+    var floatingAdjusting=false
+        set(value) {field=value;contentDescription=if(value)"悬浮调节：右下角重置，中间拖动" else "收起键盘，拖动中间灰条移动，剪贴板";invalidate()}
+    private var floatGrabbed=false
+    private var floatPointer=MotionEvent.INVALID_POINTER_ID
+    private var floatZone=0
+    private var floatDownX=0f
+    private var floatDownY=0f
+    private var floatLastX=0f
+    private var floatLastY=0f
+    private val touchSlop=android.view.ViewConfiguration.get(context).scaledTouchSlop
     var cursorEnabled=false
         set(value) {field=value;if(!value)cancelCursorGesture()}
     var onCursor:(Int,Int)->Unit = {_,_->}
@@ -836,17 +852,27 @@ class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private 
         set(v) { if (v != field) { field = v; requestLayout() } }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), max((40 * d).toInt(), inset + (24 * d).toInt()) + extra)
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec),if(floating)(40*d).toInt() else max((40 * d).toInt(), inset + (24 * d).toInt()) + extra)
     }
 
     override fun onDraw(c: Canvas) {
-        val cy = (height - inset - extra) / 2f + (if (inset < 30 * d) inset / 4f else 0f)
-        icons.draw(c, R.drawable.ic_chevron_down, 30 * d, cy, 22f, skin.barFg)
-        icons.draw(c, R.drawable.ic_clip, width - 30 * d, cy, 22f, skin.barFg)
+        val cy = if(floating)height/2f else (height - inset - extra) / 2f + (if (inset < 30 * d) inset / 4f else 0f)
+        if(floating && floatingAdjusting) {
+            icons.draw(c,R.drawable.ic_reset,width-30*d,cy,18f,skin.barFg)
+        } else {
+            icons.draw(c, R.drawable.ic_chevron_down, 30 * d, cy, 22f, skin.barFg)
+            icons.draw(c, R.drawable.ic_clip, width - 30 * d, cy, 22f, skin.barFg)
+        }
+        if(floating) {
+            fill.color=withAlpha(skin.barFg,115)
+            val half=min(24*d,width*.11f)
+            c.drawRoundRect(width/2f-half,cy-1.8f*d,width/2f+half,cy+1.8f*d,2*d,2*d,fill)
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        if(floating)return floatingTouch(e)
         if(e.actionMasked==MotionEvent.ACTION_DOWN) {
             cancelCursorGesture()
             dragX=e.x;dragY=e.y;moved=false
@@ -874,7 +900,42 @@ class BottomStrip(context: Context, private val onKeyboard: () -> Unit, private 
         return true
     }
 
+    private fun floatingTouch(e:MotionEvent):Boolean {
+        if(e.actionMasked==MotionEvent.ACTION_DOWN) {
+            floatPointer=e.getPointerId(0);moved=false;floatGrabbed=false
+            floatZone=if(e.x<min(70*d,width*.3f))1 else if(e.x>width-min(70*d,width*.3f))2 else 0
+            floatDownX=e.rawX;floatDownY=e.rawY;floatLastX=e.rawX;floatLastY=e.rawY
+            if(floatZone==0) {
+                floatGrabbed=true;onFloatStart()
+            }
+            parent?.requestDisallowInterceptTouchEvent(true)
+        }
+        if(floatPointer==MotionEvent.INVALID_POINTER_ID)return true
+        val index=e.findPointerIndex(floatPointer)
+        val finishing=e.actionMasked==MotionEvent.ACTION_UP || e.actionMasked==MotionEvent.ACTION_CANCEL ||
+            e.actionMasked==MotionEvent.ACTION_POINTER_UP && e.getPointerId(e.actionIndex)==floatPointer
+        if(index>=0 && (e.actionMasked==MotionEvent.ACTION_MOVE || finishing && e.actionMasked!=MotionEvent.ACTION_CANCEL)) {
+            val x=e.rawX+e.getX(index)-e.x;val y=e.rawY+e.getY(index)-e.y
+            if(kotlin.math.abs(x-floatDownX)>touchSlop || kotlin.math.abs(y-floatDownY)>touchSlop)moved=true
+            if(floatZone==0 && floatGrabbed) {
+                onFloatMove(x-floatLastX,y-floatLastY)
+                floatLastX=x;floatLastY=y
+            }
+        }
+        if(finishing) {
+            if(floatZone==0 && floatGrabbed)onFloatEnd()
+            else if(e.actionMasked!=MotionEvent.ACTION_CANCEL && !moved && index>=0) {
+                if(!floatingAdjusting && floatZone==1 && e.getX(index)<min(70*d,width*.3f))onKeyboard()
+                else if(floatZone==2 && e.getX(index)>width-min(70*d,width*.3f)) {if(floatingAdjusting)onFloatReset() else onClip()}
+            }
+            floatPointer=MotionEvent.INVALID_POINTER_ID
+            parent?.requestDisallowInterceptTouchEvent(false)
+        }
+        return true
+    }
+
     override fun onDetachedFromWindow() {
+        floatPointer=MotionEvent.INVALID_POINTER_ID
         cancelCursorGesture()
         super.onDetachedFromWindow()
     }

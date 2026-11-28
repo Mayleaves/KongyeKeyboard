@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "cases": [
+    {"id":"A01","category":"切分歧义","input":"xian","expectedTop3":["先","线","现"],"mustInclude":["先","西安"],"watch":["纤维","呒"],"reason":"保留 xian 和 xi/an 两条解码路径；完整音节不应被生僻组合或长词补全挤占首选。"},
+    {"id":"A02","category":"手动隔音符","input":"xi'an","expectedTop3":["西安"],"mustInclude":["西安"],"forbiddenFull":["先","线","现"],"reason":"隔音符必须保留 xi/an 边界，不能按单音节 xian 吃掉全部输入。"},
+    {"id":"A03","category":"切分歧义","input":"pingan","expectedTop3":["平安"],"mustInclude":["平安"],"reason":"合法的 ping/an 路径必须可用；不要因 pin/gan 路径丢失常用词。"},
+    {"id":"A04","category":"同音竞争","input":"shanxi","expectedTop3":["山西","陕西"],"mustInclude":["山西","陕西"],"reason":"两者同音且常见，不规定唯一首选；检查其中一个是否消失。"},
+    {"id":"A05","category":"切分歧义","input":"zhangai","expectedTop3":["障碍"],"mustInclude":["障碍"],"watch":["张矮","章矮"],"reason":"保留 zhang/ai；不得只沿 zhan/gai 路径生成无意义组合。"},
+    {"id":"F01","category":"模糊音关闭","input":"si","expectedTop3":["四","死","思"],"mustInclude":["四"],"forbiddenFull":["是"],"reason":"纠错和模糊音均关闭时，si 不能完整匹配 shi。"},
+    {"id":"F02","category":"s/sh 模糊音开启","input":"si","fuzzy":["s-sh"],"expectedTop3":["四","死","思"],"mustInclude":["四","是"],"reason":"shi 备选可出现，同时保留 si 的精确候选；具体相对排名只做人工评审。"},
+    {"id":"F03","category":"模糊音关闭","input":"lali","expectedTop3":["拉力"],"mustInclude":["拉力"],"forbiddenFull":["哪里","那里"],"reason":"纠错与 n/l 模糊音均关闭，不允许 lali 完整匹配 na/li。"},
+    {"id":"F04","category":"n/l 模糊音开启","input":"lali","fuzzy":["n-l"],"expectedTop3":["拉力","哪里","那里"],"mustInclude":["拉力","哪里"],"reason":"保留精确词拉力，并通过配置的 n/l 映射找到哪里。"},
+    {"id":"C01","category":"相邻字母颠倒","input":"jeude","correction":2,"expectedTop3":["觉得"],"mustInclude":["觉得"],"offAbsent":["觉得"],"watch":["饥饿的","吉尔德"],"reason":"只开顺序纠错，将 jeu 还原 jue；关闭后不得仍以纠错路径返回觉得。"},
+    {"id":"C02","category":"多输入字母","input":"nihaoo","correction":4,"expectedTop3":["你好"],"mustInclude":["你好"],"offAbsent":["你好"],"reason":"只开多输纠错，删除多余 o；候选必须消费全部原始字母。"},
+    {"id":"C03","category":"漏输入字母","input":"niho","correction":8,"expectedTop3":["你好"],"mustInclude":["你好"],"offAbsent":["你好"],"reason":"只开漏输纠错，补回 hao 中的 a；关闭后不能继续走该纠错路径。"},
+    {"id":"C04","category":"邻键误触","input":"nihzo","correction":1,"expectedTop3":["你好"],"mustInclude":["你好"],"offAbsent":["你好"],"reason":"只开邻键纠错，z 与 a 相邻；不要用无关的低频拼接掩盖纠错失败。"},
+    {"id":"S01","category":"首字母简拼","input":"bj","expectedTop3":["北京","比较","背景"],"mustInclude":["北京","背景"],"reason":"支持 b/j 简拼；多个常用词都合理，不硬编码其先后。"},
+    {"id":"S02","category":"全拼加简拼","input":"huangg","expectedTop3":["黄瓜","黄冈","黄狗"],"mustInclude":["黄瓜"],"watch":["黄个","黄各"],"reason":"huang 加 g 声母应保留黄瓜等混合输入结果，不退化到无意义字串。"},
+    {"id":"R01","category":"高频同音词竞争","input":"shishi","expectedTop3":["试试","事实","实施"],"mustInclude":["事实","实施"],"watch":["呒"],"reason":"实时、实事、事事等也可能合理；常用词排序做评审，不因未命中某个前三顺序就判错。"},
+    {"id":"R02","category":"多音字词语","input":"yinhang","expectedTop3":["银行","引航"],"mustInclude":["银行"],"reason":"行在银行中读 hang；不能被按单字 xing 的读音覆盖。"},
+    {"id":"B01","category":"连续长句","input":"wozhendebuzhidaonizaishuoshenme","expectedTop3":["我真的不知道你在说什么"],"mustInclude":["我真的不知道你在说什么"],"walk":["wo","zhen","de","bu","zhi","dao","ni","zai","shuo","shen","me"],"watch":["我枕","我镇"],"reason":"在逐音节追加时记录首选覆盖长度和读音，识别由整句突然退回短词的情况；覆盖下降先标记复核。"},
+    {"id":"B02","category":"单字母边界","input":"d","expectedTop3":["的","对","都"],"mustInclude":["的"],"watch":["第一个"],"reason":"关闭个人学习建立基线，检查一个字母是否被不相关的个人长词霸占。"},
+    {"id":"B03","category":"无意义重复输入","input":"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz","expectedTop3":[],"reason":"没有唯一语义预期；允许合法简拼和短候选，检查取消、耗时、重复结果及非法消费长度，不要求强行生成整句或清空列表。"}
+  ]
+}

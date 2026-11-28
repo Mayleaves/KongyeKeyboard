@@ -49,7 +49,7 @@ data class Skin(
     val enterMod: Boolean = false,
     /** 键盘底色渐变的下端颜色，0 表示纯色 */
     val bg2: Int = 0,
-    /** 液态玻璃：半透明按键、高光描边，键盘底透出后面的内容 */
+    /** 半透明效果：降低底板和键帽的不透明度，配合细描边。 */
     val glass: Boolean = false,
 )
 
@@ -171,7 +171,7 @@ object Skins {
     }
 }
 
-/** 按设置给皮肤加透明度和液态玻璃效果 */
+/** 按设置给皮肤加透明度和半透明效果 */
 fun Skin.styled(opacity: Float, glass: Boolean): Skin {
     fun alpha(c: Int, factor: Float) = withAlpha(c, (Color.alpha(c) * factor).toInt().coerceIn(0, 255))
     if (!glass) return copy(bg2 = 0, kbBg = alpha(kbBg, opacity), keyBg = alpha(keyBg, opacity),

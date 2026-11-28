@@ -57,6 +57,27 @@ object SinkEditorRegression {
                 check(strip.value=="甲乙") {"Local redo did not restore the edited text"}
                 strip.localEditing = false
                 check(strip.editor.visibility == View.GONE)
+                // Composing pinyin in non-localEditing sink (e.g. new clipboard category) uses normal text color, not accent color.
+                strip.chip = null; strip.multiline = false
+                strip.value = ""; strip.composing = "xian'y"; strip.refresh()
+                strip.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                strip.layout(0, 0, strip.measuredWidth, strip.measuredHeight)
+                val bmp = android.graphics.Bitmap.createBitmap(strip.measuredWidth, strip.measuredHeight, android.graphics.Bitmap.Config.ARGB_8888)
+                try {
+                    strip.draw(android.graphics.Canvas(bmp))
+                    val d = inst.targetContext.resources.displayMetrics.density
+                    var darkText = 0; var accentText = 0
+                    val x0 = (44 * d).toInt(); val x1 = (78 * d).toInt().coerceAtMost(bmp.width)
+                    for (y in (8 * d).toInt() until (bmp.height - 6 * d).toInt()) {
+                        for (x in x0 until x1) {
+                            val c = bmp.getPixel(x, y)
+                            val r = android.graphics.Color.red(c); val g = android.graphics.Color.green(c); val b = android.graphics.Color.blue(c)
+                            if (r < 90 && g < 90 && b < 90) darkText++
+                            if (r > 180 && g < 120 && b < 100) accentText++
+                        }
+                    }
+                    check(darkText > 30 && accentText == 0) { "SinkStrip composing pinyin was not dark text: dark=$darkText accent=$accentText" }
+                } finally { bmp.recycle() }
                 // Translation uses the same real editor inside its language /
                 // input / done layout, with drag-to-place caret.
                 strip.chip="自动";strip.multiline=false;strip.localEditing=true

@@ -317,7 +317,7 @@ object SpellingAssist {
             val boundaries = exact.runningFold(0) { at, syllable -> at + syllable.length }.toSet()
             var letters = 0
             if (raw.all { ch -> if (ch == '\'') letters in boundaries else { letters++; true } }) {
-                return exact.joinToString("'") + if (raw.endsWith("'")) "'" else ""
+                return if('\'' in raw)fallback else exact.joinToString("'")
             }
             return fallback
         }

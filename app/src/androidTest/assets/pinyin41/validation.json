@@ -1,0 +1,952 @@
+{
+  "version": 1,
+  "targetVersion": "4.1.0",
+  "split": "validation",
+  "synthetic": true,
+  "cases": [
+    {
+      "id": "VA-001",
+      "family": "tianqi",
+      "category": "标准全拼",
+      "input": "tianqi",
+      "expectedTop3": [
+        "天气"
+      ],
+      "mustInclude": [
+        "天气"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-002",
+      "family": "tianqi",
+      "category": "声母简拼",
+      "input": "tq",
+      "expectedTop3": [
+        "天气"
+      ],
+      "mustInclude": [
+        "天气"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-003",
+      "family": "tianqi",
+      "category": "全拼加简拼",
+      "input": "tianq",
+      "expectedTop3": [
+        "天气"
+      ],
+      "mustInclude": [
+        "天气"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-004",
+      "family": "tianqi",
+      "category": "手动隔音符",
+      "input": "tian'qi",
+      "expectedTop3": [
+        "天气"
+      ],
+      "mustInclude": [
+        "天气"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-005",
+      "family": "baogao",
+      "category": "标准全拼",
+      "input": "baogao",
+      "expectedTop3": [
+        "报告"
+      ],
+      "mustInclude": [
+        "报告"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-006",
+      "family": "baogao",
+      "category": "声母简拼",
+      "input": "bg",
+      "expectedTop3": [
+        "报告"
+      ],
+      "mustInclude": [
+        "报告"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-007",
+      "family": "baogao",
+      "category": "全拼加简拼",
+      "input": "baog",
+      "expectedTop3": [
+        "报告"
+      ],
+      "mustInclude": [
+        "报告"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-008",
+      "family": "baogao",
+      "category": "手动隔音符",
+      "input": "bao'gao",
+      "expectedTop3": [
+        "报告"
+      ],
+      "mustInclude": [
+        "报告"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-009",
+      "family": "kuaile",
+      "category": "标准全拼",
+      "input": "kuaile",
+      "expectedTop3": [
+        "快乐"
+      ],
+      "mustInclude": [
+        "快乐"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-010",
+      "family": "kuaile",
+      "category": "声母简拼",
+      "input": "kl",
+      "expectedTop3": [
+        "快乐"
+      ],
+      "mustInclude": [
+        "快乐"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-011",
+      "family": "kuaile",
+      "category": "全拼加简拼",
+      "input": "kuail",
+      "expectedTop3": [
+        "快乐"
+      ],
+      "mustInclude": [
+        "快乐"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-012",
+      "family": "kuaile",
+      "category": "手动隔音符",
+      "input": "kuai'le",
+      "expectedTop3": [
+        "快乐"
+      ],
+      "mustInclude": [
+        "快乐"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-013",
+      "family": "fangfa",
+      "category": "标准全拼",
+      "input": "fangfa",
+      "expectedTop3": [
+        "方法"
+      ],
+      "mustInclude": [
+        "方法"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-014",
+      "family": "fangfa",
+      "category": "声母简拼",
+      "input": "ff",
+      "expectedTop3": [
+        "方法"
+      ],
+      "mustInclude": [
+        "方法"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-015",
+      "family": "fangfa",
+      "category": "全拼加简拼",
+      "input": "fangf",
+      "expectedTop3": [
+        "方法"
+      ],
+      "mustInclude": [
+        "方法"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-016",
+      "family": "fangfa",
+      "category": "手动隔音符",
+      "input": "fang'fa",
+      "expectedTop3": [
+        "方法"
+      ],
+      "mustInclude": [
+        "方法"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-017",
+      "family": "wenjian",
+      "category": "标准全拼",
+      "input": "wenjian",
+      "expectedTop3": [
+        "文件"
+      ],
+      "mustInclude": [
+        "文件"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-018",
+      "family": "wenjian",
+      "category": "声母简拼",
+      "input": "wj",
+      "expectedTop3": [
+        "文件"
+      ],
+      "mustInclude": [
+        "文件"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-019",
+      "family": "wenjian",
+      "category": "全拼加简拼",
+      "input": "wenj",
+      "expectedTop3": [
+        "文件"
+      ],
+      "mustInclude": [
+        "文件"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-020",
+      "family": "wenjian",
+      "category": "手动隔音符",
+      "input": "wen'jian",
+      "expectedTop3": [
+        "文件"
+      ],
+      "mustInclude": [
+        "文件"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-021",
+      "family": "xihuan",
+      "category": "标准全拼",
+      "input": "xihuan",
+      "expectedTop3": [
+        "喜欢"
+      ],
+      "mustInclude": [
+        "喜欢"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-022",
+      "family": "xihuan",
+      "category": "声母简拼",
+      "input": "xh",
+      "expectedTop3": [
+        "喜欢"
+      ],
+      "mustInclude": [
+        "喜欢"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-023",
+      "family": "xihuan",
+      "category": "全拼加简拼",
+      "input": "xih",
+      "expectedTop3": [
+        "喜欢"
+      ],
+      "mustInclude": [
+        "喜欢"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-024",
+      "family": "xihuan",
+      "category": "手动隔音符",
+      "input": "xi'huan",
+      "expectedTop3": [
+        "喜欢"
+      ],
+      "mustInclude": [
+        "喜欢"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-025",
+      "family": "yinwei",
+      "category": "标准全拼",
+      "input": "yinwei",
+      "expectedTop3": [
+        "因为"
+      ],
+      "mustInclude": [
+        "因为"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-026",
+      "family": "yinwei",
+      "category": "声母简拼",
+      "input": "yw",
+      "expectedTop3": [
+        "因为"
+      ],
+      "mustInclude": [
+        "因为"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-027",
+      "family": "yinwei",
+      "category": "全拼加简拼",
+      "input": "yinw",
+      "expectedTop3": [
+        "因为"
+      ],
+      "mustInclude": [
+        "因为"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-028",
+      "family": "yinwei",
+      "category": "手动隔音符",
+      "input": "yin'wei",
+      "expectedTop3": [
+        "因为"
+      ],
+      "mustInclude": [
+        "因为"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-029",
+      "family": "shuju",
+      "category": "标准全拼",
+      "input": "shuju",
+      "expectedTop3": [
+        "数据"
+      ],
+      "mustInclude": [
+        "数据"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-030",
+      "family": "shuju",
+      "category": "声母简拼",
+      "input": "sj",
+      "expectedTop3": [
+        "数据"
+      ],
+      "mustInclude": [
+        "数据"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-031",
+      "family": "shuju",
+      "category": "全拼加简拼",
+      "input": "shuj",
+      "expectedTop3": [
+        "数据"
+      ],
+      "mustInclude": [
+        "数据"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-032",
+      "family": "shuju",
+      "category": "手动隔音符",
+      "input": "shu'ju",
+      "expectedTop3": [
+        "数据"
+      ],
+      "mustInclude": [
+        "数据"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-033",
+      "family": "queding",
+      "category": "标准全拼",
+      "input": "queding",
+      "expectedTop3": [
+        "确定"
+      ],
+      "mustInclude": [
+        "确定"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-034",
+      "family": "queding",
+      "category": "声母简拼",
+      "input": "qd",
+      "expectedTop3": [
+        "确定"
+      ],
+      "mustInclude": [
+        "确定"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-035",
+      "family": "queding",
+      "category": "全拼加简拼",
+      "input": "qued",
+      "expectedTop3": [
+        "确定"
+      ],
+      "mustInclude": [
+        "确定"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-036",
+      "family": "queding",
+      "category": "手动隔音符",
+      "input": "que'ding",
+      "expectedTop3": [
+        "确定"
+      ],
+      "mustInclude": [
+        "确定"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-037",
+      "family": "huijia",
+      "category": "标准全拼",
+      "input": "huijia",
+      "expectedTop3": [
+        "回家"
+      ],
+      "mustInclude": [
+        "回家"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-038",
+      "family": "huijia",
+      "category": "声母简拼",
+      "input": "hj",
+      "expectedTop3": [
+        "回家"
+      ],
+      "mustInclude": [
+        "回家"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-039",
+      "family": "huijia",
+      "category": "全拼加简拼",
+      "input": "huij",
+      "expectedTop3": [
+        "回家"
+      ],
+      "mustInclude": [
+        "回家"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-040",
+      "family": "huijia",
+      "category": "手动隔音符",
+      "input": "hui'jia",
+      "expectedTop3": [
+        "回家"
+      ],
+      "mustInclude": [
+        "回家"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-041",
+      "family": "zhangdan",
+      "category": "标准全拼",
+      "input": "zhangdan",
+      "expectedTop3": [
+        "账单"
+      ],
+      "mustInclude": [
+        "账单"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-042",
+      "family": "zhangdan",
+      "category": "声母简拼",
+      "input": "zd",
+      "expectedTop3": [
+        "账单"
+      ],
+      "mustInclude": [
+        "账单"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-043",
+      "family": "zhangdan",
+      "category": "全拼加简拼",
+      "input": "zhangd",
+      "expectedTop3": [
+        "账单"
+      ],
+      "mustInclude": [
+        "账单"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-044",
+      "family": "zhangdan",
+      "category": "手动隔音符",
+      "input": "zhang'dan",
+      "expectedTop3": [
+        "账单"
+      ],
+      "mustInclude": [
+        "账单"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-045",
+      "family": "chanpin",
+      "category": "标准全拼",
+      "input": "chanpin",
+      "expectedTop3": [
+        "产品"
+      ],
+      "mustInclude": [
+        "产品"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-046",
+      "family": "chanpin",
+      "category": "声母简拼",
+      "input": "cp",
+      "expectedTop3": [
+        "产品"
+      ],
+      "mustInclude": [
+        "产品"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-047",
+      "family": "chanpin",
+      "category": "全拼加简拼",
+      "input": "chanp",
+      "expectedTop3": [
+        "产品"
+      ],
+      "mustInclude": [
+        "产品"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-048",
+      "family": "chanpin",
+      "category": "手动隔音符",
+      "input": "chan'pin",
+      "expectedTop3": [
+        "产品"
+      ],
+      "mustInclude": [
+        "产品"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-049",
+      "family": "lantian",
+      "category": "标准全拼",
+      "input": "lantian",
+      "expectedTop3": [
+        "蓝天"
+      ],
+      "mustInclude": [
+        "蓝天"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-050",
+      "family": "lantian",
+      "category": "声母简拼",
+      "input": "lt",
+      "expectedTop3": [
+        "蓝天"
+      ],
+      "mustInclude": [
+        "蓝天"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-051",
+      "family": "lantian",
+      "category": "全拼加简拼",
+      "input": "lant",
+      "expectedTop3": [
+        "蓝天"
+      ],
+      "mustInclude": [
+        "蓝天"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-052",
+      "family": "lantian",
+      "category": "手动隔音符",
+      "input": "lan'tian",
+      "expectedTop3": [
+        "蓝天"
+      ],
+      "mustInclude": [
+        "蓝天"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "VA-053",
+      "family": "zhangdan",
+      "category": "模糊音关闭",
+      "input": "zangdan",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 z-zh 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "账单"
+      ]
+    },
+    {
+      "id": "VA-054",
+      "family": "zhangdan",
+      "category": "模糊音开启",
+      "input": "zangdan",
+      "expectedTop3": [
+        "账单"
+      ],
+      "mustInclude": [
+        "账单"
+      ],
+      "reason": "只开启 z-zh，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "z-zh"
+      ]
+    },
+    {
+      "id": "VA-055",
+      "family": "chanpin",
+      "category": "模糊音关闭",
+      "input": "canpin",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 c-ch 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "产品"
+      ]
+    },
+    {
+      "id": "VA-056",
+      "family": "chanpin",
+      "category": "模糊音开启",
+      "input": "canpin",
+      "expectedTop3": [
+        "产品"
+      ],
+      "mustInclude": [
+        "产品"
+      ],
+      "reason": "只开启 c-ch，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "c-ch"
+      ]
+    },
+    {
+      "id": "VA-057",
+      "family": "lantian",
+      "category": "模糊音关闭",
+      "input": "nantian",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 n-l 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "蓝天"
+      ]
+    },
+    {
+      "id": "VA-058",
+      "family": "lantian",
+      "category": "模糊音开启",
+      "input": "nantian",
+      "expectedTop3": [
+        "蓝天"
+      ],
+      "mustInclude": [
+        "蓝天"
+      ],
+      "reason": "只开启 n-l，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "n-l"
+      ]
+    },
+    {
+      "id": "VA-059",
+      "family": "fangfa",
+      "category": "模糊音关闭",
+      "input": "hangfa",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 f-h 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "方法"
+      ]
+    },
+    {
+      "id": "VA-060",
+      "family": "fangfa",
+      "category": "模糊音开启",
+      "input": "hangfa",
+      "expectedTop3": [
+        "方法"
+      ],
+      "mustInclude": [
+        "方法"
+      ],
+      "reason": "只开启 f-h，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "f-h"
+      ]
+    },
+    {
+      "id": "VA-061",
+      "family": "shuju",
+      "category": "纠错关闭",
+      "input": "shyju",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "数据"
+      ]
+    },
+    {
+      "id": "VA-062",
+      "family": "shuju",
+      "category": "单类纠错开启",
+      "input": "shyju",
+      "expectedTop3": [
+        "数据"
+      ],
+      "mustInclude": [
+        "数据"
+      ],
+      "reason": "只开启纠错位 1，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 1,
+      "offAbsent": [
+        "数据"
+      ]
+    },
+    {
+      "id": "VA-063",
+      "family": "kuaile",
+      "category": "纠错关闭",
+      "input": "kuiale",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "快乐"
+      ]
+    },
+    {
+      "id": "VA-064",
+      "family": "kuaile",
+      "category": "单类纠错开启",
+      "input": "kuiale",
+      "expectedTop3": [
+        "快乐"
+      ],
+      "mustInclude": [
+        "快乐"
+      ],
+      "reason": "只开启纠错位 2，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 2,
+      "offAbsent": [
+        "快乐"
+      ]
+    },
+    {
+      "id": "VA-065",
+      "family": "wenjian",
+      "category": "纠错关闭",
+      "input": "wenjiann",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "文件"
+      ]
+    },
+    {
+      "id": "VA-066",
+      "family": "wenjian",
+      "category": "单类纠错开启",
+      "input": "wenjiann",
+      "expectedTop3": [
+        "文件"
+      ],
+      "mustInclude": [
+        "文件"
+      ],
+      "reason": "只开启纠错位 4，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 4,
+      "offAbsent": [
+        "文件"
+      ]
+    },
+    {
+      "id": "VA-067",
+      "family": "xihuan",
+      "category": "纠错关闭",
+      "input": "xihun",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "喜欢"
+      ]
+    },
+    {
+      "id": "VA-068",
+      "family": "xihuan",
+      "category": "单类纠错开启",
+      "input": "xihun",
+      "expectedTop3": [
+        "喜欢"
+      ],
+      "mustInclude": [
+        "喜欢"
+      ],
+      "reason": "只开启纠错位 8，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 8,
+      "offAbsent": [
+        "喜欢"
+      ]
+    },
+    {
+      "id": "VA-069",
+      "family": "zhoumoqugongyuansanbu",
+      "category": "连续长句",
+      "input": "zhoumoqugongyuansanbu",
+      "expectedTop3": [
+        "周末去公园散步"
+      ],
+      "mustInclude": [
+        "周末去公园散步"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。",
+      "walk": [
+        "zhou",
+        "mo",
+        "qu",
+        "gong",
+        "yuan",
+        "san",
+        "bu"
+      ]
+    },
+    {
+      "id": "VA-070",
+      "family": "noise-validation",
+      "category": "无语义边界",
+      "input": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "无唯一语义答案；检查有界查询、消费长度和取消，不要求生成整句。"
+    },
+    {
+      "id": "VA-071",
+      "family": "single-validation",
+      "category": "单字母边界",
+      "input": "r",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "允许合法单字与未完成音节，检查有界候选；不从一两个首字母推断任意个人长词。"
+    }
+  ]
+}

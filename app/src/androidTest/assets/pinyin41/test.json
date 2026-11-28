@@ -1,0 +1,1005 @@
+{
+  "version": 1,
+  "targetVersion": "4.1.0",
+  "split": "test",
+  "synthetic": true,
+  "cases": [
+    {
+      "id": "TE-001",
+      "family": "bingxiang",
+      "category": "标准全拼",
+      "input": "bingxiang",
+      "expectedTop3": [
+        "冰箱"
+      ],
+      "mustInclude": [
+        "冰箱"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-002",
+      "family": "bingxiang",
+      "category": "声母简拼",
+      "input": "bx",
+      "expectedTop3": [
+        "冰箱"
+      ],
+      "mustInclude": [
+        "冰箱"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-003",
+      "family": "bingxiang",
+      "category": "全拼加简拼",
+      "input": "bingx",
+      "expectedTop3": [
+        "冰箱"
+      ],
+      "mustInclude": [
+        "冰箱"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-004",
+      "family": "bingxiang",
+      "category": "手动隔音符",
+      "input": "bing'xiang",
+      "expectedTop3": [
+        "冰箱"
+      ],
+      "mustInclude": [
+        "冰箱"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-005",
+      "family": "yusan",
+      "category": "标准全拼",
+      "input": "yusan",
+      "expectedTop3": [
+        "雨伞"
+      ],
+      "mustInclude": [
+        "雨伞"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-006",
+      "family": "yusan",
+      "category": "声母简拼",
+      "input": "ys",
+      "expectedTop3": [
+        "雨伞"
+      ],
+      "mustInclude": [
+        "雨伞"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-007",
+      "family": "yusan",
+      "category": "全拼加简拼",
+      "input": "yus",
+      "expectedTop3": [
+        "雨伞"
+      ],
+      "mustInclude": [
+        "雨伞"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-008",
+      "family": "yusan",
+      "category": "手动隔音符",
+      "input": "yu'san",
+      "expectedTop3": [
+        "雨伞"
+      ],
+      "mustInclude": [
+        "雨伞"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-009",
+      "family": "yumaoqiu",
+      "category": "标准全拼",
+      "input": "yumaoqiu",
+      "expectedTop3": [
+        "羽毛球"
+      ],
+      "mustInclude": [
+        "羽毛球"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-010",
+      "family": "yumaoqiu",
+      "category": "声母简拼",
+      "input": "ymq",
+      "expectedTop3": [
+        "羽毛球"
+      ],
+      "mustInclude": [
+        "羽毛球"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-011",
+      "family": "yumaoqiu",
+      "category": "全拼加简拼",
+      "input": "yumaoq",
+      "expectedTop3": [
+        "羽毛球"
+      ],
+      "mustInclude": [
+        "羽毛球"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-012",
+      "family": "yumaoqiu",
+      "category": "手动隔音符",
+      "input": "yu'mao'qiu",
+      "expectedTop3": [
+        "羽毛球"
+      ],
+      "mustInclude": [
+        "羽毛球"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-013",
+      "family": "kaohongshu",
+      "category": "标准全拼",
+      "input": "kaohongshu",
+      "expectedTop3": [
+        "烤红薯"
+      ],
+      "mustInclude": [
+        "烤红薯"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-014",
+      "family": "kaohongshu",
+      "category": "声母简拼",
+      "input": "khs",
+      "expectedTop3": [
+        "烤红薯"
+      ],
+      "mustInclude": [
+        "烤红薯"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-015",
+      "family": "kaohongshu",
+      "category": "全拼加简拼",
+      "input": "kaohongs",
+      "expectedTop3": [
+        "烤红薯"
+      ],
+      "mustInclude": [
+        "烤红薯"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-016",
+      "family": "kaohongshu",
+      "category": "手动隔音符",
+      "input": "kao'hong'shu",
+      "expectedTop3": [
+        "烤红薯"
+      ],
+      "mustInclude": [
+        "烤红薯"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-017",
+      "family": "tushuguan",
+      "category": "标准全拼",
+      "input": "tushuguan",
+      "expectedTop3": [
+        "图书馆"
+      ],
+      "mustInclude": [
+        "图书馆"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-018",
+      "family": "tushuguan",
+      "category": "声母简拼",
+      "input": "tsg",
+      "expectedTop3": [
+        "图书馆"
+      ],
+      "mustInclude": [
+        "图书馆"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-019",
+      "family": "tushuguan",
+      "category": "全拼加简拼",
+      "input": "tushug",
+      "expectedTop3": [
+        "图书馆"
+      ],
+      "mustInclude": [
+        "图书馆"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-020",
+      "family": "tushuguan",
+      "category": "手动隔音符",
+      "input": "tu'shu'guan",
+      "expectedTop3": [
+        "图书馆"
+      ],
+      "mustInclude": [
+        "图书馆"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-021",
+      "family": "xiyiji",
+      "category": "标准全拼",
+      "input": "xiyiji",
+      "expectedTop3": [
+        "洗衣机"
+      ],
+      "mustInclude": [
+        "洗衣机"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-022",
+      "family": "xiyiji",
+      "category": "声母简拼",
+      "input": "xyj",
+      "expectedTop3": [
+        "洗衣机"
+      ],
+      "mustInclude": [
+        "洗衣机"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-023",
+      "family": "xiyiji",
+      "category": "全拼加简拼",
+      "input": "xiyij",
+      "expectedTop3": [
+        "洗衣机"
+      ],
+      "mustInclude": [
+        "洗衣机"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-024",
+      "family": "xiyiji",
+      "category": "手动隔音符",
+      "input": "xi'yi'ji",
+      "expectedTop3": [
+        "洗衣机"
+      ],
+      "mustInclude": [
+        "洗衣机"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-025",
+      "family": "kuaidigui",
+      "category": "标准全拼",
+      "input": "kuaidigui",
+      "expectedTop3": [
+        "快递柜"
+      ],
+      "mustInclude": [
+        "快递柜"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-026",
+      "family": "kuaidigui",
+      "category": "声母简拼",
+      "input": "kdg",
+      "expectedTop3": [
+        "快递柜"
+      ],
+      "mustInclude": [
+        "快递柜"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-027",
+      "family": "kuaidigui",
+      "category": "全拼加简拼",
+      "input": "kuaidig",
+      "expectedTop3": [
+        "快递柜"
+      ],
+      "mustInclude": [
+        "快递柜"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-028",
+      "family": "kuaidigui",
+      "category": "手动隔音符",
+      "input": "kuai'di'gui",
+      "expectedTop3": [
+        "快递柜"
+      ],
+      "mustInclude": [
+        "快递柜"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-029",
+      "family": "hangban",
+      "category": "标准全拼",
+      "input": "hangban",
+      "expectedTop3": [
+        "航班"
+      ],
+      "mustInclude": [
+        "航班"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-030",
+      "family": "hangban",
+      "category": "声母简拼",
+      "input": "hb",
+      "expectedTop3": [
+        "航班"
+      ],
+      "mustInclude": [
+        "航班"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-031",
+      "family": "hangban",
+      "category": "全拼加简拼",
+      "input": "hangb",
+      "expectedTop3": [
+        "航班"
+      ],
+      "mustInclude": [
+        "航班"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-032",
+      "family": "hangban",
+      "category": "手动隔音符",
+      "input": "hang'ban",
+      "expectedTop3": [
+        "航班"
+      ],
+      "mustInclude": [
+        "航班"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-033",
+      "family": "ditie",
+      "category": "标准全拼",
+      "input": "ditie",
+      "expectedTop3": [
+        "地铁"
+      ],
+      "mustInclude": [
+        "地铁"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-034",
+      "family": "ditie",
+      "category": "声母简拼",
+      "input": "dt",
+      "expectedTop3": [
+        "地铁"
+      ],
+      "mustInclude": [
+        "地铁"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-035",
+      "family": "ditie",
+      "category": "全拼加简拼",
+      "input": "dit",
+      "expectedTop3": [
+        "地铁"
+      ],
+      "mustInclude": [
+        "地铁"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-036",
+      "family": "ditie",
+      "category": "手动隔音符",
+      "input": "di'tie",
+      "expectedTop3": [
+        "地铁"
+      ],
+      "mustInclude": [
+        "地铁"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-037",
+      "family": "canting",
+      "category": "标准全拼",
+      "input": "canting",
+      "expectedTop3": [
+        "餐厅"
+      ],
+      "mustInclude": [
+        "餐厅"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-038",
+      "family": "canting",
+      "category": "声母简拼",
+      "input": "ct",
+      "expectedTop3": [
+        "餐厅"
+      ],
+      "mustInclude": [
+        "餐厅"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-039",
+      "family": "canting",
+      "category": "全拼加简拼",
+      "input": "cant",
+      "expectedTop3": [
+        "餐厅"
+      ],
+      "mustInclude": [
+        "餐厅"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-040",
+      "family": "canting",
+      "category": "手动隔音符",
+      "input": "can'ting",
+      "expectedTop3": [
+        "餐厅"
+      ],
+      "mustInclude": [
+        "餐厅"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-041",
+      "family": "fenbi",
+      "category": "标准全拼",
+      "input": "fenbi",
+      "expectedTop3": [
+        "粉笔"
+      ],
+      "mustInclude": [
+        "粉笔"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-042",
+      "family": "fenbi",
+      "category": "声母简拼",
+      "input": "fb",
+      "expectedTop3": [
+        "粉笔"
+      ],
+      "mustInclude": [
+        "粉笔"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-043",
+      "family": "fenbi",
+      "category": "全拼加简拼",
+      "input": "fenb",
+      "expectedTop3": [
+        "粉笔"
+      ],
+      "mustInclude": [
+        "粉笔"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-044",
+      "family": "fenbi",
+      "category": "手动隔音符",
+      "input": "fen'bi",
+      "expectedTop3": [
+        "粉笔"
+      ],
+      "mustInclude": [
+        "粉笔"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-045",
+      "family": "xinqing",
+      "category": "标准全拼",
+      "input": "xinqing",
+      "expectedTop3": [
+        "心情"
+      ],
+      "mustInclude": [
+        "心情"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-046",
+      "family": "xinqing",
+      "category": "声母简拼",
+      "input": "xq",
+      "expectedTop3": [
+        "心情"
+      ],
+      "mustInclude": [
+        "心情"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-047",
+      "family": "xinqing",
+      "category": "全拼加简拼",
+      "input": "xinq",
+      "expectedTop3": [
+        "心情"
+      ],
+      "mustInclude": [
+        "心情"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-048",
+      "family": "xinqing",
+      "category": "手动隔音符",
+      "input": "xin'qing",
+      "expectedTop3": [
+        "心情"
+      ],
+      "mustInclude": [
+        "心情"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-049",
+      "family": "liangshui",
+      "category": "标准全拼",
+      "input": "liangshui",
+      "expectedTop3": [
+        "凉水"
+      ],
+      "mustInclude": [
+        "凉水"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-050",
+      "family": "liangshui",
+      "category": "声母简拼",
+      "input": "ls",
+      "expectedTop3": [
+        "凉水"
+      ],
+      "mustInclude": [
+        "凉水"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-051",
+      "family": "liangshui",
+      "category": "全拼加简拼",
+      "input": "liangs",
+      "expectedTop3": [
+        "凉水"
+      ],
+      "mustInclude": [
+        "凉水"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-052",
+      "family": "liangshui",
+      "category": "手动隔音符",
+      "input": "liang'shui",
+      "expectedTop3": [
+        "凉水"
+      ],
+      "mustInclude": [
+        "凉水"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-053",
+      "family": "guanli",
+      "category": "标准全拼",
+      "input": "guanli",
+      "expectedTop3": [
+        "管理"
+      ],
+      "mustInclude": [
+        "管理"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-054",
+      "family": "guanli",
+      "category": "声母简拼",
+      "input": "gl",
+      "expectedTop3": [
+        "管理"
+      ],
+      "mustInclude": [
+        "管理"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-055",
+      "family": "guanli",
+      "category": "全拼加简拼",
+      "input": "guanl",
+      "expectedTop3": [
+        "管理"
+      ],
+      "mustInclude": [
+        "管理"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-056",
+      "family": "guanli",
+      "category": "手动隔音符",
+      "input": "guan'li",
+      "expectedTop3": [
+        "管理"
+      ],
+      "mustInclude": [
+        "管理"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TE-057",
+      "family": "fenbi",
+      "category": "模糊音关闭",
+      "input": "fengbi",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 en-eng 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "粉笔"
+      ]
+    },
+    {
+      "id": "TE-058",
+      "family": "fenbi",
+      "category": "模糊音开启",
+      "input": "fengbi",
+      "expectedTop3": [
+        "粉笔"
+      ],
+      "mustInclude": [
+        "粉笔"
+      ],
+      "reason": "只开启 en-eng，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "en-eng"
+      ]
+    },
+    {
+      "id": "TE-059",
+      "family": "xinqing",
+      "category": "模糊音关闭",
+      "input": "xingqing",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 in-ing 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "心情"
+      ]
+    },
+    {
+      "id": "TE-060",
+      "family": "xinqing",
+      "category": "模糊音开启",
+      "input": "xingqing",
+      "expectedTop3": [
+        "心情"
+      ],
+      "mustInclude": [
+        "心情"
+      ],
+      "reason": "只开启 in-ing，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "in-ing"
+      ]
+    },
+    {
+      "id": "TE-061",
+      "family": "liangshui",
+      "category": "模糊音关闭",
+      "input": "lianshui",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 ian-iang 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "凉水"
+      ]
+    },
+    {
+      "id": "TE-062",
+      "family": "liangshui",
+      "category": "模糊音开启",
+      "input": "lianshui",
+      "expectedTop3": [
+        "凉水"
+      ],
+      "mustInclude": [
+        "凉水"
+      ],
+      "reason": "只开启 ian-iang，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "ian-iang"
+      ]
+    },
+    {
+      "id": "TE-063",
+      "family": "guanli",
+      "category": "模糊音关闭",
+      "input": "guangli",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 uan-uang 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "管理"
+      ]
+    },
+    {
+      "id": "TE-064",
+      "family": "guanli",
+      "category": "模糊音开启",
+      "input": "guangli",
+      "expectedTop3": [
+        "管理"
+      ],
+      "mustInclude": [
+        "管理"
+      ],
+      "reason": "只开启 uan-uang，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "uan-uang"
+      ]
+    },
+    {
+      "id": "TE-065",
+      "family": "xiyiji",
+      "category": "纠错关闭",
+      "input": "xuyiji",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "洗衣机"
+      ]
+    },
+    {
+      "id": "TE-066",
+      "family": "xiyiji",
+      "category": "单类纠错开启",
+      "input": "xuyiji",
+      "expectedTop3": [
+        "洗衣机"
+      ],
+      "mustInclude": [
+        "洗衣机"
+      ],
+      "reason": "只开启纠错位 1，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 1,
+      "offAbsent": [
+        "洗衣机"
+      ]
+    },
+    {
+      "id": "TE-067",
+      "family": "bingxiang",
+      "category": "纠错关闭",
+      "input": "bingxaing",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "冰箱"
+      ]
+    },
+    {
+      "id": "TE-068",
+      "family": "bingxiang",
+      "category": "单类纠错开启",
+      "input": "bingxaing",
+      "expectedTop3": [
+        "冰箱"
+      ],
+      "mustInclude": [
+        "冰箱"
+      ],
+      "reason": "只开启纠错位 2，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 2,
+      "offAbsent": [
+        "冰箱"
+      ]
+    },
+    {
+      "id": "TE-069",
+      "family": "yusan",
+      "category": "纠错关闭",
+      "input": "yusann",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "雨伞"
+      ]
+    },
+    {
+      "id": "TE-070",
+      "family": "yusan",
+      "category": "单类纠错开启",
+      "input": "yusann",
+      "expectedTop3": [
+        "雨伞"
+      ],
+      "mustInclude": [
+        "雨伞"
+      ],
+      "reason": "只开启纠错位 4，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 4,
+      "offAbsent": [
+        "雨伞"
+      ]
+    },
+    {
+      "id": "TE-071",
+      "family": "tushuguan",
+      "category": "纠错关闭",
+      "input": "tushugan",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "图书馆"
+      ]
+    },
+    {
+      "id": "TE-072",
+      "family": "tushuguan",
+      "category": "单类纠错开启",
+      "input": "tushugan",
+      "expectedTop3": [
+        "图书馆"
+      ],
+      "mustInclude": [
+        "图书馆"
+      ],
+      "reason": "只开启纠错位 8，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 8,
+      "offAbsent": [
+        "图书馆"
+      ]
+    },
+    {
+      "id": "TE-073",
+      "family": "chumenjidedaishangyusan",
+      "category": "连续长句",
+      "input": "chumenjidedaishangyusan",
+      "expectedTop3": [
+        "出门记得带上雨伞"
+      ],
+      "mustInclude": [
+        "出门记得带上雨伞"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。",
+      "walk": [
+        "chu",
+        "men",
+        "ji",
+        "de",
+        "dai",
+        "shang",
+        "yu",
+        "san"
+      ]
+    },
+    {
+      "id": "TE-074",
+      "family": "noise-test",
+      "category": "无语义边界",
+      "input": "qvqvqvqvqvqvqvqvqvqvqvqvqvqvqvqv",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "无唯一语义答案；检查有界查询、消费长度和取消，不要求生成整句。"
+    },
+    {
+      "id": "TE-075",
+      "family": "single-test",
+      "category": "单字母边界",
+      "input": "t",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "允许合法单字与未完成音节，检查有界候选；不从一两个首字母推断任意个人长词。"
+    }
+  ]
+}

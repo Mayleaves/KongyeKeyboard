@@ -90,9 +90,20 @@ class KeyboardView(context: Context) : View(context) {
         fun onSwipeDel(down: Boolean)
         /** 光标模式开关状态变化 */
         fun onCursorModeChange(active: Boolean) {}
+        /** Only enabled explicitly for non-sensitive diagnostics. */
+        fun onTouchDiagnostic(message:String) {}
     }
 
     var listener: Listener? = null
+    var touchDiagnostics=false
+    var touchContext:String=""
+    var touchContextEnabled=false
+    var calibrationTarget:String?=null
+    var onCalibrationTap:((String,Float,Float)->Unit)?=null
+    private val touchCalibration=TouchCalibration(context)
+    val touchProfile:String get()=(if(resources.configuration.orientation==2)"land" else "port")+"."+
+        (width/resources.displayMetrics.density/40).toInt()+"."+(if(splitLayout)"split" else "normal")
+    private var touchSyllables:Set<String>?=null
     /** 设置页里的预览：只画，不响应触摸 */
     var preview = false
     var skin: Skin = Skins.KONGYE
@@ -160,6 +171,20 @@ class KeyboardView(context: Context) : View(context) {
 
     fun setup(skin: Skin, rows: List<Row>, side: List<String>? = null) {
         val relayout = rows.size != this.rows.size || skin.keyH != this.skin.keyH || skin.rowGap != this.skin.rowGap
+        val compatible=!relayout && side==this.side && rows.indices.all {i->
+            rows[i].keys.size==this.rows[i].keys.size && rows[i].keys.indices.all {j->
+                val a=rows[i].keys[j];val b=this.rows[i].keys[j]
+                a.kind==b.kind && a.out==b.out && a.letters==b.letters && a.w==b.w
+            }
+        }
+        if(compatible && presses.isNotEmpty()) {
+            // Candidate refresh after the first finger lifts must not cancel the other finger.
+            this.skin=skin
+            this.rows=rows.map {row->Row(row.keys.map {k->presses.values.firstOrNull {
+                it.key.kind==k.kind && it.key.out==k.out && it.key.letters==k.letters
+            }?.key ?: k},row.indent)}
+            layoutKeys();invalidate();return
+        }
         this.skin = skin
         this.rows = rows
         if (side != this.side) sideScroll = 0f
@@ -288,8 +313,19 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun findKey(x: Float, y: Float): Key? {
+        if(x<0 || x>=width || y<0 || y>=height)return null
         for (row in rows) for (k in row.keys) if (k.hit.contains(x, y)) return k
         return null
+    }
+
+    private fun touchDecision(s:TouchResolver.Sample):TouchResolver.Decision {
+        val letters=rows.flatMap {it.keys}.filter {it.kind==Kind.LETTER}
+        if(touchContextEnabled && touchSyllables==null)touchSyllables=context.assets.open("pinyin-syllables.txt").bufferedReader().use {it.readLines().toSet()}
+        val prefix=touchContext.takeLastWhile {it in 'a'..'z'}.takeLast(6)
+        return TouchResolver.resolve(rows.flatMap {it.keys},width.toFloat(),height.toFloat(),resources.displayMetrics.density,s,
+            bias={k->if(k.kind==Kind.LETTER && k.letters.length==1 && letters.size==26)touchCalibration.bias(touchProfile,k.letters) else TouchCalibration.Bias(0f,0f,0f)},
+            context={k->if(touchContextEnabled && zh && prefix.isNotEmpty() && touchSyllables.orEmpty().any {it.startsWith(prefix+k.letters)}) .02f else 0f},
+            separator={it.kind==Kind.SEP || splitMode && it.kind==Kind.SHIFT})
     }
 
     // —————————— 绘制 ——————————
@@ -610,6 +646,11 @@ class KeyboardView(context: Context) : View(context) {
     // —————————— 触摸 ——————————
 
     private class Press(val id: Int, var key: Key, val x0: Float, val y0: Float) {
+        var sample:TouchResolver.Sample?=null
+        var decision:TouchResolver.Decision?=null
+        var calibration:String?=null
+        var completed=false
+        var cancelled=false
         val trace=ArrayList<GlidePoint>().apply {add(GlidePoint(x0,y0))}
         var gliding=false
         var long = false
@@ -678,27 +719,47 @@ class KeyboardView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 if (cursorMode) return true
                 val i = e.actionIndex
-                // 快打时第二根手指落下：前一个普通键直接输出
-                for (p in presses.values.toList()) {
-                    if (!p.long && !p.dragging && p.swipe == 0 && p.key.kind != Kind.DEL && p.key.kind != Kind.SHIFT) release(p, true)
+                val sample=TouchResolver.sample(e,i)
+                val decision=touchDecision(sample)
+                val k = decision.key ?: run {
+                    if(touchDiagnostics)listener?.onTouchDiagnostic("down id=${e.getPointerId(i)} x=${sample.x} y=${sample.y} reason=${decision.reason}")
+                    return true
                 }
-                val k = findKey(e.getX(i), e.getY(i)) ?: return true
                 val p = Press(e.getPointerId(i), k, e.getX(i), e.getY(i))
+                p.sample=sample;p.decision=decision;p.calibration=calibrationTarget
                 presses[p.id] = p
                 down(p)
             }
             MotionEvent.ACTION_MOVE -> for (i in 0 until e.pointerCount) {
                 val p = presses[e.getPointerId(i)] ?: continue
+                if(p.completed || p.cancelled)continue
+                if(TouchResolver.palm(TouchResolver.sample(e,i),resources.displayMetrics.density)) {p.cancelled=true;release(p,false);flushCompletedPresses();continue}
+                for(h in 0 until e.historySize)move(p,e.getHistoricalX(i,h),e.getHistoricalY(i,h))
                 move(p, e.getX(i), e.getY(i))
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> presses[e.getPointerId(e.actionIndex)]?.let {
                 // 快速轻扫时中途的移动事件很少，抬手的位置也要算一次滑动
-                if (it.key.kind != Kind.SPACE) move(it, e.getX(e.actionIndex), e.getY(e.actionIndex))
-                release(it, true)
+                if(TouchResolver.palm(TouchResolver.sample(e,e.actionIndex),resources.displayMetrics.density))it.cancelled=true
+                if (it.key.kind != Kind.SPACE) {
+                    for(h in 0 until e.historySize)move(it,e.getHistoricalX(e.actionIndex,h),e.getHistoricalY(e.actionIndex,h))
+                    move(it, e.getX(e.actionIndex), e.getY(e.actionIndex))
+                }
+                if(android.os.Build.VERSION.SDK_INT>=33 && e.flags and MotionEvent.FLAG_CANCELED!=0)it.cancelled=true
+                it.completed=true
+                if(it.key.kind !in listOf(Kind.LETTER,Kind.CHAR,Kind.SEP))release(it,!it.cancelled)
+                flushCompletedPresses()
             }
             MotionEvent.ACTION_CANCEL -> presses.values.toList().forEach { release(it, false) }
         }
         return true
+    }
+
+    private fun flushCompletedPresses() {
+        while(true) {
+            val p=presses.values.firstOrNull {it.key.kind in listOf(Kind.LETTER,Kind.CHAR,Kind.SEP)} ?: return
+            if(!p.completed)return
+            release(p,!p.cancelled)
+        }
     }
 
     /** 左边的符号列：可以上下滑，点一下输入 */
@@ -768,7 +829,7 @@ class KeyboardView(context: Context) : View(context) {
         val actionLong = k.longEmoji || k.kind == Kind.SPACE || k.kind == Kind.SHIFT || popLong
         if (!hintLong && !actionLong) return
         val task = Runnable {
-            if (p.key !== k || p.dragging || p.swipe != 0) return@Runnable
+            if (presses[p.id]!==p || p.completed || p.cancelled || p.key !== k || p.dragging || p.swipe != 0) return@Runnable
             p.long = true
             when {
                 popLong && letterLong==1 && k.letters.length==1 -> {p.fired=true;listener?.onKey(Key(Kind.CHAR,k.letters.uppercase()))}
@@ -825,6 +886,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun move(p: Press, x: Float, y: Float) {
+        if(p.cancelled)return
         if(glideEnabled && p.key.kind==Kind.LETTER && !p.long) {
             val last=p.trace.last()
             if(kotlin.math.hypot(x-last.x,y-last.y)>2*d && p.trace.size<512) p.trace.add(GlidePoint(x,y))
@@ -908,6 +970,12 @@ class KeyboardView(context: Context) : View(context) {
             invalidate()
         }
         if (p.swipe != 0 || k.kind == Kind.DEL || k.repeat) return
+        if(!(glideEnabled && k.kind==Kind.LETTER) &&
+            (abs(dx)>max(18*d,k.rect.width()*.65f) || abs(dy)>max(20*d,k.rect.height()*.65f))) {
+            p.cancelled=true
+            longTask?.let {handler.removeCallbacks(it)};longTask=null
+            invalidate()
+        }
         // Ordinary taps keep the key captured on DOWN. Swipes and glides
         // are resolved above, so release drift cannot select a neighbour.
 
@@ -934,7 +1002,17 @@ class KeyboardView(context: Context) : View(context) {
         }
         invalidate()
         if(!fire && p.gliding) listener?.onGlideCancel()
-        if (!fire || p.fired) return
+        val accepted=fire && !p.cancelled
+        if(touchDiagnostics) {
+            val s=p.sample;val choice=p.decision
+            listener?.onTouchDiagnostic("up id=${p.id} x=${s?.x} y=${s?.y} major=${s?.major} minor=${s?.minor} tool=${s?.tool} key=${p.key.kind}:${p.key.letters} reason=${choice?.reason} choices=${choice?.choices?.map {it.key.letters to it.score}} accepted=$accepted swipe=${p.swipe} glide=${p.gliding}")
+        }
+        if (!accepted || p.fired) return
+        if(p.calibration!=null && !p.long && !p.dragging && p.swipe==0 && !p.gliding) {
+            val intended=rows.flatMap {it.keys}.firstOrNull {it.kind==Kind.LETTER && it.letters==p.calibration}
+            if(intended!=null)onCalibrationTap?.invoke(p.calibration!!,(p.x0-intended.rect.centerX())/intended.rect.width(),(p.y0-intended.rect.centerY())/intended.rect.height())
+            return
+        }
         if(p.gliding) {
             val letters=rows.flatMap {it.keys}.filter {it.kind==Kind.LETTER && it.letters.length==1}
             if(letters.size==26) listener?.onGlide(GlideTrace(p.trace.toList(),letters.associate {it.letters[0] to GlidePoint(it.rect.centerX(),it.rect.centerY())},letters.first().rect.width()))

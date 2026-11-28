@@ -1,0 +1,1441 @@
+{
+  "version": 1,
+  "targetVersion": "4.1.0",
+  "split": "train",
+  "synthetic": true,
+  "cases": [
+    {
+      "id": "TR-001",
+      "family": "nihao",
+      "category": "标准全拼",
+      "input": "nihao",
+      "expectedTop3": [
+        "你好"
+      ],
+      "mustInclude": [
+        "你好"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-002",
+      "family": "nihao",
+      "category": "声母简拼",
+      "input": "nh",
+      "expectedTop3": [
+        "你好"
+      ],
+      "mustInclude": [
+        "你好"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-003",
+      "family": "nihao",
+      "category": "全拼加简拼",
+      "input": "nih",
+      "expectedTop3": [
+        "你好"
+      ],
+      "mustInclude": [
+        "你好"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-004",
+      "family": "nihao",
+      "category": "手动隔音符",
+      "input": "ni'hao",
+      "expectedTop3": [
+        "你好"
+      ],
+      "mustInclude": [
+        "你好"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-005",
+      "family": "juede",
+      "category": "标准全拼",
+      "input": "juede",
+      "expectedTop3": [
+        "觉得"
+      ],
+      "mustInclude": [
+        "觉得"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-006",
+      "family": "juede",
+      "category": "声母简拼",
+      "input": "jd",
+      "expectedTop3": [
+        "觉得"
+      ],
+      "mustInclude": [
+        "觉得"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-007",
+      "family": "juede",
+      "category": "全拼加简拼",
+      "input": "jued",
+      "expectedTop3": [
+        "觉得"
+      ],
+      "mustInclude": [
+        "觉得"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-008",
+      "family": "juede",
+      "category": "手动隔音符",
+      "input": "jue'de",
+      "expectedTop3": [
+        "觉得"
+      ],
+      "mustInclude": [
+        "觉得"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-009",
+      "family": "huanggua",
+      "category": "标准全拼",
+      "input": "huanggua",
+      "expectedTop3": [
+        "黄瓜"
+      ],
+      "mustInclude": [
+        "黄瓜"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-010",
+      "family": "huanggua",
+      "category": "声母简拼",
+      "input": "hg",
+      "expectedTop3": [
+        "黄瓜"
+      ],
+      "mustInclude": [
+        "黄瓜"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-011",
+      "family": "huanggua",
+      "category": "全拼加简拼",
+      "input": "huangg",
+      "expectedTop3": [
+        "黄瓜"
+      ],
+      "mustInclude": [
+        "黄瓜"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-012",
+      "family": "huanggua",
+      "category": "手动隔音符",
+      "input": "huang'gua",
+      "expectedTop3": [
+        "黄瓜"
+      ],
+      "mustInclude": [
+        "黄瓜"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-013",
+      "family": "beijing",
+      "category": "标准全拼",
+      "input": "beijing",
+      "expectedTop3": [
+        "北京",
+        "背景"
+      ],
+      "mustInclude": [
+        "北京",
+        "背景"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-014",
+      "family": "beijing",
+      "category": "声母简拼",
+      "input": "bj",
+      "expectedTop3": [
+        "北京",
+        "背景"
+      ],
+      "mustInclude": [
+        "北京",
+        "背景"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-015",
+      "family": "beijing",
+      "category": "全拼加简拼",
+      "input": "beij",
+      "expectedTop3": [
+        "北京",
+        "背景"
+      ],
+      "mustInclude": [
+        "北京",
+        "背景"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-016",
+      "family": "beijing",
+      "category": "手动隔音符",
+      "input": "bei'jing",
+      "expectedTop3": [
+        "北京",
+        "背景"
+      ],
+      "mustInclude": [
+        "北京",
+        "背景"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-017",
+      "family": "shanxi",
+      "category": "标准全拼",
+      "input": "shanxi",
+      "expectedTop3": [
+        "山西",
+        "陕西"
+      ],
+      "mustInclude": [
+        "山西",
+        "陕西"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-018",
+      "family": "shanxi",
+      "category": "声母简拼",
+      "input": "sx",
+      "expectedTop3": [
+        "山西",
+        "陕西"
+      ],
+      "mustInclude": [
+        "山西",
+        "陕西"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-019",
+      "family": "shanxi",
+      "category": "全拼加简拼",
+      "input": "shanx",
+      "expectedTop3": [
+        "山西",
+        "陕西"
+      ],
+      "mustInclude": [
+        "山西",
+        "陕西"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-020",
+      "family": "shanxi",
+      "category": "手动隔音符",
+      "input": "shan'xi",
+      "expectedTop3": [
+        "山西",
+        "陕西"
+      ],
+      "mustInclude": [
+        "山西",
+        "陕西"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-021",
+      "family": "pingan",
+      "category": "标准全拼",
+      "input": "pingan",
+      "expectedTop3": [
+        "平安"
+      ],
+      "mustInclude": [
+        "平安"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-022",
+      "family": "pingan",
+      "category": "声母简拼",
+      "input": "pa",
+      "expectedTop3": [
+        "平安"
+      ],
+      "mustInclude": [
+        "平安"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-023",
+      "family": "pingan",
+      "category": "全拼加简拼",
+      "input": "pinga",
+      "expectedTop3": [
+        "平安"
+      ],
+      "mustInclude": [
+        "平安"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-024",
+      "family": "pingan",
+      "category": "手动隔音符",
+      "input": "ping'an",
+      "expectedTop3": [
+        "平安"
+      ],
+      "mustInclude": [
+        "平安"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-025",
+      "family": "zhangai",
+      "category": "标准全拼",
+      "input": "zhangai",
+      "expectedTop3": [
+        "障碍"
+      ],
+      "mustInclude": [
+        "障碍"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-026",
+      "family": "zhangai",
+      "category": "声母简拼",
+      "input": "za",
+      "expectedTop3": [
+        "障碍"
+      ],
+      "mustInclude": [
+        "障碍"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-027",
+      "family": "zhangai",
+      "category": "全拼加简拼",
+      "input": "zhanga",
+      "expectedTop3": [
+        "障碍"
+      ],
+      "mustInclude": [
+        "障碍"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-028",
+      "family": "zhangai",
+      "category": "手动隔音符",
+      "input": "zhang'ai",
+      "expectedTop3": [
+        "障碍"
+      ],
+      "mustInclude": [
+        "障碍"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-029",
+      "family": "xian",
+      "category": "标准全拼",
+      "input": "xian",
+      "expectedTop3": [
+        "先",
+        "线",
+        "现"
+      ],
+      "mustInclude": [
+        "先",
+        "线",
+        "现"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-030",
+      "family": "xian",
+      "category": "声母简拼",
+      "input": "x",
+      "expectedTop3": [
+        "先",
+        "线",
+        "现"
+      ],
+      "mustInclude": [
+        "先",
+        "线",
+        "现"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-031",
+      "family": "shishi",
+      "category": "标准全拼",
+      "input": "shishi",
+      "expectedTop3": [
+        "实施",
+        "事实",
+        "试试"
+      ],
+      "mustInclude": [
+        "实施",
+        "事实",
+        "试试"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-032",
+      "family": "shishi",
+      "category": "声母简拼",
+      "input": "ss",
+      "expectedTop3": [
+        "实施",
+        "事实",
+        "试试"
+      ],
+      "mustInclude": [
+        "实施",
+        "事实",
+        "试试"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-033",
+      "family": "shishi",
+      "category": "全拼加简拼",
+      "input": "shis",
+      "expectedTop3": [
+        "实施",
+        "事实",
+        "试试"
+      ],
+      "mustInclude": [
+        "实施",
+        "事实",
+        "试试"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-034",
+      "family": "shishi",
+      "category": "手动隔音符",
+      "input": "shi'shi",
+      "expectedTop3": [
+        "实施",
+        "事实",
+        "试试"
+      ],
+      "mustInclude": [
+        "实施",
+        "事实",
+        "试试"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-035",
+      "family": "yinhang",
+      "category": "标准全拼",
+      "input": "yinhang",
+      "expectedTop3": [
+        "银行"
+      ],
+      "mustInclude": [
+        "银行"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-036",
+      "family": "yinhang",
+      "category": "声母简拼",
+      "input": "yh",
+      "expectedTop3": [
+        "银行"
+      ],
+      "mustInclude": [
+        "银行"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-037",
+      "family": "yinhang",
+      "category": "全拼加简拼",
+      "input": "yinh",
+      "expectedTop3": [
+        "银行"
+      ],
+      "mustInclude": [
+        "银行"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-038",
+      "family": "yinhang",
+      "category": "手动隔音符",
+      "input": "yin'hang",
+      "expectedTop3": [
+        "银行"
+      ],
+      "mustInclude": [
+        "银行"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-039",
+      "family": "xiexie",
+      "category": "标准全拼",
+      "input": "xiexie",
+      "expectedTop3": [
+        "谢谢"
+      ],
+      "mustInclude": [
+        "谢谢"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-040",
+      "family": "xiexie",
+      "category": "声母简拼",
+      "input": "xx",
+      "expectedTop3": [
+        "谢谢"
+      ],
+      "mustInclude": [
+        "谢谢"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-041",
+      "family": "xiexie",
+      "category": "全拼加简拼",
+      "input": "xiex",
+      "expectedTop3": [
+        "谢谢"
+      ],
+      "mustInclude": [
+        "谢谢"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-042",
+      "family": "xiexie",
+      "category": "手动隔音符",
+      "input": "xie'xie",
+      "expectedTop3": [
+        "谢谢"
+      ],
+      "mustInclude": [
+        "谢谢"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-043",
+      "family": "zaijian",
+      "category": "标准全拼",
+      "input": "zaijian",
+      "expectedTop3": [
+        "再见"
+      ],
+      "mustInclude": [
+        "再见"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-044",
+      "family": "zaijian",
+      "category": "声母简拼",
+      "input": "zj",
+      "expectedTop3": [
+        "再见"
+      ],
+      "mustInclude": [
+        "再见"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-045",
+      "family": "zaijian",
+      "category": "全拼加简拼",
+      "input": "zaij",
+      "expectedTop3": [
+        "再见"
+      ],
+      "mustInclude": [
+        "再见"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-046",
+      "family": "zaijian",
+      "category": "手动隔音符",
+      "input": "zai'jian",
+      "expectedTop3": [
+        "再见"
+      ],
+      "mustInclude": [
+        "再见"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-047",
+      "family": "jintian",
+      "category": "标准全拼",
+      "input": "jintian",
+      "expectedTop3": [
+        "今天"
+      ],
+      "mustInclude": [
+        "今天"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-048",
+      "family": "jintian",
+      "category": "声母简拼",
+      "input": "jt",
+      "expectedTop3": [
+        "今天"
+      ],
+      "mustInclude": [
+        "今天"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-049",
+      "family": "jintian",
+      "category": "全拼加简拼",
+      "input": "jint",
+      "expectedTop3": [
+        "今天"
+      ],
+      "mustInclude": [
+        "今天"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-050",
+      "family": "jintian",
+      "category": "手动隔音符",
+      "input": "jin'tian",
+      "expectedTop3": [
+        "今天"
+      ],
+      "mustInclude": [
+        "今天"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-051",
+      "family": "shurufa",
+      "category": "标准全拼",
+      "input": "shurufa",
+      "expectedTop3": [
+        "输入法"
+      ],
+      "mustInclude": [
+        "输入法"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-052",
+      "family": "shurufa",
+      "category": "声母简拼",
+      "input": "srf",
+      "expectedTop3": [
+        "输入法"
+      ],
+      "mustInclude": [
+        "输入法"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-053",
+      "family": "shurufa",
+      "category": "全拼加简拼",
+      "input": "shuruf",
+      "expectedTop3": [
+        "输入法"
+      ],
+      "mustInclude": [
+        "输入法"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-054",
+      "family": "shurufa",
+      "category": "手动隔音符",
+      "input": "shu'ru'fa",
+      "expectedTop3": [
+        "输入法"
+      ],
+      "mustInclude": [
+        "输入法"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-055",
+      "family": "pengyou",
+      "category": "标准全拼",
+      "input": "pengyou",
+      "expectedTop3": [
+        "朋友"
+      ],
+      "mustInclude": [
+        "朋友"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-056",
+      "family": "pengyou",
+      "category": "声母简拼",
+      "input": "py",
+      "expectedTop3": [
+        "朋友"
+      ],
+      "mustInclude": [
+        "朋友"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-057",
+      "family": "pengyou",
+      "category": "全拼加简拼",
+      "input": "pengy",
+      "expectedTop3": [
+        "朋友"
+      ],
+      "mustInclude": [
+        "朋友"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-058",
+      "family": "pengyou",
+      "category": "手动隔音符",
+      "input": "peng'you",
+      "expectedTop3": [
+        "朋友"
+      ],
+      "mustInclude": [
+        "朋友"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-059",
+      "family": "shouji",
+      "category": "标准全拼",
+      "input": "shouji",
+      "expectedTop3": [
+        "手机"
+      ],
+      "mustInclude": [
+        "手机"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-060",
+      "family": "shouji",
+      "category": "声母简拼",
+      "input": "sj",
+      "expectedTop3": [
+        "手机"
+      ],
+      "mustInclude": [
+        "手机"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-061",
+      "family": "shouji",
+      "category": "全拼加简拼",
+      "input": "shouj",
+      "expectedTop3": [
+        "手机"
+      ],
+      "mustInclude": [
+        "手机"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-062",
+      "family": "shouji",
+      "category": "手动隔音符",
+      "input": "shou'ji",
+      "expectedTop3": [
+        "手机"
+      ],
+      "mustInclude": [
+        "手机"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-063",
+      "family": "dianhua",
+      "category": "标准全拼",
+      "input": "dianhua",
+      "expectedTop3": [
+        "电话"
+      ],
+      "mustInclude": [
+        "电话"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-064",
+      "family": "dianhua",
+      "category": "声母简拼",
+      "input": "dh",
+      "expectedTop3": [
+        "电话"
+      ],
+      "mustInclude": [
+        "电话"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-065",
+      "family": "dianhua",
+      "category": "全拼加简拼",
+      "input": "dianh",
+      "expectedTop3": [
+        "电话"
+      ],
+      "mustInclude": [
+        "电话"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-066",
+      "family": "dianhua",
+      "category": "手动隔音符",
+      "input": "dian'hua",
+      "expectedTop3": [
+        "电话"
+      ],
+      "mustInclude": [
+        "电话"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-067",
+      "family": "shijian",
+      "category": "标准全拼",
+      "input": "shijian",
+      "expectedTop3": [
+        "时间"
+      ],
+      "mustInclude": [
+        "时间"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-068",
+      "family": "shijian",
+      "category": "声母简拼",
+      "input": "sj",
+      "expectedTop3": [
+        "时间"
+      ],
+      "mustInclude": [
+        "时间"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-069",
+      "family": "shijian",
+      "category": "全拼加简拼",
+      "input": "shij",
+      "expectedTop3": [
+        "时间"
+      ],
+      "mustInclude": [
+        "时间"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-070",
+      "family": "shijian",
+      "category": "手动隔音符",
+      "input": "shi'jian",
+      "expectedTop3": [
+        "时间"
+      ],
+      "mustInclude": [
+        "时间"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-071",
+      "family": "xuexi",
+      "category": "标准全拼",
+      "input": "xuexi",
+      "expectedTop3": [
+        "学习"
+      ],
+      "mustInclude": [
+        "学习"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-072",
+      "family": "xuexi",
+      "category": "声母简拼",
+      "input": "xx",
+      "expectedTop3": [
+        "学习"
+      ],
+      "mustInclude": [
+        "学习"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-073",
+      "family": "xuexi",
+      "category": "全拼加简拼",
+      "input": "xuex",
+      "expectedTop3": [
+        "学习"
+      ],
+      "mustInclude": [
+        "学习"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-074",
+      "family": "xuexi",
+      "category": "手动隔音符",
+      "input": "xue'xi",
+      "expectedTop3": [
+        "学习"
+      ],
+      "mustInclude": [
+        "学习"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-075",
+      "family": "gongzuo",
+      "category": "标准全拼",
+      "input": "gongzuo",
+      "expectedTop3": [
+        "工作"
+      ],
+      "mustInclude": [
+        "工作"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-076",
+      "family": "gongzuo",
+      "category": "声母简拼",
+      "input": "gz",
+      "expectedTop3": [
+        "工作"
+      ],
+      "mustInclude": [
+        "工作"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-077",
+      "family": "gongzuo",
+      "category": "全拼加简拼",
+      "input": "gongz",
+      "expectedTop3": [
+        "工作"
+      ],
+      "mustInclude": [
+        "工作"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-078",
+      "family": "gongzuo",
+      "category": "手动隔音符",
+      "input": "gong'zuo",
+      "expectedTop3": [
+        "工作"
+      ],
+      "mustInclude": [
+        "工作"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-079",
+      "family": "ranliao",
+      "category": "标准全拼",
+      "input": "ranliao",
+      "expectedTop3": [
+        "燃料"
+      ],
+      "mustInclude": [
+        "燃料"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-080",
+      "family": "ranliao",
+      "category": "声母简拼",
+      "input": "rl",
+      "expectedTop3": [
+        "燃料"
+      ],
+      "mustInclude": [
+        "燃料"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-081",
+      "family": "ranliao",
+      "category": "全拼加简拼",
+      "input": "ranl",
+      "expectedTop3": [
+        "燃料"
+      ],
+      "mustInclude": [
+        "燃料"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-082",
+      "family": "ranliao",
+      "category": "手动隔音符",
+      "input": "ran'liao",
+      "expectedTop3": [
+        "燃料"
+      ],
+      "mustInclude": [
+        "燃料"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-083",
+      "family": "lvse",
+      "category": "标准全拼",
+      "input": "lvse",
+      "expectedTop3": [
+        "绿色"
+      ],
+      "mustInclude": [
+        "绿色"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-084",
+      "family": "lvse",
+      "category": "声母简拼",
+      "input": "ls",
+      "expectedTop3": [
+        "绿色"
+      ],
+      "mustInclude": [
+        "绿色"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-085",
+      "family": "lvse",
+      "category": "全拼加简拼",
+      "input": "lvs",
+      "expectedTop3": [
+        "绿色"
+      ],
+      "mustInclude": [
+        "绿色"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-086",
+      "family": "lvse",
+      "category": "手动隔音符",
+      "input": "lv'se",
+      "expectedTop3": [
+        "绿色"
+      ],
+      "mustInclude": [
+        "绿色"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。"
+    },
+    {
+      "id": "TR-087",
+      "family": "shouji",
+      "category": "模糊音关闭",
+      "input": "souji",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 s-sh 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "手机"
+      ]
+    },
+    {
+      "id": "TR-088",
+      "family": "shouji",
+      "category": "模糊音开启",
+      "input": "souji",
+      "expectedTop3": [
+        "手机"
+      ],
+      "mustInclude": [
+        "手机"
+      ],
+      "reason": "只开启 s-sh，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "s-sh"
+      ]
+    },
+    {
+      "id": "TR-089",
+      "family": "ranliao",
+      "category": "模糊音关闭",
+      "input": "lanliao",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 r-l 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "燃料"
+      ]
+    },
+    {
+      "id": "TR-090",
+      "family": "ranliao",
+      "category": "模糊音开启",
+      "input": "lanliao",
+      "expectedTop3": [
+        "燃料"
+      ],
+      "mustInclude": [
+        "燃料"
+      ],
+      "reason": "只开启 r-l，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "r-l"
+      ]
+    },
+    {
+      "id": "TR-091",
+      "family": "shanxi",
+      "category": "模糊音关闭",
+      "input": "shangxi",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 an-ang 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "山西",
+        "陕西"
+      ]
+    },
+    {
+      "id": "TR-092",
+      "family": "shanxi",
+      "category": "模糊音开启",
+      "input": "shangxi",
+      "expectedTop3": [
+        "山西",
+        "陕西"
+      ],
+      "mustInclude": [
+        "山西",
+        "陕西"
+      ],
+      "reason": "只开启 an-ang，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "an-ang"
+      ]
+    },
+    {
+      "id": "TR-093",
+      "family": "lvse",
+      "category": "模糊音关闭",
+      "input": "luse",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错与 v-u 时，不得通过该映射完整匹配目标词。",
+      "forbiddenFull": [
+        "绿色"
+      ]
+    },
+    {
+      "id": "TR-094",
+      "family": "lvse",
+      "category": "模糊音开启",
+      "input": "luse",
+      "expectedTop3": [
+        "绿色"
+      ],
+      "mustInclude": [
+        "绿色"
+      ],
+      "reason": "只开启 v-u，目标词可被找到；关闭后再次检查映射是否泄漏。",
+      "fuzzy": [
+        "v-u"
+      ]
+    },
+    {
+      "id": "TR-095",
+      "family": "nihao",
+      "category": "纠错关闭",
+      "input": "nuhao",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "你好"
+      ]
+    },
+    {
+      "id": "TR-096",
+      "family": "nihao",
+      "category": "单类纠错开启",
+      "input": "nuhao",
+      "expectedTop3": [
+        "你好"
+      ],
+      "mustInclude": [
+        "你好"
+      ],
+      "reason": "只开启纠错位 1，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 1,
+      "offAbsent": [
+        "你好"
+      ]
+    },
+    {
+      "id": "TR-097",
+      "family": "juede",
+      "category": "纠错关闭",
+      "input": "jeude",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "觉得"
+      ]
+    },
+    {
+      "id": "TR-098",
+      "family": "juede",
+      "category": "单类纠错开启",
+      "input": "jeude",
+      "expectedTop3": [
+        "觉得"
+      ],
+      "mustInclude": [
+        "觉得"
+      ],
+      "reason": "只开启纠错位 2，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 2,
+      "offAbsent": [
+        "觉得"
+      ]
+    },
+    {
+      "id": "TR-099",
+      "family": "nihao",
+      "category": "纠错关闭",
+      "input": "nihaoo",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "你好"
+      ]
+    },
+    {
+      "id": "TR-100",
+      "family": "nihao",
+      "category": "单类纠错开启",
+      "input": "nihaoo",
+      "expectedTop3": [
+        "你好"
+      ],
+      "mustInclude": [
+        "你好"
+      ],
+      "reason": "只开启纠错位 4，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 4,
+      "offAbsent": [
+        "你好"
+      ]
+    },
+    {
+      "id": "TR-101",
+      "family": "nihao",
+      "category": "纠错关闭",
+      "input": "niho",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "关闭纠错时不得仍以该错拼完整消费目标词；其他合法简拼及短候选可以保留。",
+      "forbiddenFull": [
+        "你好"
+      ]
+    },
+    {
+      "id": "TR-102",
+      "family": "nihao",
+      "category": "单类纠错开启",
+      "input": "niho",
+      "expectedTop3": [
+        "你好"
+      ],
+      "mustInclude": [
+        "你好"
+      ],
+      "reason": "只开启纠错位 8，检查目标覆盖和关闭后的对照；不能因一个预期调整整批词频。",
+      "correction": 8,
+      "offAbsent": [
+        "你好"
+      ]
+    },
+    {
+      "id": "TR-103",
+      "family": "wozhendebuzhidaonizaishuoshenme",
+      "category": "连续长句",
+      "input": "wozhendebuzhidaonizaishuoshenme",
+      "expectedTop3": [
+        "我真的不知道你在说什么"
+      ],
+      "mustInclude": [
+        "我真的不知道你在说什么"
+      ],
+      "reason": "按完整消费检查词语覆盖；前三排名只作参考，不强制唯一顺序。",
+      "walk": [
+        "wo",
+        "zhen",
+        "de",
+        "bu",
+        "zhi",
+        "dao",
+        "ni",
+        "zai",
+        "shuo",
+        "shen",
+        "me"
+      ]
+    },
+    {
+      "id": "TR-104",
+      "family": "noise-train",
+      "category": "无语义边界",
+      "input": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "无唯一语义答案；检查有界查询、消费长度和取消，不要求生成整句。"
+    },
+    {
+      "id": "TR-105",
+      "family": "single-train",
+      "category": "单字母边界",
+      "input": "d",
+      "expectedTop3": [],
+      "mustInclude": [],
+      "reason": "允许合法单字与未完成音节，检查有界候选；不从一两个首字母推断任意个人长词。"
+    }
+  ]
+}

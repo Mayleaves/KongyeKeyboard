@@ -129,6 +129,8 @@ object HandInk {
 @androidx.annotation.Keep
 class HandwriteView(context: Context, private var skin: Skin, private val onRecognize: (HandwriteView) -> Unit, private val onAction: (String) -> Unit, private val onChanged: () -> Unit = {}) : View(context) {
     fun updateSkin(value:Skin) {skin=value;invalidate()}
+    var fullScreen=false
+        set(value) {field=value;contentDescription=if(value)"全屏手写，底部操作栏收回" else "手写区域，左上角展开全屏";invalidate()}
     /** 带时间的笔画点（给数字墨水识别用）：x、y、离第一笔的毫秒数 */
     private val points = ArrayList<ArrayList<FloatArray>>()
     private var t0 = 0L
@@ -149,29 +151,43 @@ class HandwriteView(context: Context, private var skin: Skin, private val onReco
     private val handler = Handler(Looper.getMainLooper())
     private val recognize = Runnable { if (strokes.isNotEmpty()) onRecognize(this) }
     private var pressedSide = -1
-    private val side = listOf("undo", "redo", "del", "space", "enter")
+    private var writingPointer = MotionEvent.INVALID_POINTER_ID
+    private val side = listOf("undo", "redo", "del", "space", "enter", "fullscreen")
 
     private val sideW get() = 52 * d
-    private val toolsHeight get() = min(40*d,height*.22f)
-    private fun boardRect() = RectF(6*d,6*d,width-sideW-12*d,height-6*d)
+    private val lastWritingBounds=RectF()
+    private fun boardRect(w:Int=width,h:Int=height) = RectF(6*d,6*d,w-sideW-12*d,h-6*d)
     private fun sideRect(i: Int): RectF {
         val gap=6*d
         val board=boardRect()
-        if(i<2) {
-            val cellWidth=min(46*d,board.width()/2)
-            val left=board.left+i*cellWidth
-            return RectF(left,board.bottom-toolsHeight,left+cellWidth,board.bottom)
-        }
-        val h=(board.height()-2*gap)/3
-        val top=board.top+(i-2)*(h+gap)
+        if(i==5)return RectF(board.left+4*d,board.top+4*d,board.left+44*d,board.top+44*d)
+        val h=(board.height()-4*gap)/5
+        val slot=when(i){2->0;0->1;1->2;3->3;else->4}
+        val top=board.top+slot*(h+gap)
         return RectF(board.right+gap,top,width-gap,top+h)
     }
 
-    private fun padRect() = boardRect().apply {bottom-=toolsHeight}
+    private fun padRect(w:Int=width,h:Int=height) = if(fullScreen)RectF(6*d,6*d,w-6*d,h-6*d) else boardRect(w,h)
     fun writingBounds()=padRect()
 
+    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int) {
+        super.onSizeChanged(w,h,oldw,oldh)
+        val from=RectF(lastWritingBounds);val to=padRect(w,h)
+        lastWritingBounds.set(to)
+        if(oldw<=0 || oldh<=0 || w<=0 || h<=0 || strokes.isEmpty())return
+        cancelStroke()
+        if(from.width()<=0 || from.height()<=0 || to.width()<=0 || to.height()<=0)return
+        val scale=min(to.width()/from.width(),to.height()/from.height())
+        val dx=to.centerX()-from.centerX()*scale;val dy=to.centerY()-from.centerY()*scale
+        val matrix=android.graphics.Matrix().apply {setScale(scale,scale);postTranslate(dx,dy)}
+        (strokes+undone.map {it.first}).forEach {it.transform(matrix)}
+        (points+undone.map {it.second}).forEach {stroke->stroke.forEach {p->p[0]=p[0]*scale+dx;p[1]=p[1]*scale+dy}}
+        changedStrokes()
+    }
+
     fun clear() {
-        strokes.clear(); points.clear(); undone.clear(); cur = null; bounds.setEmpty(); handler.removeCallbacks(recognize); invalidate()
+        strokes.clear(); points.clear(); undone.clear(); cur = null; pressedSide=-1; writingPointer=MotionEvent.INVALID_POINTER_ID
+        bounds.setEmpty(); handler.removeCallbacks(recognize); invalidate()
         onChanged()
     }
 
@@ -200,12 +216,13 @@ class HandwriteView(context: Context, private var skin: Skin, private val onReco
         val pr = padRect()
         val board=boardRect()
         fill.color=skin.keyBg
-        c.drawRoundRect(board,14*d,14*d,fill)
-        // 写字区与底部笔画工具共享底板，触控区域独立。
+        if(!fullScreen)c.drawRoundRect(board,14*d,14*d,fill)
+        // The entire white board is writable; tools occupy the separate right rail.
         fill.color = withAlpha(skin.keyFg, 18)
-        c.drawRect(board.left+10*d,pr.bottom,board.right-10*d,pr.bottom+1f,fill)
-        c.drawRect(pr.centerX() - d / 2, pr.top + 10 * d, pr.centerX() + d / 2, pr.bottom - 10 * d, fill)
-        c.drawRect(pr.left + 10 * d, pr.centerY() - d / 2, pr.right - 10 * d, pr.centerY() + d / 2, fill)
+        if(!fullScreen) {
+            c.drawRect(pr.centerX() - d / 2, pr.top + 10 * d, pr.centerX() + d / 2, pr.bottom - 10 * d, fill)
+            c.drawRect(pr.left + 10 * d, pr.centerY() - d / 2, pr.right - 10 * d, pr.centerY() + d / 2, fill)
+        }
         if (status.isNotEmpty()) {
             text.textSize = 11.5f * d
             text.color = skin.barFg
@@ -216,12 +233,14 @@ class HandwriteView(context: Context, private var skin: Skin, private val onReco
         c.save();c.clipRect(pr)
         for (p in strokes) c.drawPath(p, pen)
         c.restore()
+        if(fullScreen)return
         for ((i, s) in side.withIndex()) {
             val r = sideRect(i)
-            if(i>=2) {
+            if(i in 0..4) {
                 fill.color = if (pressedSide == i) skin.keyDown else skin.modBg
                 c.drawRoundRect(r,12*d,12*d,fill)
-            } else if(pressedSide==i) {
+            }
+            if(pressedSide==i && i==5) {
                 fill.color=skin.keyDown
                 c.drawRoundRect(r.left+4*d,r.top+4*d,r.right-4*d,r.bottom-4*d,8*d,8*d,fill)
             }
@@ -232,62 +251,79 @@ class HandwriteView(context: Context, private var skin: Skin, private val onReco
                 "del" -> icons.draw(c, R.drawable.ic_del, r.centerX(), r.centerY(), 22f, skin.modFg)
                 "space" -> icons.draw(c, R.drawable.ic_space, r.centerX(), r.centerY(), 24f, skin.modFg)
                 "enter" -> icons.draw(c, R.drawable.ic_enter, r.centerX(), r.centerY(), 22f, skin.modFg)
+                "fullscreen" -> icons.draw(c,R.drawable.ic_hand_expand,r.centerX(),r.centerY(),14f,withAlpha(skin.barFg,if(skin.dark)150 else 100))
             }
+        }
+    }
+
+    override fun onInitializeAccessibilityNodeInfo(info:android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.addAction(if(fullScreen)android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_COLLAPSE
+            else android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_EXPAND)
+    }
+    override fun performAccessibilityAction(action:Int,arguments:android.os.Bundle?):Boolean {
+        if(action==(if(fullScreen)android.view.accessibility.AccessibilityNodeInfo.ACTION_COLLAPSE else android.view.accessibility.AccessibilityNodeInfo.ACTION_EXPAND)) {
+            onAction("fullscreen");return true
+        }
+        return super.performAccessibilityAction(action,arguments)
+    }
+
+    private fun writePoint(x:Float,y:Float,time:Long) {
+        if(cur==null) {
+            if(!padRect().contains(x,y))return
+            if(pressedSide>=0 && sideRect(pressedSide).contains(x,y))return
+            pressedSide=-1
+            handler.removeCallbacks(recognize)
+            onChanged();undone.clear()
+            cur=Path().also {it.moveTo(x,y);strokes.add(it)}
+            if(points.isEmpty())t0=time
+            points.add(arrayListOf())
+        } else cur?.lineTo(x,y)
+        points.last().add(floatArrayOf(x,y,(time-t0).toFloat()))
+        if(bounds.isEmpty)bounds.set(x,y,x+1,y+1)else bounds.union(x,y)
+        invalidate()
+    }
+
+    private fun cancelStroke() {
+        if(cur!=null) {
+            strokes.removeAt(strokes.lastIndex);points.removeAt(points.lastIndex)
+            cur=null;changedStrokes()
         }
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (e.actionMasked == MotionEvent.ACTION_DOWN) {
-            pressedSide = side.indices.firstOrNull { sideRect(it).contains(e.x, e.y) } ?: -1
-            if(pressedSide>=0) {invalidate();return true}
-        }
-        if (pressedSide >= 0) {
-            if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) {
-                if (e.actionMasked == MotionEvent.ACTION_UP && sideRect(pressedSide).contains(e.x,e.y)) {
-                    val id = side[pressedSide]
-                    when(id) {"undo"->undoStroke();"redo"->redoStroke();else->onAction(id)}
-                }
-                pressedSide = -1
-                invalidate()
-            }
+        if(e.actionMasked==MotionEvent.ACTION_DOWN) {
+            cancelStroke()
+            writingPointer=e.getPointerId(0)
+            pressedSide=if(fullScreen)-1 else side.indices.firstOrNull {sideRect(it).contains(e.x,e.y)} ?: -1
+            if(pressedSide<0)writePoint(e.x,e.y,e.eventTime)
+            parent?.requestDisallowInterceptTouchEvent(true)
+            invalidate()
+            // Keep the gesture even if it began in a margin or the blank tool row.
+            // Android will otherwise stop delivering moves when the finger enters the pad.
             return true
         }
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                if(!padRect().contains(e.x,e.y))return false
-                handler.removeCallbacks(recognize)
-                onChanged()
-                undone.clear()
-                cur = Path().also { it.moveTo(e.x, e.y); strokes.add(it) }
-                if (points.isEmpty()) t0 = e.eventTime
-                points.add(arrayListOf(floatArrayOf(e.x, e.y, (e.eventTime - t0).toFloat())))
-                if (bounds.isEmpty) bounds.set(e.x, e.y, e.x + 1, e.y + 1) else bounds.union(e.x, e.y)
-                parent?.requestDisallowInterceptTouchEvent(true)
+        if(e.actionMasked==MotionEvent.ACTION_CANCEL) {
+            cancelStroke();pressedSide=-1;writingPointer=MotionEvent.INVALID_POINTER_ID
+            parent?.requestDisallowInterceptTouchEvent(false);invalidate();return true
+        }
+        val index=e.findPointerIndex(writingPointer)
+        if(index<0)return true
+        val finishing=e.actionMasked==MotionEvent.ACTION_UP ||
+            e.actionMasked==MotionEvent.ACTION_POINTER_UP && e.getPointerId(e.actionIndex)==writingPointer
+        if(e.actionMasked==MotionEvent.ACTION_MOVE || finishing) {
+            // A tool tap remains a tap; dragging it into the pad cancels the tool action.
+            for(h in 0 until e.historySize)writePoint(e.getHistoricalX(index,h),e.getHistoricalY(index,h),e.getHistoricalEventTime(h))
+            writePoint(e.getX(index),e.getY(index),e.eventTime)
+        }
+        if(finishing) {
+            if(cur!=null) {cur=null;handler.postDelayed(recognize,500)}
+            else if(pressedSide>=0 && sideRect(pressedSide).contains(e.getX(index),e.getY(index))) {
+                when(val id=side[pressedSide]) {"undo"->undoStroke();"redo"->redoStroke();else->onAction(id)}
             }
-            MotionEvent.ACTION_MOVE -> {
-                if(cur==null)return true
-                val pts = points.lastOrNull()
-                for (h in 0 until e.historySize) {
-                    cur?.lineTo(e.getHistoricalX(h), e.getHistoricalY(h)); bounds.union(e.getHistoricalX(h), e.getHistoricalY(h))
-                    pts?.add(floatArrayOf(e.getHistoricalX(h), e.getHistoricalY(h), (e.getHistoricalEventTime(h) - t0).toFloat()))
-                }
-                cur?.lineTo(e.x, e.y); bounds.union(e.x, e.y)
-                pts?.add(floatArrayOf(e.x, e.y, (e.eventTime - t0).toFloat()))
-                invalidate()
-            }
-            MotionEvent.ACTION_UP -> {
-                if(cur==null)return true
-                cur?.lineTo(e.x, e.y); bounds.union(e.x, e.y)
-                points.lastOrNull()?.add(floatArrayOf(e.x, e.y, (e.eventTime - t0).toFloat()))
-                cur = null; invalidate(); handler.postDelayed(recognize, 500)
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                if(cur!=null) {
-                    strokes.removeAt(strokes.lastIndex);points.removeAt(points.lastIndex)
-                    cur=null;changedStrokes()
-                }
-            }
+            pressedSide=-1;writingPointer=MotionEvent.INVALID_POINTER_ID
+            parent?.requestDisallowInterceptTouchEvent(false);invalidate()
         }
         return true
     }

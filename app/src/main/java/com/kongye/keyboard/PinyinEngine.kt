@@ -121,8 +121,8 @@ object PinyinEngine {
                     first.correction && first.nativeChoice?.raw==first.py?.replace(" ", "") &&
                     SpellingAssist.edits(keys.joinToString(""),first.py.orEmpty()).let {edits->edits.isNotEmpty() && edits.all {it.kind==3}})
             val ranked = if (repairs.isEmpty()) words else
-                ((if (keepFirst) words.take(1) else emptyList()) + repairs + words).distinctBy { it.w to it.n }
-            return PinyinExpressions.insert((Lexicon.userCandidates(keys,true)+ranked).distinctBy {it.w to it.n}, keys)
+                ((if (keepFirst) words.take(1) else emptyList()) + repairs + words).distinctBy { it.w }
+            return PinyinExpressions.insert((Lexicon.userCandidates(keys,true)+ranked).distinctBy {it.w}, keys)
         }
         val words = when {
             expanded -> FcitxEngine.candidates(keys,current)
@@ -141,9 +141,9 @@ object PinyinEngine {
         val parts = display.split('\'')
         if (parts.size < 3) return emptyList()
         val variants = (SpellingAssist.sentenceVariants(raw, parts, current) +
-            if(nativeFirst?.n!=keys.size && SpellingAssist.correctionFlags and 3==3 && SpellingAssist.transpositions(raw).isNotEmpty())
+            if((nativeFirst?.n!=keys.size || nativeFirst.correction) && SpellingAssist.correctionFlags and 3==3 && SpellingAssist.transpositions(raw).isNotEmpty())
                 SpellingAssist.repairs(raw,current) else emptyList()).distinct()
-        val full = parts.all { it in Lexicon.pinyinSyllables() }
+        val full = parts.all { Lexicon.isCompleteSyllable(it) }
         val schema = "kongye_26"
         fun query(input: String): List<RimeBridge.Candidate> {
             if (!current()) throw java.util.concurrent.CancellationException()

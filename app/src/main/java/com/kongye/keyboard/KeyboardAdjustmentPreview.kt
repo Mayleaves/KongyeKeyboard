@@ -35,13 +35,13 @@ class KeyboardAdjustmentPreview(context:Context):View(context) {
         board.heightScale=adaptiveHeight;board.splitLayout=split&&layout!="9";board.splitGap=gap;board.splitSize=size
         board.setup(skin,when(layout){"14"->if(board.splitLayout)Layouts.splitFourteen(context)else Layouts.fourteen(context);"9"->Layouts.nine();else->Layouts.letters(true,context)},if(layout=="9")Layouts.NINE_SIDE else null)
         toolbar.skin=skin;toolbar.uiScale=adaptiveHeight;toolbar.showTools(listOf("more")+Prefs.tools(context))
-        bottomStrip.skin=skin;bottomStrip.uiScale=adaptiveHeight;bottomStrip.extra=if(floating)0 else (bottom*d).toInt()
+        bottomStrip.skin=skin;bottomStrip.uiScale=adaptiveHeight;bottomStrip.floating=floating;bottomStrip.extra=if(floating)0 else (bottom*d).toInt()
         fun measure(view:View,width:Int) {
             view.measure(MeasureSpec.makeMeasureSpec(width,MeasureSpec.EXACTLY),MeasureSpec.makeMeasureSpec(0,MeasureSpec.UNSPECIFIED))
             view.layout(0,0,width,view.measuredHeight)
         }
-        measure(toolbar,keyWidth);measure(board,keyWidth);measure(bottomStrip,sourceWidth)
-        sourceHeight=toolbar.height+board.height+if(floating)((26*adaptiveHeight+32)*d).toInt() else bottomStrip.height
+        measure(toolbar,keyWidth);measure(board,keyWidth);measure(bottomStrip,if(floating)keyWidth else sourceWidth)
+        sourceHeight=toolbar.height+board.height+bottomStrip.height+if(floating)(32*d).toInt()else 0
         contentDescription=if(floating)"悬浮键盘实时预览：高度${(height*100).toInt()}%，宽度${(floatWidth*100).toInt()}%，分体间距${gap.toInt()}，按键尺寸${(size*100).toInt()}%，${if(split)"分体" else "完整"}"
             else "键盘实时预览：高度${(height*100).toInt()}%，左侧${left}，右侧${right}，底部${bottom}，分体间距${gap.toInt()}，按键尺寸${(size*100).toInt()}%，${if(split)"分体" else "完整"}"
         requestLayout();invalidate()
@@ -57,20 +57,15 @@ class KeyboardAdjustmentPreview(context:Context):View(context) {
         if(floating) {
             val x=(sourceWidth-board.width)/2f
             val top=16*d
-            val header=26*d*keyboardScale
-            val bounds=RectF(x,top,x+board.width,top+header+toolbar.height+board.height)
+            val bounds=RectF(x,top,x+board.width,top+toolbar.height+board.height+bottomStrip.height)
             paint.color=0x14000000;canvas.drawRoundRect(RectF(bounds).apply {offset(0f,4*d)},18*d,18*d,paint)
             val outline=Path().apply {addRoundRect(bounds,18*d,18*d,Path.Direction.CW)}
             canvas.save();canvas.clipPath(outline)
             paint.color=skin.kbBg;canvas.drawRect(bounds,paint)
             canvas.translate(x,top)
-            paint.color=(skin.barFg and 0x00ffffff) or (150 shl 24)
-            val hd=d*keyboardScale
-            canvas.drawRoundRect(RectF(board.width/2f-24*hd,10*hd,board.width/2f+24*hd,15*hd),3*hd,3*hd,paint)
-            icons.scale=keyboardScale
-            icons.draw(canvas,R.drawable.ic_close,board.width-20*hd,header/2f,16f,skin.barFg)
-            canvas.translate(0f,header);toolbar.draw(canvas)
+            toolbar.draw(canvas)
             canvas.translate(0f,toolbar.height.toFloat());board.draw(canvas)
+            canvas.translate(0f,board.height.toFloat());bottomStrip.draw(canvas)
             canvas.restore()
         } else {
             canvas.drawColor(skin.kbBg)

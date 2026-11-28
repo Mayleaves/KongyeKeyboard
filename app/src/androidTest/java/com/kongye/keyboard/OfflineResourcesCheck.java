@@ -28,9 +28,11 @@ import kotlin.Unit;
 /** Release 设备验证；voice-start 短暂开麦检查启动时间，其他模式使用公开样本或独立输入框。 */
 public final class OfflineResourcesCheck extends Instrumentation {
     private String mode = "all";
+    private String corpusSplit = "validation";
+    private String corpusRunToken = "";
     @Override public void onCreate(Bundle args) {
         super.onCreate(args);
-        if (args != null) mode = args.getString("mode", "all");
+        if (args != null) { mode = args.getString("mode", "all"); corpusSplit = args.getString("split", "validation"); corpusRunToken = args.getString("runToken", ""); }
         start();
     }
     private void report(String message) {
@@ -58,6 +60,8 @@ public final class OfflineResourcesCheck extends Instrumentation {
             if ("review306".equals(mode)) {Review306Regression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("update-install".equals(mode)) {UpdateRegression.testInstallation(this);report("INSTALLATION SESSION, PROGRESS AND CANCELLATION PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
             if ("handwriting-components".equals(mode)) {HandwritingComponentRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("handwriting-touch".equals(mode)) {HandwritingTouchRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("touch-recognition".equals(mode)) {TouchRecognitionRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("home-search-back".equals(mode)) {HomeSearchBackRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("input-coverage".equals(mode)) {InputCoverageRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("punctuation-flicks".equals(mode)) {PunctuationFlickRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
@@ -82,6 +86,7 @@ public final class OfflineResourcesCheck extends Instrumentation {
             if ("settings-notices".equals(mode)) {SettingsNoticeRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("feedback-controls".equals(mode)) {FeedbackControlsRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("correction-live".equals(mode)) {CorrectionLiveRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("fuzzy-switches".equals(mode)) {FuzzySwitchRegression.INSTANCE.run(this,corpusRunToken);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("correction-switches".equals(mode)) {CorrectionSwitchRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("paired-symbols".equals(mode)) {PairedSymbolsRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("clip-suggestion".equals(mode)) {ClipSuggestionRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
@@ -98,9 +103,12 @@ public final class OfflineResourcesCheck extends Instrumentation {
             if ("polish-online".equals(mode)) {VoicePolishRegression.INSTANCE.run(this,false);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("typing-stats".equals(mode)) {TypingStatsRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("stats-report-ui".equals(mode)) {StatsReportUiRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("pinyin-adversarial".equals(mode)) {PinyinAdversarialRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("pinyin41".equals(mode)) {PinyinAdversarialRegression.INSTANCE.corpus(this,corpusSplit,corpusRunToken);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("v3".equals(mode)) {V3Regression.INSTANCE.run(this);report("V3 INPUT AND SETTINGS BEHAVIOR PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
             if ("partial-delete".equals(mode)) {PartialSelectionDeleteRegression.INSTANCE.run(this);report("PARTIAL SELECTION PINYIN RESTORE PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
             if ("candidate-mode".equals(mode)) {CandidateModeRegression.INSTANCE.run(this);report("CANDIDATE WORD/CHARACTER MODE PASSED");finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("candidate-pinyin-selection".equals(mode)) {CandidatePinyinSelectionRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("autofill-transition".equals(mode)) {
                 AutofillTransitionRegression.INSTANCE.run(this);report("BROWSER AUTOFILL AND FIELD TRANSITIONS PASSED");finish(Activity.RESULT_OK,new Bundle());return;
             }

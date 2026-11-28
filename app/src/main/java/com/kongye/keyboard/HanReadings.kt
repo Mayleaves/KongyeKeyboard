@@ -42,9 +42,14 @@ object HanReadings {
     }
 
     fun complete(candidates:List<Cand>,keys:List<String>):List<Cand> {
-        val base=(Lexicon.userCandidates(keys,true)+candidates).distinctBy {it.w to it.n}
+        val base=(Lexicon.userCandidates(keys,true)+candidates).distinctBy {it.w}
         val letters=keys.filter {it!="'"}
         if(letters.size !in 1..6 || letters.isEmpty())return base
+        // These extras are single-syllable characters. An internal explicit
+        // separator must not be erased to synthesize a different full match.
+        val first=keys.indexOfFirst {it!="'"}
+        val last=keys.indexOfLast {it!="'"}
+        if((first+1 until last).any {keys[it]=="'"})return base
         val seen=base.mapTo(HashSet()) {it.w}
         val extra=ArrayList<Cand>()
         for((sound,chars) in bySyllable) {

@@ -794,7 +794,6 @@ class SinkStrip(context: Context, private val onOk: () -> Unit, private val onCa
         else if (composing.isNotEmpty()) {
             val s = sb.length
             sb.append(composing)
-            sb.setSpan(ForegroundColorSpan(skin.candHi), s, sb.length, 0)
             sb.setSpan(UnderlineSpan(), s, sb.length, 0)
         }
         tp.color = skin.keyFg

@@ -46,7 +46,7 @@ object Prefs {
     const val RECENT_SYM = "recent_sym"
     /** 键盘透明度 0.3–1 */
     const val OPACITY = "opacity"
-    /** 液态玻璃外观 */
+    /** 半透明外观；保留原设置键名以兼容已有选择。 */
     const val GLASS = "glass"
     /** 键盘左右收进、底部留白（dp） */
     const val PAD_L = "pad_l"

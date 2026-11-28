@@ -61,6 +61,20 @@ object PinyinSegmentation {
     }
 
     fun display(raw: String, syllables: Set<String>): String {
+        // Preserve every explicit separator, including repeated/leading ones. Automatic
+        // boundaries belong only to display; they never become input keys.
+        if('\'' in raw)return raw.split('\'').joinToString("'") {displayChunk(it,syllables)}
+        return displayChunk(raw,syllables)
+    }
+
+    fun boundaryTrace(raw:String,display:String):String {
+        fun marks(value:String):List<Int> {var letters=0;return buildList {value.forEach {if(it=='\'')add(letters)else letters++}}}
+        val manual=marks(raw);val remaining=manual.toMutableList()
+        val automatic=marks(display).filter {if(it in remaining){remaining.remove(it);false}else true}
+        return "raw=$raw display=$display manualBoundaries=$manual automaticDisplayBoundaries=$automatic literalPreserved=${raw.replace("'","")==display.replace("'","")} rule=legal-syllable-lattice-or-selected-reading"
+    }
+
+    private fun displayChunk(raw:String,syllables:Set<String>):String {
         val exact = graph(raw, syllables).longestPreferred()
         if (exact != null) return exact.joinToString("'") + if (raw.endsWith("'")) "'" else ""
         // A partial final or an initial abbreviation remains literal. Never lose input.

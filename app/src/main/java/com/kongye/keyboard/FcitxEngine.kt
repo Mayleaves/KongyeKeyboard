@@ -119,9 +119,11 @@ object FcitxEngine {
             }.filter {c->!c.correction || SpellingAssist.correctionFlags==15 ||
                 SpellingAssist.allows(sourceLetters.take(c.n),c.py.orEmpty())}
         }
-        fun sortNative(words:List<Cand>)=words.sortedBy {candidate->
-            if(candidate.py.orEmpty().replace(" ","")==letters.take(candidate.n))0 else if(candidate.correction)2 else 1
-        }
+        fun sortNative(words:List<Cand>)=words.sortedWith(
+            compareByDescending<Cand> { it.n }.thenBy { candidate ->
+                if(candidate.py.orEmpty().replace(" ","")==letters.take(candidate.n))0 else if(candidate.correction)2 else 1
+            }
+        )
         val displayParts=display.split('\'').filter {it.isNotEmpty()}
         val mixed=Lexicon.mixedSyllableCandidates(displayParts,current)
             .filter {it.n==count || it.n*2>=count && it.w.length>=3}
@@ -132,7 +134,7 @@ object FcitxEngine {
                 it.n == count && it.py.orEmpty().replace(" ", "") == letters && !it.correction
             }
             val head = if (displayParts.size == 1) exact else exact.take(3)
-            return (head + trailing + words).distinctBy { it.w to it.n }
+            return (head + trailing + words).distinctBy { it.w }
         }
         fun merge(words:List<Cand>):List<Cand> {
             if(mixed.isEmpty())return words
@@ -148,12 +150,12 @@ object FcitxEngine {
             val preferred=mixed.map {candidate->
                 words.firstOrNull {it.w==candidate.w && it.n==candidate.n && it.py==candidate.py && !it.correction} ?: candidate
             }
-            return (preferred+words).distinctBy {it.w to it.n}
+            return (preferred+words).distinctBy {it.w}
         }
-        val preview=if(onPrimary!=null)sortNative(collect(raw,raw,12)) else emptyList()
-        if(onPrimary!=null)onPrimary(withCompletions(merge(preview))+literal)
+        val firstBatch=if(onPrimary!=null)collect(raw,raw,12) else emptyList()
+        if(onPrimary!=null)onPrimary(withCompletions(merge(sortNative(firstBatch)))+literal)
         if(!current()) throw java.util.concurrent.CancellationException()
-        val original=merge(sortNative(if(onPrimary!=null) preview+collect(raw,raw,36,12)
+        val original=merge(sortNative(if(onPrimary!=null) firstBatch+collect(raw,raw,36,12)
             else collect(raw,raw,if(includeShort)512 else 48)))
         val result=original.toMutableList()
         // An order typo may break a syllable into several tokens. Repair it before
@@ -172,7 +174,7 @@ object FcitxEngine {
                 }
             }.maxByOrNull {it.score}
             if(repaired!=null) {
-                result.removeAll {it.w==repaired.w && it.n==repaired.n}
+                result.removeAll {it.w==repaired.w}
                 result.add(0,repaired)
             }
             if(swaps.isNotEmpty())prepare(raw,current)
@@ -181,7 +183,7 @@ object FcitxEngine {
             val variants=linkedSetOf(raw.replace('v','u'),raw.replace('u','v')).apply {remove(raw)}
             for(variant in variants) {
                 prepare(variant,current)
-                for(c in collect(variant,raw,96))if(result.none {it.w==c.w && it.n==c.n})result.add(c)
+                for(c in collect(variant,raw,96))if(result.none {it.w==c.w})result.add(c)
             }
             prepare(raw,current)
         }
@@ -192,7 +194,8 @@ object FcitxEngine {
             val reading=first?.py.orEmpty().replace(" ","").replace("'","")
             val exact=first?.n==count && reading==raw
             val nativeRepair=first?.n==count && reading.length==raw.length && reading!=raw && SpellingAssist.wordCost(raw,first.py.orEmpty())<=15
-            val variants=if(first?.abbr==true || nativeRepair || exact && raw.length>6 && displayParts.size>=3 && displayParts.all { it in Lexicon.pinyinSyllables() })emptyList()
+            val matchedMixed=first!=null && first.n==count && !first.correction && mixed.any {it.n==count && it.w==first.w}
+            val variants=if(first?.abbr==true || matchedMixed || nativeRepair || exact && raw.length>6 && displayParts.size>=3 && displayParts.all { Lexicon.isCompleteSyllable(it) })emptyList()
                 else SpellingAssist.repairs(raw,current)
             for(variant in variants) {
                 if(!current()) throw java.util.concurrent.CancellationException()
@@ -203,10 +206,13 @@ object FcitxEngine {
             val additions=ArrayList<Cand>()
             for(c in repairs) {
                 val old=result.indexOfFirst {it.w==c.w}
-                if(old>=0 && result[old].n<count)result[old]=c
-                else if(old<0)additions.add(c)
+                if(old>=0 && result[old].n<count) {
+                    result.removeAt(old)
+                    additions.add(c)
+                } else if(old<0) additions.add(c)
             }
-            result.addAll(minOf(3,result.size),additions)
+            val fullEnd=result.indexOfFirst {it.n<count}.let {if(it<0)result.size else it}
+            result.addAll(minOf(3,fullEnd),additions)
             // Ask the native dictionary for real short prefix phrases as well.
             // A full-sentence-heavy native page must not hide all 3/2/1-char words.
             if(includeShort && tokens.size>3) for(size in listOf(3,2,1)) {
@@ -214,7 +220,10 @@ object FcitxEngine {
                 if(prefix.isEmpty() || !raw.startsWith(prefix)) continue
                 prepare(prefix,current)
                 val short=collect(prefix,prefix,40).filter {it.w.codePointCount(0,it.w.length)==size}.take(8)
-                for(c in short) if(result.none {it.w==c.w}) result.add(c)
+                for(c in short) if(result.none {it.w==c.w}) {
+                    val at=result.indexOfFirst {it.n<c.n}.let {if(it<0)result.size else it}
+                    result.add(at,c)
+                }
             }
         } finally {prepare(raw,current)}
         HanReadings.complete(withCompletions(result)+literal,keys)

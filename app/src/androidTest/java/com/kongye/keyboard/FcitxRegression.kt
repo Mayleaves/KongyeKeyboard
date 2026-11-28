@@ -159,7 +159,8 @@ object FcitxRegression {
             "nang" to "囊", "nan'g" to "南瓜", "dongg" to "冬瓜", "kug" to "苦瓜", "dianh" to "电话",
             "shouj" to "手机", "jianp" to "键盘", "diann" to "电脑", "xuex" to "学习",
             "beij" to "北京", "shangh" to "上海", "gongz" to "工作", "huog" to "火锅",
-            "nihao" to "你好", "pingan" to "平安", "xian" to "先", "shanxi" to "陕西")
+            "nihao" to "你好", "pingan" to "平安", "xian" to "先", "shanxi" to "陕西",
+            "toumdu" to "透明度")
         val failures = mutableListOf<String>()
         for ((raw, word) in cases) {
             var initial = emptyList<Cand>()
@@ -168,10 +169,29 @@ object FcitxRegression {
             val firstRank = rank(initial)
             val finalRank = rank(final)
             i.sendStatus(0, Bundle().apply { putString("stream", "$raw $word ranks=$firstRank/$finalRank top=${final.take(6).map {it.w}}\n") })
-            val limit = if (raw in setOf("huangg", "huanggua", "huang'g")) 1 else 6
+            val limit = if (raw in setOf("huangg", "huanggua", "huang'g", "toumdu")) 1 else 6
             if (firstRank !in 1..limit || finalRank !in 1..limit) failures.add(raw)
         }
         check(failures.isEmpty()) { "Outside expected toolbar positions: $failures" }
+        val touKeys = "toumdu".map(Char::toString)
+        var touInitial = emptyList<Cand>()
+        val touFinal = PinyinEngine.candidatesLive(touKeys, true, { true }) { touInitial = it }
+        val touExpanded = PinyinEngine.expandedCandidates(touKeys) { true }
+        i.sendStatus(0, Bundle().apply {
+            putString("stream", "toumdu initial=${touInitial.take(10).map { "${it.w}:${it.n}" }}\n" +
+                "toumdu final=${touFinal.take(15).map { "${it.w}:${it.n}" }}\n" +
+                "toumdu expanded=${touExpanded.take(30).map { "${it.w}:${it.n}" }}\n")
+        })
+        for ((label, list) in listOf("initial" to touInitial, "final" to touFinal, "expanded" to touExpanded)) {
+            check(list.first().w == "透明度" && list.first().n == 6) { "toumdu $label first=${list.firstOrNull()?.w}:${list.firstOrNull()?.n}" }
+            val body = list.filterNot { it.w == "toumdu" && it.py == null }
+            check(body.map { it.w }.distinct().size == body.size) { "toumdu $label has duplicate words" }
+            val lengths = body.map { it.n }
+            check(lengths == lengths.sortedDescending()) { "toumdu $label not sorted by matched length descending: ${body.take(30).map { "${it.w}:${it.n}" }}" }
+            val firstSingle = body.indexOfFirst { it.w.codePointCount(0, it.w.length) == 1 }
+            val twoChar = body.indexOfFirst { it.w == "透明" }
+            check(twoChar > 0 && (firstSingle < 0 || twoChar < firstSingle)) { "toumdu $label single chars ($firstSingle) appeared before 透明 ($twoChar)" }
+        }
     }
     fun run(i:Instrumentation) {
         fun report(s:String)=i.sendStatus(0,Bundle().apply {putString("stream",s+"\n")})

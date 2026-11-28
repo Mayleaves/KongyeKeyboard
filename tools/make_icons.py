@@ -43,7 +43,7 @@ ICONS = {
     'symbol': '<circle cx="7.5" cy="7.5" r="2.5"/><circle cx="16.5" cy="16.5" r="2.5"/><path d="M18.5 5.5 5.5 18.5"/>',
     'back': '<path d="M19.5 12h-15M10.5 6l-6 6 6 6"/>',
     'space': '<path d="M4 10v4.5h16V10"/>',
-    'reset': '<path d="M5 12a7 7 0 1 0 1.8-4.7"/><path d="M6.8 3.5v3.8h3.8"/>',
+    'reset': '<path d="M4.5 7.5C6.1 5.25 8.7 3.8 11.7 3.8C16.3 3.8 20 7.5 20 12.1C20 16.7 16.3 20.4 11.7 20.4C7.1 20.4 3.4 16.7 3.4 12.1" stroke-width="2"/><path d="M4.5 3v4.5H9" stroke-width="2"/>',
     'split_layout': '<rect x="3" y="6" width="7.5" height="12" rx="2"/><rect x="13.5" y="6" width="7.5" height="12" rx="2"/><path d="M5.5 10h2.5M5.5 13.5h2.5M16 10h2.5M16 13.5h2.5"/>',
     'refresh': '<path d="M19 12a7 7 0 1 1-.94-3.5"/><path d="M18.06 4v4.5h-4.5"/>',
     'split': '<rect x="3.5" y="7" width="7" height="10" rx="1.5"/><rect x="13.5" y="7" width="7" height="10" rx="1.5"/><path d="M12 4v2M12 18v2"/>',
