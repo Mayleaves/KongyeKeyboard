@@ -574,8 +574,8 @@ class SettingsActivity : ComponentActivity() {
             if (shownPage == Page.MAIN) {
                 Column(
                     Modifier.fillMaxSize().background(pal.bg)
-                        .verticalScroll(mainScroll).padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                        .verticalScroll(mainScroll).padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     MainPage(pal,tick,mainExpanded,{focusManager.clearFocus(force=true);keyboardController?.hide();mainExpanded=it},mainQuery,{mainQuery=it}) {navigateTo(it)}
                     Spacer(Modifier.height(92.dp))
@@ -611,8 +611,8 @@ class SettingsActivity : ComponentActivity() {
                     else if(shownPage==Page.BACKUP) BackupPage(pal)
                     else if(shownPage==Page.LAYOUT) CompositionLocalProvider(LocalNoticePage provides Page.LAYOUT) { LayoutPage(pal,tick) }
                     else Column(
-                        Modifier.fillMaxSize().verticalScroll(subScroll).padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        Modifier.fillMaxSize().verticalScroll(subScroll).padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         CompositionLocalProvider(LocalNoticePage provides shownPage) {
                             when (shownPage) {
@@ -648,7 +648,7 @@ class SettingsActivity : ComponentActivity() {
                     Row(Modifier.width(240.dp).heightIn(min=54.dp).clip(RoundedCornerShape(50)).background(pal.card.copy(alpha=.78f))
                         .border(1.dp,pal.line,RoundedCornerShape(50)).clickable {
                             if(isCurrent())showKeyboardOverlay(pal) {focusManager.clearFocus(force=true)} else {navigateTo(Page.READY);android.widget.Toast.makeText(this@SettingsActivity,"请先启用并选择空叶键盘",android.widget.Toast.LENGTH_SHORT).show()}
-                        }.padding(horizontal=24.dp,vertical=15.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center) {
+                        }.padding(horizontal=24.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center) {
                         Image(painterResource(R.drawable.ic_kbd),null,Modifier.size(20.dp),colorFilter=ColorFilter.tint(pal.ink))
                         Spacer(Modifier.width(10.dp));BasicText("显示键盘",style=TextStyle(color=pal.ink,fontSize=15.sp,fontWeight=FontWeight.Medium))
                     }
@@ -1420,24 +1420,24 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun MainPage(pal:Pal,tick:Int,expandedGroup:Page?,onExpand:(Page?)->Unit,query:String,onQueryChange:(String)->Unit,go:(Page)->Unit) {
         val version=remember {UpdateChecker.currentVersion(this)}
-        Row(Modifier.fillMaxWidth().padding(vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
-            Image(painterResource(R.drawable.ic_launcher_fg),null,Modifier.size(54.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF141416)))
+        Row(Modifier.fillMaxWidth().padding(vertical=6.dp),verticalAlignment=Alignment.CenterVertically) {
+            Image(painterResource(R.drawable.ic_launcher_fg),null,Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF141416)))
             Column(Modifier.weight(1f).padding(start=12.dp)) {
-                BasicText("空叶键盘",style=TextStyle(color=pal.ink,fontSize=27.sp,fontWeight=FontWeight.Bold))
+                BasicText("空叶键盘",style=TextStyle(color=pal.ink,fontSize=24.sp,fontWeight=FontWeight.Medium))
                 BasicText("v$version",style=TextStyle(color=pal.text2,fontSize=13.sp),modifier=Modifier.padding(top=4.dp))
             }
             Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable {go(Page.STATS)}.padding(6.dp),horizontalAlignment=Alignment.End) {
-                BasicText("${TypingStats.of(this@SettingsActivity).today()}",style=TextStyle(color=pal.accent,fontSize=25.sp,fontWeight=FontWeight.Medium))
+                BasicText("${TypingStats.of(this@SettingsActivity).today()}",style=TextStyle(color=pal.accent,fontSize=23.sp,fontWeight=FontWeight.Medium))
                 BasicText("今日输入",style=TextStyle(color=pal.text2,fontSize=12.sp))
             }
         }
-        val searchTextStyle=TextStyle(color=pal.ink,fontSize=16.sp,lineHeight=24.sp,
+        val searchTextStyle=TextStyle(color=pal.ink,fontSize=15.sp,lineHeight=22.sp,
             platformStyle=androidx.compose.ui.text.PlatformTextStyle(includeFontPadding=false),
             lineHeightStyle=androidx.compose.ui.text.style.LineHeightStyle(
                 alignment=androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
                 trim=androidx.compose.ui.text.style.LineHeightStyle.Trim.None))
-        val searchLineHeight=with(LocalDensity.current){24.sp.toDp()}
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(pal.card).padding(horizontal=16.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
+        val searchLineHeight=with(LocalDensity.current){22.sp.toDp()}
+        Row(Modifier.fillMaxWidth().heightIn(min=48.dp).clip(RoundedCornerShape(16.dp)).background(pal.card).padding(horizontal=16.dp,vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
             Image(painterResource(R.drawable.ic_search),null,Modifier.size(20.dp),colorFilter=ColorFilter.tint(pal.text2))
             Spacer(Modifier.width(10.dp))
             BasicTextField(value=query,onValueChange=onQueryChange,singleLine=true,
@@ -1469,9 +1469,9 @@ class SettingsActivity : ComponentActivity() {
                     Page.TOOLS->R.drawable.ic_grid
                     else->R.drawable.ic_leaf
                 }
-                Row(Modifier.fillMaxWidth().clickable {onExpand(group.first)}.padding(start=4.dp,top=16.dp,bottom=6.dp),verticalAlignment=Alignment.CenterVertically) {
-                    Image(painterResource(icon),null,Modifier.size(23.dp),colorFilter=ColorFilter.tint(pal.ink))
-                    BasicText(group.first.title,style=TextStyle(color=pal.ink,fontSize=18.sp,fontWeight=FontWeight.Bold),modifier=Modifier.padding(start=10.dp))
+                Row(Modifier.fillMaxWidth().clickable {onExpand(group.first)}.heightIn(min=48.dp).padding(start=4.dp,top=10.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Image(painterResource(icon),null,Modifier.size(19.dp),colorFilter=ColorFilter.tint(pal.ink))
+                    BasicText(group.first.title,style=TextStyle(color=pal.ink,fontSize=14.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(start=10.dp))
                 }
                 androidx.compose.runtime.CompositionLocalProvider(LocalPlainMenu provides true) {
                     if(group.first==Page.READY) {
@@ -1556,14 +1556,14 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun NavigationSwitchRow(pal:Pal,title:String,sub:String,icon:Int,on:Boolean?,onOpen:()->Unit,onToggle:(Boolean)->Unit) {
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onOpen),verticalAlignment=Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).padding(vertical=13.dp),verticalAlignment=Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
                 if(!LocalPlainMenu.current) {
                     Image(painterResource(icon),null,Modifier.size(26.dp),colorFilter=ColorFilter.tint(pal.text2))
                     Spacer(Modifier.width(12.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=if(LocalPlainMenu.current)FontWeight.Bold else FontWeight.Medium))
-                    BasicText(sub,style=TextStyle(color=pal.text2,fontSize=12.5.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
+                    BasicText(title,style=TextStyle(color=pal.ink,fontSize=15.sp,fontWeight=FontWeight.Medium))
+                    BasicText(sub,style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=17.sp),modifier=Modifier.padding(top=4.dp))
                 }
             }
             if(on!=null) Box(Modifier.size(52.dp).semantics {contentDescription="$title 开关"}
@@ -1579,19 +1579,19 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun StatusActionRow(pal:Pal,title:String,sub:String,icon:Int,complete:Boolean?,tag:String?=null,
         statusLabel:String?=null,onClick:()->Unit) {
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(vertical=15.dp),verticalAlignment=Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).heightIn(min=48.dp).padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
             if(!LocalPlainMenu.current)Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(pal.tile),contentAlignment=Alignment.Center) {
                 Image(painterResource(icon),null,Modifier.size(23.dp),colorFilter=ColorFilter.tint(pal.text2))
             }
             Column(Modifier.weight(1f).padding(start=if(LocalPlainMenu.current)0.dp else 12.dp,end=12.dp)) {
                 Row(verticalAlignment=Alignment.CenterVertically) {
-                    BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=if(LocalPlainMenu.current)FontWeight.Bold else FontWeight.Medium))
+                    BasicText(title,style=TextStyle(color=pal.ink,fontSize=15.sp,fontWeight=FontWeight.Medium))
                     if(tag!=null) {
                         Spacer(Modifier.width(6.dp))
                         BasicText(tag,style=TextStyle(color=pal.text2,fontSize=10.sp),modifier=Modifier.background(pal.tile,RoundedCornerShape(4.dp)).padding(horizontal=5.dp,vertical=2.dp))
                     }
                 }
-                BasicText(sub,style=TextStyle(color=pal.text2,fontSize=12.5.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
+                BasicText(sub,style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=17.sp),modifier=Modifier.padding(top=4.dp))
             }
             val (label, color) = when (complete) {
                 true -> "已设置" to pal.ok
@@ -1691,7 +1691,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun StatsHeading(pal:Pal,text:String) {BasicText(text,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=12.dp,bottom=2.dp))}
+    private fun StatsHeading(pal:Pal,text:String) {BasicText(text,style=TextStyle(color=pal.ink,fontSize=14.sp,fontWeight=FontWeight.Medium),modifier=Modifier.padding(top=8.dp,bottom=2.dp))}
     @Composable
     private fun StatsRow(pal:Pal,name:String,value:String) {
         Row(Modifier.fillMaxWidth().padding(vertical=8.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
@@ -2947,10 +2947,10 @@ class SettingsActivity : ComponentActivity() {
     private fun UpdateEntry(pal:Pal,sub:String) {
         val tag=release.value?.tag ?: Prefs.of(this).getString("latest_update_tag","").orEmpty()
         val newer=tag.isNotEmpty()&&UpdateChecker.newer(tag.trimStart('v','V'),UpdateChecker.currentVersion(this))
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {openUpdateDialog()}.padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {openUpdateDialog()}.heightIn(min=48.dp).padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end=12.dp)) {
-                BasicText("检查更新",style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=if(LocalPlainMenu.current)FontWeight.Bold else FontWeight.Medium))
-                BasicText(if(newer)"发现新版本 "+tag else sub,style=TextStyle(color=if(newer)pal.accent else pal.text2,fontSize=12.5.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
+                BasicText("检查更新",style=TextStyle(color=pal.ink,fontSize=15.sp,fontWeight=FontWeight.Medium))
+                BasicText(if(newer)"发现新版本 "+tag else sub,style=TextStyle(color=if(newer)pal.accent else pal.text2,fontSize=12.sp,lineHeight=17.sp),modifier=Modifier.padding(top=4.dp))
             }
             if(newer)Box(Modifier.size(7.dp).clip(CircleShape).background(pal.accent))
             else Image(painterResource(R.drawable.ic_refresh),null,Modifier.size(18.dp),colorFilter=ColorFilter.tint(pal.text2))
@@ -3279,8 +3279,8 @@ class SettingsActivity : ComponentActivity() {
 @Composable
 private fun Card(pal: Pal, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(pal.card)
-            .then(modifier).padding(horizontal = 14.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(pal.card)
+            .then(modifier).padding(horizontal = 14.dp, vertical = 4.dp),
     ) { content() }
 }
 
@@ -3291,7 +3291,7 @@ private fun Line(pal: Pal, top: Dp = 0.dp, start: Dp = 0.dp) {
 
 @Composable
 private fun NavRow(pal: Pal, it: Item) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = it.onClick).padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = it.onClick).heightIn(min=48.dp).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(pal.tile),
             contentAlignment = Alignment.Center,
@@ -3300,7 +3300,7 @@ private fun NavRow(pal: Pal, it: Item) {
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            BasicText(it.title, style = TextStyle(color = pal.ink, fontSize = 16.sp))
+            BasicText(it.title, style = TextStyle(color = pal.ink, fontSize = 15.sp))
             Spacer(Modifier.height(1.dp))
 
         }
@@ -3334,10 +3334,10 @@ private fun Pill(pal: Pal, text: String, strong: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun ToggleRow(pal: Pal, title: String, sub: String?, on: Boolean, enabled:Boolean=true, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().alpha(if(enabled)1f else .4f).clickable(enabled=enabled) { onChange(!on) }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().alpha(if(enabled)1f else .4f).clickable(enabled=enabled) { onChange(!on) }.heightIn(min=48.dp).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            BasicText(title, style = TextStyle(color = pal.ink, fontSize = 16.sp))
-            if (sub != null) BasicText(sub, style = TextStyle(color = pal.text2, fontSize = 12.5.sp, lineHeight = 18.sp))
+            BasicText(title, style = TextStyle(color = pal.ink, fontSize = 15.sp))
+            if (sub != null) BasicText(sub, style = TextStyle(color = pal.text2, fontSize = 12.sp, lineHeight = 17.sp))
         }
         Spacer(Modifier.width(12.dp))
         Box(
@@ -3353,10 +3353,10 @@ private fun SearchResultRow(pal: Pal, match: String, path: String, query: String
     val left = (hit - 11).coerceAtLeast(0)
     val right = (hit + query.length + 17).coerceIn(left, match.length)
     val label = (if (left > 0) "…" else "") + match.substring(left, right) + (if (right < match.length) "…" else "")
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(vertical = 12.dp),
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).heightIn(min=48.dp).padding(vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 10.dp)) {
-            BasicText(highlightSearch(label, query, pal.searchMatch), style = TextStyle(color = pal.ink, fontSize = 16.sp,
+            BasicText(highlightSearch(label, query, pal.searchMatch), style = TextStyle(color = pal.ink, fontSize = 15.sp,
                 fontWeight = FontWeight.Medium), maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             BasicText(path, style = TextStyle(color = pal.text2, fontSize = 12.sp, lineHeight = 17.sp),
                 modifier = Modifier.padding(top = 3.dp), maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -3379,10 +3379,10 @@ private fun highlightSearch(value: String, query: String, matchColor: Color): An
 @Composable
 private fun ActionRow(pal: Pal, title: String, sub: String?, button: String, onClick: () -> Unit) {
     val navigation=button in listOf("›","⌄","⌃","○","✓")
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick=onClick).padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick=onClick).heightIn(min=48.dp).padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end=12.dp)) {
-            BasicText(title,style=TextStyle(color=pal.ink,fontSize=16.sp,fontWeight=if(LocalPlainMenu.current)FontWeight.Bold else FontWeight.Medium))
-            if(sub!=null) BasicText(sub,style=TextStyle(color=pal.text2,fontSize=12.5.sp,lineHeight=18.sp),modifier=Modifier.padding(top=4.dp))
+            BasicText(title,style=TextStyle(color=pal.ink,fontSize=15.sp,fontWeight=FontWeight.Medium))
+            if(sub!=null) BasicText(sub,style=TextStyle(color=pal.text2,fontSize=12.sp,lineHeight=17.sp),modifier=Modifier.padding(top=4.dp))
         }
         if(navigation) BasicText(button,style=TextStyle(color=if(button=="✓")pal.accent else pal.text2,fontSize=24.sp),modifier=Modifier.padding(horizontal=8.dp))
         else Pill(pal,button,true,onClick=onClick)

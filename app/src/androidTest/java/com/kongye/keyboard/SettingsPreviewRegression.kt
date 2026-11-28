@@ -18,8 +18,23 @@ object SettingsPreviewRegression {
         fun allNodes():List<AccessibilityNodeInfo>{auto.clearCache();return auto.windows.flatMap {nodes(it.root)}}
         fun waitFor(name:String,test:()->Boolean) {val end=SystemClock.uptimeMillis()+30000;while(SystemClock.uptimeMillis()<end){if(test())return;SystemClock.sleep(60)};error("Timed out: $name")}
         fun click(t:String) {
-            waitFor(t){allNodes().any {it.text?.toString()==t || it.contentDescription?.toString()==t}}
-            val n=allNodes().first {(it.text?.toString()==t || it.contentDescription?.toString()==t) && (t!="收起键盘" || it.className?.toString()=="android.widget.TextView")}
+            var forward=true
+            fun matches(n:AccessibilityNodeInfo):Boolean = (n.text?.toString()==t || n.contentDescription?.toString()==t) &&
+                (t!="收起键盘" || n.className?.toString()=="android.widget.TextView")
+            waitFor(t){
+                val nodes=allNodes()
+                val found=nodes.firstOrNull {matches(it)&&it.isVisibleToUser}
+                if(found!=null)true else {
+                    val moved=nodes.firstOrNull {it.isScrollable&&it.isVisibleToUser}?.performAction(
+                        if(forward)AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                    if(moved==false)forward=!forward
+                    SystemClock.sleep(150)
+                    false
+                }
+            }
+            val n=allNodes().first {matches(it)&&it.isVisibleToUser}
+            n.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
+            SystemClock.sleep(100)
             val b=android.graphics.Rect();n.getBoundsInScreen(b)
             val down=SystemClock.uptimeMillis()
             for(a in intArrayOf(0,1)){val e=MotionEvent.obtain(down,SystemClock.uptimeMillis(),a,b.exactCenterX(),b.exactCenterY(),0);e.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;try{check(auto.injectInputEvent(e,true))}finally{e.recycle()}}
@@ -61,7 +76,13 @@ object SettingsPreviewRegression {
             waitFor("nested settings IME"){ui {editor()!=null&&keyboard()?.listener is KongyeIME&&(keyboard()?.listener as KongyeIME).isInputViewShown}}
             click("收起键盘")
             waitFor("nested page preserved"){allNodes().any {it.text?.toString()=="候选与联想"}}
-            click("候选与联想");waitFor("home search"){allNodes().any {it.isEditable}}
+            click("候选与联想");waitFor("home search"){
+                val nodes=allNodes()
+                if(nodes.any {it.isEditable&&it.isVisibleToUser})true else {
+                    nodes.firstOrNull {it.isScrollable&&it.isVisibleToUser}?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                    SystemClock.sleep(150);false
+                }
+            }
             val search=allNodes().first {it.isEditable}
             check(search.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply {putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"纠错")}))
             click("纠错")

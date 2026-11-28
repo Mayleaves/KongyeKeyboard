@@ -745,7 +745,11 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         }
         // 拼音条出现、消失时，液态玻璃下的窗口高度要跟着变
         tab.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom -> if (blurOn() && (bottom - top) != (oldBottom - oldTop)) r.requestLayout() }
-        col.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if(floating)placeFloat(col.translationX,col.translationY); positionTab(); positionAdjustment() }
+        col.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if(floating)placeFloat(col.translationX,col.translationY)
+            positionTab();positionAdjustment()
+            handView?.let {fullHandControls?.updateActionSize(it.actionButtonSize(panelHost.height))}
+        }
         tab.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionTab() }
         r.setOnApplyWindowInsetsListener { _, insets ->
             // 全面屏手势且隐藏导航条时导航栏边距是 0，但底部仍有系统上滑手势区（tappableElement）
@@ -4045,6 +4049,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
         if(enabled) {
             if(fullHandOverlay!=null || panel!=Panel.HAND)return
             val view=handView ?: return
+            val actionSize=view.actionButtonSize(view.height.takeIf {it>0} ?: panelHost.height.takeIf {it>0} ?: keyboard.desiredHeight())
             (view.parent as? android.view.ViewGroup)?.removeView(view)
             view.fullScreen=true
             view.setBackgroundColor(withAlpha(android.graphics.Color.BLACK,48))
@@ -4057,7 +4062,7 @@ class KongyeIME : InputMethodService(), KeyboardView.Listener, CandidateBar.List
                 it.listener=this
                 overlay.addView(it,LinearLayout.LayoutParams(MATCH_PARENT,WRAP_CONTENT))
             }
-            fullHandControls=FullHandwritingControls(this,skin,view,::handAction).also {
+            fullHandControls=FullHandwritingControls(this,skin,view,actionSize,::handAction).also {
                 overlay.addView(it,LinearLayout.LayoutParams(MATCH_PARENT,WRAP_CONTENT))
             }
             overlay.addView(BottomStrip(this,{requestHideSelf(0)},{openClipboard()}).apply {

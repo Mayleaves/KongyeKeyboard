@@ -155,13 +155,16 @@ class HandwriteView(context: Context, private var skin: Skin, private val onReco
     private val side = listOf("undo", "redo", "del", "space", "enter", "fullscreen")
 
     private val sideW get() = 52 * d
+    private fun actionButtonHeight(halfHeight:Int)=(halfHeight-36*d)/5
+    /** Shared by the normal right rail and the full-screen action row. */
+    fun actionButtonSize(halfHeight:Int=height)=android.graphics.PointF(sideW,actionButtonHeight(halfHeight).coerceAtLeast(1f))
     private val lastWritingBounds=RectF()
     private fun boardRect(w:Int=width,h:Int=height) = RectF(6*d,6*d,w-sideW-12*d,h-6*d)
     private fun sideRect(i: Int): RectF {
         val gap=6*d
         val board=boardRect()
         if(i==5)return RectF(board.left+4*d,board.top+4*d,board.left+44*d,board.top+44*d)
-        val h=(board.height()-4*gap)/5
+        val h=actionButtonHeight(height)
         val slot=when(i){2->0;0->1;1->2;3->3;else->4}
         val top=board.top+slot*(h+gap)
         return RectF(board.right+gap,top,width-gap,top+h)

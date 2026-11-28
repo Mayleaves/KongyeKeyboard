@@ -73,6 +73,22 @@ object HandwritingTouchRegression {
             val rail=listOf(2,0,1,3,4).map {tool(pad,it)}
             check(rail.zipWithNext().all {(a,b)->b.top-a.bottom>=5*d}) {"Right-rail tools must have separate, spaced hit regions"}
             check(rail.all {kotlin.math.abs(it.height()-rail.first().height())<1f}) {"Right-rail buttons must have equal height"}
+            for(widthDp in listOf(280,360,720)) {
+                val size=pad.actionButtonSize()
+                val controls=FullHandwritingControls(activity,Skins.KONGYE,pad,size,{})
+                controls.measure(View.MeasureSpec.makeMeasureSpec((widthDp*d).toInt(),View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec((200*d).toInt(),View.MeasureSpec.AT_MOST))
+                controls.layout(0,0,controls.measuredWidth,controls.measuredHeight)
+                val buttons=(0 until controls.childCount).map {controls.getChildAt(it)}
+                check(buttons.size==6 && buttons.map {it.width}.distinct().size==1)
+                check(buttons.all {it.height==size.y.toInt() && it.left>=0 && it.right<=controls.width})
+                check(buttons.zipWithNext().all {(a,b)->b.left>=a.right})
+                if(widthDp>=360)check(buttons.all {kotlin.math.abs(it.width-size.x)<1}) {"Wide rows must retain normal Enter width"}
+                controls.updateActionSize(pad.actionButtonSize((220*d).toInt()))
+                controls.measure(View.MeasureSpec.makeMeasureSpec((widthDp*d).toInt(),View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec((200*d).toInt(),View.MeasureSpec.AT_MOST))
+                check(buttons.all {it.measuredHeight==pad.actionButtonSize((220*d).toInt()).y.toInt()})
+            }
             val inside=localPoint(pad,r.centerX(),r.centerY())
             val end=localPoint(pad,r.centerX()+30*d,r.centerY()+20*d)
             dispatch(listOf(localPoint(pad,1f,r.centerY()),inside,end))
@@ -165,6 +181,7 @@ object HandwritingTouchRegression {
             }
             screenshot("toolbar-entry")
             ui {writing.clear()}
+            val halfEnter=ui {RectF(tool(writing,4))}
             val expand=ui {val r=tool(writing,5);screen(writing,r.centerX(),r.centerY())}
             gesture(listOf(expand,expand))
             waitFor("full screen") {writing.fullScreen && writing.isShown && writing.height>height*1.4}
@@ -173,7 +190,11 @@ object HandwritingTouchRegression {
                 val row=all(controls).filter {it.contentDescription?.toString() in listOf("收回全屏手写","撤销笔画","重做笔画","空格","删除","回车")}
                 check(row.size==6 && row.all {it.height>0})
                 check(row.maxOf {it.width}-row.minOf {it.width}<=1) {"Full-screen action buttons must divide the row equally"}
-                check(controls.height<64*d && writing.writingBounds().right>writing.width-10*d)
+                check(row.all {kotlin.math.abs(it.width-halfEnter.width())<=1 && kotlin.math.abs(it.height-halfEnter.height())<=1}) {
+                    "Full-screen buttons ${row.map {it.width to it.height}} must match normal Enter ${halfEnter.width()} x ${halfEnter.height()}"
+                }
+                check(controls.height<=halfEnter.height()+9*d && writing.writingBounds().right>writing.width-10*d)
+                report("FULL HANDWRITING BUTTONS: six ${row.first().width} x ${row.first().height} px; normal Enter ${halfEnter.width()} x ${halfEnter.height()} px")
                 check(writing.background is android.graphics.drawable.ColorDrawable)
                 check(android.graphics.Color.alpha((writing.background as android.graphics.drawable.ColorDrawable).color)==48)
             }
