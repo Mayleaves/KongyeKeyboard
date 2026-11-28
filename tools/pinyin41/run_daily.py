@@ -25,7 +25,7 @@ RUNNER = PACKAGE+'.test/'+PACKAGE+'.OfflineResourcesCheck'
 # against a dedicated emulator rather than interrupting a person's phone.
 EXTRA_MODES = {'pinyin-adversarial', 'pinyin-400', 'fuzzy-switches', 'correction-switches', 'learning-400',
                'pinyin-live-400', 'floating-layout-400', 'floating-layout-live-400',
-               'layout-400', 'orientation-keyboard', 'settings-preview', 'punctuation-flicks',
+               'layout-400', 'orientation-keyboard', 'settings-preview', 'settings-navigation', 'punctuation-flicks',
                'typing-stats', 'stats-report-ui', 'input-coverage', 'candidate-pinyin-selection', 'candidate-mode', 'partial-delete', 'handwriting-touch','touch-recognition','live-240'}
 PHONE_SAFE = {'pinyin-adversarial', 'pinyin-400', 'correction-switches', 'layout-400'}
 

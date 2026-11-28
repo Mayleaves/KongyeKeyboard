@@ -148,6 +148,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -525,8 +528,11 @@ class SettingsActivity : ComponentActivity() {
         val mainScroll = rememberScrollState()
         val scope=rememberCoroutineScope()
         val pageStateHolder=rememberSaveableStateHolder()
+        val imeInsets=WindowInsets.ime
+        val density=LocalDensity.current
+        var pendingNavigation by remember {mutableStateOf<Page?>(null)}
 
-        fun navigateTo(target: Page) {
+        fun enterPage(target: Page) {
             if (target != page) {
                 backward=false
                 // A revisited destination moves to the front of recency history;
@@ -537,7 +543,26 @@ class SettingsActivity : ComponentActivity() {
             }
         }
 
+        fun navigateTo(target: Page) {
+            // A focused search must stop relocating the outgoing scroll column.
+            // Let the IME finish resizing that page before sliding in its child.
+            focusManager.clearFocus(force=true)
+            keyboardController?.hide()
+            if(imeInsets.getBottom(density)>0)pendingNavigation=target
+            else {pendingNavigation=null;enterPage(target)}
+        }
+
+        LaunchedEffect(pendingNavigation) {
+            val target=pendingNavigation ?: return@LaunchedEffect
+            snapshotFlow {imeInsets.getBottom(density)}.first {it==0}
+            // Commit after the final inset has been laid out, not in the same frame.
+            withFrameNanos { }
+            enterPage(target)
+            pendingNavigation=null
+        }
+
         fun navigateBack() {
+            pendingNavigation=null
             backward=true
             noticeFocus.value=null
             page = if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) else Page.MAIN
@@ -548,6 +573,7 @@ class SettingsActivity : ComponentActivity() {
         BackHandler(enabled = page != Page.MAIN) { navigateBack() }
         HomeSearchBackHandler(page==Page.MAIN && mainQuery.isNotEmpty() && !showSplash &&
             !overlayShown.value && !updateDialogVisible.value) {
+            pendingNavigation=null
             focusManager.clearFocus(force=true)
             keyboardController?.hide()
             mainQuery=""
@@ -564,9 +590,9 @@ class SettingsActivity : ComponentActivity() {
                 modifier=Modifier.weight(1f).widthIn(max=600.dp).fillMaxWidth(),
                 transitionSpec={
                     if(backward) {
-                        (androidx.compose.animation.EnterTransition.None togetherWith slideOutHorizontally(tween(110)) {it}).apply {targetContentZIndex=-1f}
+                        (androidx.compose.animation.EnterTransition.None togetherWith slideOutHorizontally(tween(110)) {it}).apply {targetContentZIndex=-1f}.using(null)
                     } else {
-                        (slideInHorizontally(tween(110)) {it} togetherWith androidx.compose.animation.ExitTransition.None).apply {targetContentZIndex=1f}
+                        (slideInHorizontally(tween(110)) {it} togetherWith androidx.compose.animation.ExitTransition.None).apply {targetContentZIndex=1f}.using(null)
                     }
                 }, label="settingsPage",
             ) { shownPage ->

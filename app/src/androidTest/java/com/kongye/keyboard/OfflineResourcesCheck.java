@@ -63,6 +63,7 @@ public final class OfflineResourcesCheck extends Instrumentation {
             if ("handwriting-touch".equals(mode)) {HandwritingTouchRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("touch-recognition".equals(mode)) {TouchRecognitionRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("home-search-back".equals(mode)) {HomeSearchBackRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
+            if ("settings-navigation".equals(mode)) {SettingsNavigationRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("input-coverage".equals(mode)) {InputCoverageRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("punctuation-flicks".equals(mode)) {PunctuationFlickRegression.INSTANCE.run(this);finish(Activity.RESULT_OK,new Bundle());return;}
             if ("settings-restored-controls".equals(mode)) {SettingsOrganizationRegression.INSTANCE.run(this,true);finish(Activity.RESULT_OK,new Bundle());return;}
